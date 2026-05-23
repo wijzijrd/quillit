@@ -43,6 +43,7 @@ func main() {
 
 	auth := handler.NewAuth(authURL, sessions, jwtSecret)
 	campaigns := handler.NewCampaigns(database)
+	projects := handler.NewProjects(database, jwtSecret)
 	entries := handler.NewEntries(database)
 	annotations := handler.NewAnnotations(database)
 	quickview := handler.NewQuickView(database)
@@ -80,6 +81,20 @@ func main() {
 		r.Patch("/api/entries/{id}", entries.Update)
 		r.Delete("/api/entries/{id}", entries.Delete)
 
+		// Projects API (typed replacement for campaigns)
+		r.Get("/api/projects/types", projects.Types)
+		r.Get("/api/projects", projects.List)
+		r.Post("/api/projects", projects.Create)
+		r.Post("/api/projects/join", projects.Join)
+		r.Patch("/api/projects/{id}", projects.Update)
+		r.Delete("/api/projects/{id}", projects.Delete)
+		r.Get("/api/projects/{id}/members", projects.ListMembers)
+		r.Post("/api/projects/{id}/members", projects.AddMember)
+		r.Delete("/api/projects/{id}/members/{userId}", projects.RemoveMember)
+		r.Post("/api/projects/{id}/invite", projects.CreateInvite)
+		r.Delete("/api/projects/{id}/invite/{token}", projects.RevokeInvite)
+
+		// Legacy campaign routes (kept for backwards compat during transition)
 		r.Get("/api/campaigns", campaigns.List)
 		r.Post("/api/campaigns", campaigns.Create)
 		r.Patch("/api/campaigns/{id}", campaigns.Update)
