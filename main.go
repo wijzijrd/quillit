@@ -56,6 +56,14 @@ func main() {
 	r.Post("/auth/login", auth.Login)
 	r.Post("/auth/verify", auth.Verify)
 
+	// Admin-only user management (requires Bearer JWT with role=admin)
+	r.Group(func(r chi.Router) {
+		r.Use(auth.RequireAdmin)
+		r.Get("/auth/users", auth.ListUsers)
+		r.Patch("/auth/users/{id}", auth.UpdateUser)
+		r.Delete("/auth/users/{id}", auth.DeleteUser)
+	})
+
 	r.Get("/swagger/*", httpSwagger.WrapHandler)
 
 	addr := fmt.Sprintf(":%s", port)
