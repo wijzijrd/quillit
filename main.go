@@ -44,7 +44,8 @@ func main() {
 	auth := handler.NewAuth(authURL, sessions, jwtSecret)
 	campaigns := handler.NewCampaigns(database)
 	projects := handler.NewProjects(database, jwtSecret)
-	entries := handler.NewEntries(database)
+	entries := handler.NewEntries(database, jwtSecret)
+	entryShares := handler.NewEntryShares(database, jwtSecret, authURL)
 	annotations := handler.NewAnnotations(database)
 	quickview := handler.NewQuickView(database)
 	share := handler.NewShare(database)
@@ -80,6 +81,12 @@ func main() {
 		r.Post("/api/entries", entries.Create)
 		r.Patch("/api/entries/{id}", entries.Update)
 		r.Delete("/api/entries/{id}", entries.Delete)
+
+		r.Get("/api/entries/{id}/shares", entryShares.ListShares)
+		r.Post("/api/entries/{id}/shares", entryShares.AddShares)
+		r.Delete("/api/entries/{id}/shares/{userId}", entryShares.RemoveShare)
+
+		r.Get("/api/users/search", entryShares.SearchUsers)
 
 		// Projects API (typed replacement for campaigns)
 		r.Get("/api/projects/types", projects.Types)

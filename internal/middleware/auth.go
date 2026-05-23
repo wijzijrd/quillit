@@ -13,6 +13,12 @@ type contextKey string
 
 const jwtKey contextKey = "jwt"
 
+// RawJWTFromContext returns the raw JWT string stored in context by RequireSession.
+func RawJWTFromContext(ctx context.Context) (string, bool) {
+	raw, ok := ctx.Value(jwtKey).(string)
+	return raw, ok && raw != ""
+}
+
 // ClaimsFromContext extracts and parses the JWT stored in context by RequireSession.
 // Expiry is not validated — use this only for identity extraction, not auth decisions.
 func ClaimsFromContext(ctx context.Context, jwtSecret []byte) (jwt.MapClaims, error) {

@@ -6,11 +6,17 @@ import (
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/quillit/svc/internal/middleware"
 )
 
-type EntriesHandler struct{ db *sql.DB }
+type EntriesHandler struct {
+	db        *sql.DB
+	jwtSecret []byte
+}
 
-func NewEntries(db *sql.DB) *EntriesHandler { return &EntriesHandler{db: db} }
+func NewEntries(db *sql.DB, jwtSecret string) *EntriesHandler {
+	return &EntriesHandler{db: db, jwtSecret: []byte(jwtSecret)}
+}
 
 type Entry struct {
 	ID            string          `json:"id"`
@@ -24,9 +30,10 @@ type Entry struct {
 	QuickViewData json.RawMessage `json:"quickViewData"`
 	CreatedAt     int64           `json:"createdAt"`
 	UpdatedAt     int64           `json:"updatedAt"`
+	OwnerUserID   string          `json:"ownerUserId,omitempty"`
 }
 
-const entrySelect = `SELECT id, title, category, body, visibility, campaign_ids, linked_entries, tags, quick_view_data, created_at, updated_at FROM entries`
+const entrySelect = `SELECT id, title, category, body, visibility, campaign_ids, linked_entries, tags, quick_view_data, created_at, updated_at, COALESCE(owner_user_id,'') FROM entries`
 
 func scanEntry(row interface{ Scan(...any) error }) (Entry, error) {
 	var e Entry
@@ -34,7 +41,7 @@ func scanEntry(row interface{ Scan(...any) error }) (Entry, error) {
 	err := row.Scan(
 		&e.ID, &e.Title, &e.Category, &e.Body, &e.Visibility,
 		&campaignIDs, &linkedEntries, &tags, &quickViewData,
-		&e.CreatedAt, &e.UpdatedAt,
+		&e.CreatedAt, &e.UpdatedAt, &e.OwnerUserID,
 	)
 	if err != nil {
 		return e, err
@@ -117,16 +124,21 @@ func (h *EntriesHandler) Create(w http.ResponseWriter, r *http.Request) {
 	if len(body.Tags) == 0          { body.Tags          = json.RawMessage("[]") }
 	if len(body.QuickViewData) == 0 { body.QuickViewData = json.RawMessage("{}") }
 
+	ownerID := ""
+	if mc, err := middleware.ClaimsFromContext(r.Context(), h.jwtSecret); err == nil {
+		ownerID, _ = mc["sub"].(string)
+	}
+
 	now := nowUnix()
 	e := Entry{
 		ID: newID(), Title: body.Title, Category: body.Category, Body: body.Body,
 		Visibility: body.Visibility, CampaignIDs: body.CampaignIDs,
 		LinkedEntries: body.LinkedEntries, Tags: body.Tags, QuickViewData: body.QuickViewData,
-		CreatedAt: now, UpdatedAt: now,
+		CreatedAt: now, UpdatedAt: now, OwnerUserID: ownerID,
 	}
 	_, err := h.db.ExecContext(r.Context(),
-		`INSERT INTO entries (id,title,category,body,visibility,campaign_ids,linked_entries,tags,quick_view_data,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
-		e.ID, e.Title, e.Category, e.Body, e.Visibility, e.CampaignIDs, e.LinkedEntries, e.Tags, e.QuickViewData, e.CreatedAt, e.UpdatedAt,
+		`INSERT INTO entries (id,title,category,body,visibility,campaign_ids,linked_entries,tags,quick_view_data,created_at,updated_at,owner_user_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+		e.ID, e.Title, e.Category, e.Body, e.Visibility, e.CampaignIDs, e.LinkedEntries, e.Tags, e.QuickViewData, e.CreatedAt, e.UpdatedAt, e.OwnerUserID,
 	)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "db error")
