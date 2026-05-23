@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"context"
+	"errors"
 	"net/http"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -11,6 +12,30 @@ import (
 type contextKey string
 
 const jwtKey contextKey = "jwt"
+
+// ClaimsFromContext extracts and parses the JWT stored in context by RequireSession.
+// Expiry is not validated — use this only for identity extraction, not auth decisions.
+func ClaimsFromContext(ctx context.Context, jwtSecret []byte) (jwt.MapClaims, error) {
+	raw, ok := ctx.Value(jwtKey).(string)
+	if !ok || raw == "" {
+		return nil, errors.New("no jwt in context")
+	}
+	parser := jwt.NewParser(
+		jwt.WithValidMethods([]string{"HS256"}),
+		jwt.WithoutClaimsValidation(),
+	)
+	token, err := parser.Parse(raw, func(t *jwt.Token) (any, error) {
+		return jwtSecret, nil
+	})
+	if err != nil || !token.Valid {
+		return nil, errors.New("invalid token")
+	}
+	mc, ok := token.Claims.(jwt.MapClaims)
+	if !ok {
+		return nil, errors.New("invalid claims")
+	}
+	return mc, nil
+}
 
 // RequireSession validates the session cookie and, if found, checks that the
 // account is still active before passing the raw JWT string into context.

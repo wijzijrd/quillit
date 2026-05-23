@@ -10,7 +10,7 @@ import (
 )
 
 func makeTestJWT(secret []byte, role string) string {
-	claims := jwt.MapClaims{"sub": "u1", "role": role}
+	claims := jwt.MapClaims{"sub": "u1", "role": role, "active": true}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	signed, _ := token.SignedString(secret)
 	return signed
