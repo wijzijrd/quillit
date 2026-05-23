@@ -46,9 +46,10 @@ type OkResponse struct {
 
 // MeResponse carries the current user's identity from the session JWT.
 type MeResponse struct {
-	Sub   string `json:"sub"`
-	Email string `json:"email"`
-	Role  string `json:"role"`
+	Sub    string `json:"sub"`
+	Email  string `json:"email"`
+	Role   string `json:"role"`
+	Active bool   `json:"active"`
 }
 
 // ErrorResponse is a generic error body.
@@ -141,10 +142,12 @@ func (a *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	active, _ := mc["active"].(bool)
 	writeJSON(w, http.StatusOK, map[string]any{
-		"sub":   mc["sub"],
-		"email": mc["email"],
-		"role":  mc["role"],
+		"sub":    mc["sub"],
+		"email":  mc["email"],
+		"role":   mc["role"],
+		"active": active,
 	})
 }
 
