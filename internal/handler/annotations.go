@@ -6,27 +6,34 @@ import (
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/quillit/svc/internal/middleware"
 )
 
-type AnnotationsHandler struct{ db *sql.DB }
-
-func NewAnnotations(db *sql.DB) *AnnotationsHandler { return &AnnotationsHandler{db: db} }
-
-type Annotation struct {
-	ID         string `json:"id"`
-	EntryID    string `json:"entryId"`
-	Text       string `json:"text"`
-	Visibility string `json:"visibility"`
-	SharedWith string `json:"sharedWith"`
-	CreatedAt  int64  `json:"createdAt"`
-	UpdatedAt  int64  `json:"updatedAt"`
+type AnnotationsHandler struct {
+	db        *sql.DB
+	jwtSecret []byte
 }
 
-const annoSelect = `SELECT id, entry_id, text, visibility, shared_with, created_at, updated_at FROM annotations`
+func NewAnnotations(db *sql.DB, jwtSecret string) *AnnotationsHandler {
+	return &AnnotationsHandler{db: db, jwtSecret: []byte(jwtSecret)}
+}
+
+type Annotation struct {
+	ID           string `json:"id"`
+	EntryID      string `json:"entryId"`
+	Text         string `json:"text"`
+	Visibility   string `json:"visibility"`
+	SharedWith   string `json:"sharedWith"`
+	AuthorUserID string `json:"authorUserId,omitempty"`
+	CreatedAt    int64  `json:"createdAt"`
+	UpdatedAt    int64  `json:"updatedAt"`
+}
+
+const annoSelect = `SELECT id, entry_id, text, visibility, shared_with, COALESCE(author_user_id,''), created_at, updated_at FROM annotations`
 
 func scanAnnotation(row interface{ Scan(...any) error }) (Annotation, error) {
 	var a Annotation
-	return a, row.Scan(&a.ID, &a.EntryID, &a.Text, &a.Visibility, &a.SharedWith, &a.CreatedAt, &a.UpdatedAt)
+	return a, row.Scan(&a.ID, &a.EntryID, &a.Text, &a.Visibility, &a.SharedWith, &a.AuthorUserID, &a.CreatedAt, &a.UpdatedAt)
 }
 
 // List godoc
@@ -90,11 +97,16 @@ func (h *AnnotationsHandler) Create(w http.ResponseWriter, r *http.Request) {
 	defaults(&body.Visibility, "gm")
 	defaults(&body.SharedWith, "[]")
 
+	authorID := ""
+	if mc, err := middleware.ClaimsFromContext(r.Context(), h.jwtSecret); err == nil {
+		authorID, _ = mc["sub"].(string)
+	}
+
 	now := nowUnix()
-	a := Annotation{ID: newID(), EntryID: body.EntryID, Text: body.Text, Visibility: body.Visibility, SharedWith: body.SharedWith, CreatedAt: now, UpdatedAt: now}
+	a := Annotation{ID: newID(), EntryID: body.EntryID, Text: body.Text, Visibility: body.Visibility, SharedWith: body.SharedWith, AuthorUserID: authorID, CreatedAt: now, UpdatedAt: now}
 	if _, err := h.db.ExecContext(r.Context(),
-		`INSERT INTO annotations (id,entry_id,text,visibility,shared_with,created_at,updated_at) VALUES (?,?,?,?,?,?,?)`,
-		a.ID, a.EntryID, a.Text, a.Visibility, a.SharedWith, a.CreatedAt, a.UpdatedAt,
+		`INSERT INTO annotations (id,entry_id,text,visibility,shared_with,author_user_id,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)`,
+		a.ID, a.EntryID, a.Text, a.Visibility, a.SharedWith, a.AuthorUserID, a.CreatedAt, a.UpdatedAt,
 	); err != nil {
 		writeError(w, http.StatusInternalServerError, "db error")
 		return
@@ -158,4 +170,3 @@ func (h *AnnotationsHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
-var _ = sql.ErrNoRows // keep import
