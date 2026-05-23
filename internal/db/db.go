@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"fmt"
+	"strings"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -38,7 +39,32 @@ func Open(path string) (*sql.DB, error) {
 }
 
 func migrate(db *sql.DB) error {
-	_, err := db.Exec(`
+	var version int
+	if err := db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
+		return fmt.Errorf("read schema version: %w", err)
+	}
+	if version < 1 {
+		if err := toV1(db); err != nil {
+			return fmt.Errorf("schema v1: %w", err)
+		}
+	}
+	return nil
+}
+
+// toV1 creates the original schema (sessions, campaigns, players, entries, etc.)
+// plus the new project-system tables introduced in phase 2.
+// For existing installs the original tables already exist (CREATE TABLE IF NOT EXISTS
+// is a no-op); only the new tables and added columns are applied.
+func toV1(db *sql.DB) error {
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	// ── Original tables (idempotent) ──────────────────────────────────────────
+
+	if _, err := tx.Exec(`
 		CREATE TABLE IF NOT EXISTS sessions (
 			id         TEXT    PRIMARY KEY,
 			jwt        TEXT    NOT NULL,
@@ -126,7 +152,129 @@ func migrate(db *sql.DB) error {
 			created_at INTEGER NOT NULL,
 			UNIQUE(from_id, to_id, label)
 		);
-	`)
+	`); err != nil {
+		return err
+	}
+
+	// ── New project-system tables ─────────────────────────────────────────────
+
+	if _, err := tx.Exec(`
+		-- Typed project container (replaces campaigns over time).
+		-- type: 'campaign', 'book', ... determines role labels in the UI.
+		CREATE TABLE IF NOT EXISTS projects (
+			id         TEXT    PRIMARY KEY,
+			name       TEXT    NOT NULL,
+			type       TEXT    NOT NULL DEFAULT 'campaign',
+			created_by TEXT    NOT NULL,
+			created_at INTEGER NOT NULL
+		);
+
+		-- Per-project membership. Role name depends on project type:
+		-- campaign → 'gm' / 'player'; book → 'author' / 'collaborator'.
+		CREATE TABLE IF NOT EXISTS project_members (
+			id         TEXT    PRIMARY KEY,
+			project_id TEXT    NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+			user_id    TEXT    NOT NULL,
+			role       TEXT    NOT NULL,
+			joined_at  INTEGER NOT NULL,
+			UNIQUE(project_id, user_id)
+		);
+
+		-- Explicit per-entry access grants (replaces blunt visibility flag).
+		CREATE TABLE IF NOT EXISTS entry_shares (
+			id        TEXT    PRIMARY KEY,
+			entry_id  TEXT    NOT NULL REFERENCES entries(id) ON DELETE CASCADE,
+			user_id   TEXT    NOT NULL,
+			shared_by TEXT    NOT NULL,
+			shared_at INTEGER NOT NULL,
+			UNIQUE(entry_id, user_id)
+		);
+
+		-- GM-generated invite links for joining a project.
+		CREATE TABLE IF NOT EXISTS project_invites (
+			id         TEXT    PRIMARY KEY,
+			token      TEXT    NOT NULL UNIQUE,
+			project_id TEXT    NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+			role       TEXT    NOT NULL,
+			created_by TEXT    NOT NULL,
+			expires_at INTEGER NOT NULL,
+			used_at    INTEGER,
+			used_by    TEXT
+		);
+
+		-- Member-created folders for organising shared notes.
+		CREATE TABLE IF NOT EXISTS member_folders (
+			id         TEXT    PRIMARY KEY,
+			user_id    TEXT    NOT NULL,
+			project_id TEXT    REFERENCES projects(id) ON DELETE SET NULL,
+			name       TEXT    NOT NULL,
+			color      TEXT    NOT NULL DEFAULT '',
+			sort_order INTEGER NOT NULL DEFAULT 0,
+			created_at INTEGER NOT NULL
+		);
+
+		-- Junction: which entries belong to which member folder.
+		CREATE TABLE IF NOT EXISTS member_folder_entries (
+			folder_id TEXT NOT NULL REFERENCES member_folders(id) ON DELETE CASCADE,
+			entry_id  TEXT NOT NULL REFERENCES entries(id) ON DELETE CASCADE,
+			PRIMARY KEY (folder_id, entry_id)
+		);
+
+		-- Per-member personal metadata for any entry they can see.
+		CREATE TABLE IF NOT EXISTS member_entry_meta (
+			user_id    TEXT    NOT NULL,
+			entry_id   TEXT    NOT NULL REFERENCES entries(id) ON DELETE CASCADE,
+			pinned     INTEGER NOT NULL DEFAULT 0,
+			sort_order INTEGER,
+			tags       TEXT    NOT NULL DEFAULT '[]',
+			PRIMARY KEY (user_id, entry_id)
+		);
+	`); err != nil {
+		return err
+	}
+
+	// ── Additive columns on existing tables ───────────────────────────────────
+	// SQLite supports ADD COLUMN but not IF NOT EXISTS, so we check first.
+
+	if err := addColumnIfMissing(tx, "entries", "owner_user_id", "TEXT"); err != nil {
+		return err
+	}
+	if err := addColumnIfMissing(tx, "entries", "project_ids", "TEXT NOT NULL DEFAULT '[]'"); err != nil {
+		return err
+	}
+	if err := addColumnIfMissing(tx, "annotations", "author_user_id", "TEXT"); err != nil {
+		return err
+	}
+
+	if _, err := tx.Exec(`PRAGMA user_version = 1`); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// addColumnIfMissing adds a column to a table only when it doesn't already exist.
+func addColumnIfMissing(tx *sql.Tx, table, column, definition string) error {
+	rows, err := tx.Query(fmt.Sprintf("PRAGMA table_info(%s)", table))
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var cid int
+		var name, colType string
+		var notNull, pk int
+		var dflt interface{}
+		if err := rows.Scan(&cid, &name, &colType, &notNull, &dflt, &pk); err != nil {
+			return err
+		}
+		if strings.EqualFold(name, column) {
+			return nil // already exists
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	_, err = tx.Exec(fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", table, column, definition))
 	return err
 }
 
