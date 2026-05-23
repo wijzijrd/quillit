@@ -56,6 +56,9 @@ func main() {
 	r.Post("/auth/login", auth.Login)
 	r.Post("/auth/verify", auth.Verify)
 
+	// Any-auth user search (requires valid Bearer JWT, not admin-only)
+	r.With(auth.RequireAnyAuth).Get("/auth/users/search", auth.SearchUsers)
+
 	// Admin-only user management (requires Bearer JWT with role=admin)
 	r.Group(func(r chi.Router) {
 		r.Use(auth.RequireAdmin)

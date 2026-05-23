@@ -243,6 +243,60 @@ func (a *Auth) Verify(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// RequireAnyAuth validates any valid Bearer JWT, regardless of role.
+func (a *Auth) RequireAnyAuth(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		auth := r.Header.Get("Authorization")
+		if !strings.HasPrefix(auth, "Bearer ") {
+			writeError(w, http.StatusUnauthorized, "authorization required")
+			return
+		}
+		if _, err := a.parseToken(strings.TrimPrefix(auth, "Bearer ")); err != nil {
+			writeError(w, http.StatusUnauthorized, "invalid token")
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// UserSearchResult is the minimal user info returned by SearchUsers.
+type UserSearchResult struct {
+	ID       string `json:"id"`
+	Email    string `json:"email"`
+	Username string `json:"username"`
+}
+
+// SearchUsers godoc
+// @Summary      Search users
+// @Description  Returns users matching the query (email or username). Any valid JWT required.
+// @Tags         auth
+// @Produce      json
+// @Param        q  query  string  false  "Search term"
+// @Success      200  {array}   UserSearchResult
+// @Failure      401  {object}  ErrorResponse
+// @Router       /auth/users/search [get]
+func (a *Auth) SearchUsers(w http.ResponseWriter, r *http.Request) {
+	q := "%" + r.URL.Query().Get("q") + "%"
+	rows, err := a.db.Query(
+		`SELECT id, email, username FROM users WHERE email LIKE ? OR username LIKE ? ORDER BY username LIMIT 20`,
+		q, q,
+	)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	defer rows.Close()
+
+	results := []UserSearchResult{}
+	for rows.Next() {
+		var u UserSearchResult
+		if err := rows.Scan(&u.ID, &u.Email, &u.Username); err == nil {
+			results = append(results, u)
+		}
+	}
+	writeJSON(w, http.StatusOK, results)
+}
+
 // RequireAdmin is middleware that validates a Bearer JWT with role=admin.
 func (a *Auth) RequireAdmin(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
