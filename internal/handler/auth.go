@@ -125,7 +125,7 @@ func (a *Auth) Register(w http.ResponseWriter, r *http.Request) {
 	id := newID()
 	now := time.Now().Unix()
 	_, err = a.db.Exec(
-		"INSERT INTO users (id, email, username, password_hash, role, created_at, updated_at) VALUES (?, ?, ?, ?, 'gm', ?, ?)",
+		"INSERT INTO users (id, email, username, password_hash, role, created_at, updated_at) VALUES (?, ?, ?, ?, 'user', ?, ?)",
 		id, body.Email, body.Username, string(hash), now, now,
 	)
 	if err != nil {
@@ -133,7 +133,7 @@ func (a *Auth) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	token, err := a.issueToken(id, body.Email, "gm")
+	token, err := a.issueToken(id, body.Email, "user")
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
@@ -163,11 +163,16 @@ func (a *Auth) Login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var id, hash, role string
+	var active int
 	err := a.db.QueryRow(
-		"SELECT id, password_hash, role FROM users WHERE email = ?", body.Email,
-	).Scan(&id, &hash, &role)
+		"SELECT id, password_hash, role, active FROM users WHERE email = ?", body.Email,
+	).Scan(&id, &hash, &role, &active)
 	if errors.Is(err, sql.ErrNoRows) {
 		writeError(w, http.StatusUnauthorized, "invalid credentials")
+		return
+	}
+	if active == 0 {
+		writeError(w, http.StatusUnauthorized, "account disabled")
 		return
 	}
 
