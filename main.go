@@ -42,6 +42,7 @@ func main() {
 	sessions := session.NewStore(database, cookieSecure)
 
 	auth := handler.NewAuth(authURL, sessions, jwtSecret)
+	admin := handler.NewAdmin(database, jwtSecret, authURL)
 	campaigns := handler.NewCampaigns(database)
 	projects := handler.NewProjects(database, jwtSecret)
 	entries := handler.NewEntries(database, jwtSecret)
@@ -124,11 +125,22 @@ func main() {
 		r.Get("/api/categories", categories.List)
 		r.Group(func(r chi.Router) {
 			r.Use(middleware.RequireAdmin([]byte(jwtSecret)))
+
+			// Categories (admin only)
 			r.Post("/api/categories", categories.Create)
 			r.Patch("/api/categories/{id}", categories.Update)
 			r.Delete("/api/categories/{id}", categories.Delete)
 			r.Post("/api/categories/{id}/tags", categories.AddTag)
 			r.Delete("/api/categories/{id}/tags/{tagId}", categories.RemoveTag)
+
+			// Admin: user management (proxied to auth-svc)
+			r.Get("/api/admin/users", admin.ListUsers)
+			r.Patch("/api/admin/users/{id}", admin.UpdateUser)
+			r.Delete("/api/admin/users/{id}", admin.DeleteUser)
+
+			// Admin: project management
+			r.Get("/api/admin/projects", admin.ListProjects)
+			r.Get("/api/admin/projects/{id}/members", admin.ListProjectMembers)
 		})
 
 		r.Get("/api/relation-labels", relations.Labels)
