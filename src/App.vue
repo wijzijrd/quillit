@@ -7,18 +7,22 @@ import { onMounted, onUnmounted } from 'vue'
 import AppShell from './components/AppShell.vue'
 import { useAnnotationsStore } from './stores/useAnnotationsStore.js'
 import { useCampaignStore } from './stores/useCampaignStore.js'
+import { useProjectStore } from './stores/useProjectStore.js'
+import { useAuthStore } from './stores/useAuthStore.js'
 import { useUIStore } from './stores/useUIStore.js'
 
+const auth = useAuthStore()
 const annotations = useAnnotationsStore()
 const campaign = useCampaignStore()
+const projects = useProjectStore()
 const ui = useUIStore()
 
-onMounted(() => {
-  // Only init data stores if logged in (share routes init their own data)
-  const token = localStorage.getItem('quillit:auth-token')
-  if (token) {
+onMounted(async () => {
+  await auth.fetchMe()
+  if (auth.isLoggedIn) {
     annotations.init()
     campaign.init()
+    projects.init()
   }
   window.addEventListener('keydown', onKeydown)
 })

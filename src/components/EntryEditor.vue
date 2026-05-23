@@ -123,6 +123,12 @@
             title="Quick Info"
           ><LayoutList :size="13" /><span class="tab-label">Info</span></button>
           <button
+            class="panel-tab"
+            :class="{ active: activePanel === 'share' }"
+            @click="activePanel = 'share'; panelCollapsed = false"
+            title="Share"
+          ><Share2 :size="13" /><span class="tab-label">Share</span></button>
+          <button
             class="panel-collapse-btn"
             @click="panelCollapsed = !panelCollapsed"
             :title="panelCollapsed ? 'Expand panel' : 'Collapse panel'"
@@ -148,6 +154,10 @@
           v-if="activePanel === 'quickview'"
           :entryId="entry.id"
         />
+        <NoteSharePanel
+          v-if="activePanel === 'share'"
+          :entryId="entry.id"
+        />
       </div>
     </div>
   </div>
@@ -165,12 +175,13 @@ import {
   AlignLeft, AlignCenter, AlignRight, AlignJustify,
   Pin, Eye, EyeOff, Printer, Globe, Lock, Trash2,
   PanelRightClose, PanelRightOpen, Link, LayoutList,
-  ChevronLeft, ExternalLink,
+  ChevronLeft, ExternalLink, Share2,
 } from 'lucide-vue-next'
 import TiptapEditor from './TiptapEditor.vue'
 import AnnotationPanel from './AnnotationPanel.vue'
 import LinkedEntriesPanel from './LinkedEntriesPanel.vue'
 import QuickViewPanel from './QuickViewPanel.vue'
+import NoteSharePanel from './NoteSharePanel.vue'
 import { hexToAlpha } from '../utils/color.js'
 import { useEntriesStore } from '../stores/useEntriesStore.js'
 import { useCategoriesStore } from '../stores/useCategoriesStore.js'

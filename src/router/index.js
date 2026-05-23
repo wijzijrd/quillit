@@ -13,12 +13,15 @@ const router = createRouter({
     { path: '/quillit/:id', redirect: to => `/notes/${to.params.id}` },
     { path: '/campaigns', component: () => import('../views/CampaignsView.vue') },
     { path: '/players', redirect: '/campaigns' },
+    { path: '/member', component: () => import('../views/MemberView.vue') },
     { path: '/share/:token', component: () => import('../views/ShareView.vue'), meta: { public: true } },
     { path: '/tag/:tag', component: () => import('../views/TagView.vue') },
     { path: '/profile', component: () => import('../views/ProfileView.vue') },
     { path: '/login', component: () => import('../views/LoginView.vue'), meta: { public: true } },
     { path: '/register', component: () => import('../views/SetupView.vue'), meta: { public: true } },
-    { path: '/admin/categories', component: () => import('../views/AdminCategoriesView.vue'), meta: { adminOnly: true } },
+    { path: '/admin', component: () => import('../views/AdminView.vue'), meta: { adminOnly: true } },
+    // Legacy redirect so existing bookmarks still work
+    { path: '/admin/categories', redirect: '/admin' },
   ],
 })
 

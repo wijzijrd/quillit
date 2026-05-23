@@ -14,9 +14,9 @@
         <BookOpen :size="16" class="nav-icon" />
         <span class="nav-label" v-if="ui.sidebarOpen">Notes</span>
       </RouterLink>
-      <RouterLink to="/campaigns" class="nav-item" active-class="active" :title="!ui.sidebarOpen ? 'Campaigns' : ''">
-        <Users :size="16" class="nav-icon" />
-        <span class="nav-label" v-if="ui.sidebarOpen">Campaigns</span>
+      <RouterLink to="/member" class="nav-item" active-class="active" :title="!ui.sidebarOpen ? 'Shared with me' : ''">
+        <BookMarked :size="16" class="nav-icon" />
+        <span class="nav-label" v-if="ui.sidebarOpen">Member</span>
       </RouterLink>
     </div>
 
@@ -37,7 +37,7 @@
     <div class="nav-bottom">
       <RouterLink
         v-if="auth.user?.role === 'admin'"
-        to="/admin/categories"
+        to="/admin"
         class="nav-item"
         active-class="active"
         :title="!ui.sidebarOpen ? 'Admin' : ''"
@@ -57,7 +57,7 @@
 <script setup>
 import { onMounted } from 'vue'
 import { RouterLink } from 'vue-router'
-import { LayoutDashboard, BookOpen, Users, UserCircle, Settings } from 'lucide-vue-next'
+import { LayoutDashboard, BookOpen, BookMarked, UserCircle, Settings } from 'lucide-vue-next'
 import { useUIStore } from '../stores/useUIStore.js'
 import { useEntriesStore } from '../stores/useEntriesStore.js'
 import { useCategoriesStore } from '../stores/useCategoriesStore.js'
