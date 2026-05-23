@@ -1,6 +1,6 @@
 # quillit-ui
 
-Vue 3 + Vite frontend for Quillit — a D&D/tabletop RPG campaign manager for Game Masters.
+Vue 3 + Vite frontend for Quillit — a multi-purpose collaborative notes app.
 
 Auth is managed via HTTP-only session cookies set by `quillit-svc`. The browser never handles JWTs directly.
 
