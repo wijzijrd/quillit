@@ -72,7 +72,7 @@ func main() {
 
 	// Protected routes
 	r.Group(func(r chi.Router) {
-		r.Use(middleware.RequireSession(sessions))
+		r.Use(middleware.RequireSession(sessions, []byte(jwtSecret)))
 
 		r.Get("/api/entries", entries.List)
 		r.Get("/api/entries/{id}", entries.Get)
