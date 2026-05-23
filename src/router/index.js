@@ -1,0 +1,35 @@
+import { createRouter, createWebHistory } from 'vue-router'
+import DashboardView from '../views/DashboardView.vue'
+import QuillitView from '../views/QuillitView.vue'
+import { useAuthStore } from '../stores/useAuthStore.js'
+
+const router = createRouter({
+  history: createWebHistory(),
+  routes: [
+    { path: '/', component: DashboardView },
+    { path: '/notes', component: QuillitView },
+    { path: '/notes/:id', component: QuillitView },
+    { path: '/quillit', redirect: '/notes' },
+    { path: '/quillit/:id', redirect: to => `/notes/${to.params.id}` },
+    { path: '/campaigns', component: () => import('../views/CampaignsView.vue') },
+    { path: '/players', redirect: '/campaigns' },
+    { path: '/share/:token', component: () => import('../views/ShareView.vue'), meta: { public: true } },
+    { path: '/tag/:tag', component: () => import('../views/TagView.vue') },
+    { path: '/profile', component: () => import('../views/ProfileView.vue') },
+    { path: '/login', component: () => import('../views/LoginView.vue'), meta: { public: true } },
+    { path: '/register', component: () => import('../views/SetupView.vue'), meta: { public: true } },
+    { path: '/admin/categories', component: () => import('../views/AdminCategoriesView.vue'), meta: { adminOnly: true } },
+  ],
+})
+
+router.beforeEach(async (to) => {
+  if (to.meta.public) return true
+
+  const auth = useAuthStore()
+  await auth.fetchMe()
+  if (!auth.isLoggedIn) return '/login'
+
+  if (to.meta.adminOnly && auth.user?.role !== 'admin') return '/'
+})
+
+export default router
