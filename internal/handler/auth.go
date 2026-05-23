@@ -7,8 +7,10 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strings"
 	"time"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/golang-jwt/jwt/v5"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -62,10 +64,21 @@ type VerifyRequest struct {
 
 // ClaimsResponse is the decoded token payload.
 type ClaimsResponse struct {
-	Sub   string  `json:"sub"`
-	Email string  `json:"email"`
-	Role  string  `json:"role"`
-	Exp   float64 `json:"exp"`
+	Sub    string  `json:"sub"`
+	Email  string  `json:"email"`
+	Role   string  `json:"role"`
+	Active bool    `json:"active"`
+	Exp    float64 `json:"exp"`
+}
+
+// UserResponse is a user record returned to admins.
+type UserResponse struct {
+	ID        string `json:"id"`
+	Email     string `json:"email"`
+	Username  string `json:"username"`
+	Role      string `json:"role"`
+	Active    bool   `json:"active"`
+	CreatedAt int64  `json:"createdAt"`
 }
 
 // ErrorResponse is a generic error body.
@@ -88,7 +101,7 @@ func (a *Auth) Status(w http.ResponseWriter, r *http.Request) {
 
 // Register godoc
 // @Summary      Register a new user
-// @Description  Creates a GM account. Returns 409 if email or username is taken.
+// @Description  Creates a user account. Returns 409 if email or username is taken.
 // @Tags         auth
 // @Accept       json
 // @Produce      json
@@ -133,7 +146,7 @@ func (a *Auth) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	token, err := a.issueToken(id, body.Email, "user")
+	token, err := a.issueToken(id, body.Email, "user", true)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
@@ -181,7 +194,7 @@ func (a *Auth) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	token, err := a.issueToken(id, body.Email, role)
+	token, err := a.issueToken(id, body.Email, role, true)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
@@ -222,11 +235,165 @@ func (a *Auth) Verify(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"sub":   mc["sub"],
-		"email": mc["email"],
-		"role":  mc["role"],
-		"exp":   mc["exp"],
+		"sub":    mc["sub"],
+		"email":  mc["email"],
+		"role":   mc["role"],
+		"active": mc["active"],
+		"exp":    mc["exp"],
 	})
+}
+
+// RequireAdmin is middleware that validates a Bearer JWT with role=admin.
+func (a *Auth) RequireAdmin(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		auth := r.Header.Get("Authorization")
+		if !strings.HasPrefix(auth, "Bearer ") {
+			writeError(w, http.StatusUnauthorized, "authorization required")
+			return
+		}
+		claims, err := a.parseToken(strings.TrimPrefix(auth, "Bearer "))
+		if err != nil {
+			writeError(w, http.StatusUnauthorized, "invalid token")
+			return
+		}
+		mc, ok := claims.(jwt.MapClaims)
+		if !ok || mc["role"] != "admin" {
+			writeError(w, http.StatusForbidden, "admin access required")
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// ListUsers godoc
+// @Summary      List users
+// @Description  Returns all users, optionally filtered. Requires admin JWT.
+// @Tags         admin
+// @Produce      json
+// @Param        q       query  string  false  "Search by email or username"
+// @Param        active  query  string  false  "Filter by active status: true or false"
+// @Success      200  {array}   UserResponse
+// @Failure      403  {object}  ErrorResponse
+// @Router       /auth/users [get]
+func (a *Auth) ListUsers(w http.ResponseWriter, r *http.Request) {
+	q := "%" + r.URL.Query().Get("q") + "%"
+	activeFilter := r.URL.Query().Get("active")
+
+	query := `SELECT id, email, username, role, active, created_at FROM users WHERE (email LIKE ? OR username LIKE ?)`
+	args := []any{q, q}
+
+	switch activeFilter {
+	case "true":
+		query += " AND active = 1"
+	case "false":
+		query += " AND active = 0"
+	}
+	query += " ORDER BY created_at DESC"
+
+	rows, err := a.db.Query(query, args...)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	defer rows.Close()
+
+	users := []UserResponse{}
+	for rows.Next() {
+		var u UserResponse
+		var active int
+		if err := rows.Scan(&u.ID, &u.Email, &u.Username, &u.Role, &active, &u.CreatedAt); err != nil {
+			writeError(w, http.StatusInternalServerError, "internal error")
+			return
+		}
+		u.Active = active == 1
+		users = append(users, u)
+	}
+	if err := rows.Err(); err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	writeJSON(w, http.StatusOK, users)
+}
+
+// UpdateUser godoc
+// @Summary      Update a user
+// @Description  Updates user fields (currently: active). Requires admin JWT.
+// @Tags         admin
+// @Accept       json
+// @Produce      json
+// @Param        id    path  string  true  "User ID"
+// @Param        body  body  object  true  "Fields to update"
+// @Success      200   {object}  UserResponse
+// @Failure      400   {object}  ErrorResponse
+// @Failure      403   {object}  ErrorResponse
+// @Failure      404   {object}  ErrorResponse
+// @Router       /auth/users/{id} [patch]
+func (a *Auth) UpdateUser(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+
+	var body struct {
+		Active *bool `json:"active"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if body.Active == nil {
+		writeError(w, http.StatusBadRequest, "no updatable fields provided")
+		return
+	}
+
+	activeVal := 0
+	if *body.Active {
+		activeVal = 1
+	}
+	res, err := a.db.Exec(
+		"UPDATE users SET active = ?, updated_at = ? WHERE id = ?",
+		activeVal, time.Now().Unix(), id,
+	)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		writeError(w, http.StatusNotFound, "user not found")
+		return
+	}
+
+	var u UserResponse
+	var active int
+	if err := a.db.QueryRow(
+		"SELECT id, email, username, role, active, created_at FROM users WHERE id = ?", id,
+	).Scan(&u.ID, &u.Email, &u.Username, &u.Role, &active, &u.CreatedAt); err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	u.Active = active == 1
+	writeJSON(w, http.StatusOK, u)
+}
+
+// DeleteUser godoc
+// @Summary      Delete a user
+// @Description  Permanently removes a user account. Requires admin JWT.
+// @Tags         admin
+// @Produce      json
+// @Param        id  path  string  true  "User ID"
+// @Success      204
+// @Failure      403  {object}  ErrorResponse
+// @Failure      404  {object}  ErrorResponse
+// @Router       /auth/users/{id} [delete]
+func (a *Auth) DeleteUser(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	res, err := a.db.Exec("DELETE FROM users WHERE id = ?", id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		writeError(w, http.StatusNotFound, "user not found")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // SeedAdmin creates an admin user if one with the given email doesn't exist.
@@ -250,16 +417,18 @@ func (a *Auth) SeedAdmin(email, password string) error {
 }
 
 type quilltClaims struct {
-	Email string `json:"email"`
-	Role  string `json:"role"`
+	Email  string `json:"email"`
+	Role   string `json:"role"`
+	Active bool   `json:"active"`
 	jwt.RegisteredClaims
 }
 
-func (a *Auth) issueToken(userID, email, role string) (string, error) {
+func (a *Auth) issueToken(userID, email, role string, active bool) (string, error) {
 	now := time.Now()
 	claims := quilltClaims{
-		Email: email,
-		Role:  role,
+		Email:  email,
+		Role:   role,
+		Active: active,
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject:   userID,
 			IssuedAt:  jwt.NewNumericDate(now),
