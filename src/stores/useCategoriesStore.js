@@ -3,8 +3,14 @@ import { ref } from 'vue'
 import { api } from '../api/client.js'
 
 export const useCategoriesStore = defineStore('categories', () => {
+  // Global admin-managed categories (used by AdminCategoriesView only)
   const categories = ref([])
   const loaded = ref(false)
+
+  // Categories for the currently active project (own + opted-in globals)
+  const projectCategories = ref([])
+
+  // ── Global (admin) methods ────────────────────────────────────────────────
 
   async function init() {
     if (loaded.value) return
@@ -52,9 +58,37 @@ export const useCategoriesStore = defineStore('categories', () => {
     return categories.value.find(c => c.name === name) ?? null
   }
 
+  // ── Project-scoped methods ────────────────────────────────────────────────
+
+  async function initForProject(projectId) {
+    projectCategories.value = await api(`/projects/${projectId}/categories`)
+  }
+
+  async function createProjectCategory(projectId, data) {
+    const cat = await api(`/projects/${projectId}/categories`, { method: 'POST', body: data })
+    projectCategories.value.push(cat)
+    return cat
+  }
+
+  async function addGlobalToProject(projectId, catId) {
+    const cat = await api(`/projects/${projectId}/categories/global/${catId}`, { method: 'POST' })
+    projectCategories.value.push(cat)
+    return cat
+  }
+
+  async function removeFromProject(projectId, catId) {
+    await api(`/projects/${projectId}/categories/${catId}`, { method: 'DELETE' })
+    projectCategories.value = projectCategories.value.filter(c => c.id !== catId)
+  }
+
+  function projectCategoryFor(name) {
+    return projectCategories.value.find(c => c.name === name) ?? null
+  }
+
   return {
-    categories, loaded,
+    categories, projectCategories, loaded,
     init, createCategory, updateCategory, deleteCategory,
     addDefaultTag, removeDefaultTag, defaultTagsFor, categoryFor,
+    initForProject, createProjectCategory, addGlobalToProject, removeFromProject, projectCategoryFor,
   }
 })
