@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -50,7 +51,12 @@ func NewProjects(db *sql.DB, jwtSecret string) *ProjectsHandler {
 }
 
 // callerID extracts the user ID (sub) from the JWT stored in request context.
+// In tests, a caller ID can be injected directly via WithTestCallerID.
 func (h *ProjectsHandler) callerID(r *http.Request) (string, bool) {
+	// Test helper: allow injecting caller ID without JWT.
+	if id, ok := r.Context().Value(testCallerKey{}).(string); ok && id != "" {
+		return id, true
+	}
 	mc, err := middleware.ClaimsFromContext(r.Context(), h.jwtSecret)
 	if err != nil {
 		return "", false
@@ -672,4 +678,210 @@ var roleLabelPair = func(projectType string) [2]string {
 	default:
 		return [2]string{"Editor", "Member"}
 	}
+}
+
+// ── Project Categories ────────────────────────────────────────────────────────
+
+// ListProjectCategories returns the project's own categories plus global ones it has opted into.
+func (h *ProjectsHandler) ListProjectCategories(w http.ResponseWriter, r *http.Request) {
+	projectID := chi.URLParam(r, "projectId")
+	callerID, ok := h.callerID(r)
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	if _, _, err := h.memberRole(r, projectID, callerID); err != nil {
+		writeError(w, http.StatusForbidden, "not a project member")
+		return
+	}
+
+	rows, err := h.db.QueryContext(r.Context(), `
+		SELECT id, name, icon, color, sort_order, project_id, created_at, updated_at, 'own' AS source
+		FROM categories WHERE project_id = ?
+		UNION ALL
+		SELECT c.id, c.name, c.icon, c.color, c.sort_order, c.project_id, c.created_at, c.updated_at, 'global' AS source
+		FROM categories c
+		JOIN project_global_categories pgc ON pgc.category_id = c.id AND pgc.project_id = ?
+		WHERE c.project_id = 'global'
+		ORDER BY sort_order
+	`, projectID, projectID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "db error")
+		return
+	}
+	defer rows.Close()
+
+	cats := []Category{}
+	for rows.Next() {
+		var c Category
+		if err := rows.Scan(&c.ID, &c.Name, &c.Icon, &c.Color, &c.SortOrder, &c.ProjectID, &c.CreatedAt, &c.UpdatedAt, &c.Source); err != nil {
+			writeError(w, http.StatusInternalServerError, "scan error")
+			return
+		}
+		cats = append(cats, c)
+	}
+	rows.Close() // close before fetching tags to avoid connection exhaustion
+
+	for i := range cats {
+		cats[i].DefaultTags = h.projectCategoryDefaultTags(r, cats[i].ID)
+	}
+	writeJSON(w, http.StatusOK, cats)
+}
+
+// CreateProjectCategory creates a category owned by this project.
+func (h *ProjectsHandler) CreateProjectCategory(w http.ResponseWriter, r *http.Request) {
+	projectID := chi.URLParam(r, "projectId")
+	callerID, ok := h.callerID(r)
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	projectType, myRole, err := h.memberRole(r, projectID, callerID)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "project not found")
+		return
+	}
+	if !isEditorRole(projectType, myRole) {
+		writeError(w, http.StatusForbidden, "editor access required")
+		return
+	}
+
+	var body struct {
+		Name      string `json:"name"`
+		Icon      string `json:"icon"`
+		Color     string `json:"color"`
+		SortOrder int    `json:"sortOrder"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Name == "" {
+		writeError(w, http.StatusBadRequest, "name required")
+		return
+	}
+
+	now := nowUnix()
+	id := newID()
+	if _, err := h.db.ExecContext(r.Context(),
+		`INSERT INTO categories (id, name, icon, color, sort_order, project_id, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		id, body.Name, body.Icon, body.Color, body.SortOrder, projectID, now, now,
+	); err != nil {
+		writeError(w, http.StatusInternalServerError, "insert failed")
+		return
+	}
+	writeJSON(w, http.StatusCreated, Category{
+		ID: id, Name: body.Name, Icon: body.Icon, Color: body.Color,
+		SortOrder: body.SortOrder, ProjectID: projectID, Source: "own",
+		DefaultTags: []CategoryDefaultTag{}, CreatedAt: now, UpdatedAt: now,
+	})
+}
+
+// OptInGlobalCategory adds a global category to this project's category set.
+func (h *ProjectsHandler) OptInGlobalCategory(w http.ResponseWriter, r *http.Request) {
+	projectID := chi.URLParam(r, "projectId")
+	catID := chi.URLParam(r, "catId")
+	callerID, ok := h.callerID(r)
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	projectType, myRole, err := h.memberRole(r, projectID, callerID)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "project not found")
+		return
+	}
+	if !isEditorRole(projectType, myRole) {
+		writeError(w, http.StatusForbidden, "editor access required")
+		return
+	}
+
+	if _, err := h.db.ExecContext(r.Context(),
+		`INSERT OR IGNORE INTO project_global_categories (project_id, category_id) VALUES (?, ?)`,
+		projectID, catID,
+	); err != nil {
+		writeError(w, http.StatusInternalServerError, "db error")
+		return
+	}
+
+	var c Category
+	if err := h.db.QueryRowContext(r.Context(),
+		`SELECT id, name, icon, color, sort_order, project_id, created_at, updated_at
+		 FROM categories WHERE id = ? AND project_id = 'global'`, catID,
+	).Scan(&c.ID, &c.Name, &c.Icon, &c.Color, &c.SortOrder, &c.ProjectID, &c.CreatedAt, &c.UpdatedAt); err != nil {
+		writeError(w, http.StatusNotFound, "global category not found")
+		return
+	}
+	c.Source = "global"
+	c.DefaultTags = h.projectCategoryDefaultTags(r, c.ID)
+	writeJSON(w, http.StatusCreated, c)
+}
+
+// RemoveProjectCategory removes an own category or opts out of a global one.
+func (h *ProjectsHandler) RemoveProjectCategory(w http.ResponseWriter, r *http.Request) {
+	projectID := chi.URLParam(r, "projectId")
+	catID := chi.URLParam(r, "catId")
+	callerID, ok := h.callerID(r)
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	projectType, myRole, err := h.memberRole(r, projectID, callerID)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "project not found")
+		return
+	}
+	if !isEditorRole(projectType, myRole) {
+		writeError(w, http.StatusForbidden, "editor access required")
+		return
+	}
+
+	var storedProjectID string
+	if err := h.db.QueryRowContext(r.Context(),
+		`SELECT project_id FROM categories WHERE id = ?`, catID,
+	).Scan(&storedProjectID); errors.Is(err, sql.ErrNoRows) {
+		writeError(w, http.StatusNotFound, "category not found")
+		return
+	} else if err != nil {
+		writeError(w, http.StatusInternalServerError, "db error")
+		return
+	}
+
+	if storedProjectID == projectID {
+		h.db.ExecContext(r.Context(), `DELETE FROM categories WHERE id = ?`, catID) //nolint:errcheck
+	} else {
+		h.db.ExecContext(r.Context(), //nolint:errcheck
+			`DELETE FROM project_global_categories WHERE project_id = ? AND category_id = ?`,
+			projectID, catID,
+		)
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// projectCategoryDefaultTags fetches default tags for a category.
+func (h *ProjectsHandler) projectCategoryDefaultTags(r *http.Request, catID string) []CategoryDefaultTag {
+	rows, err := h.db.QueryContext(r.Context(),
+		`SELECT id, category_id, label, sort_order FROM category_default_tags WHERE category_id = ? ORDER BY sort_order`, catID)
+	if err != nil {
+		return []CategoryDefaultTag{}
+	}
+	defer rows.Close()
+	tags := []CategoryDefaultTag{}
+	for rows.Next() {
+		var t CategoryDefaultTag
+		_ = rows.Scan(&t.ID, &t.CategoryID, &t.Label, &t.SortOrder)
+		tags = append(tags, t)
+	}
+	return tags
+}
+
+// ── Test helpers ──────────────────────────────────────────────────────────────
+
+// NewProjectsForTest creates a handler that uses test context for caller ID.
+func NewProjectsForTest(db *sql.DB) *ProjectsHandler {
+	return &ProjectsHandler{db: db, jwtSecret: nil}
+}
+
+type testCallerKey struct{}
+
+// WithTestCallerID injects a caller ID into a request context for tests.
+func WithTestCallerID(ctx context.Context, id string) context.Context {
+	return context.WithValue(ctx, testCallerKey{}, id)
 }
