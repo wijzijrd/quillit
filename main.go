@@ -103,6 +103,12 @@ func main() {
 		r.Post("/api/projects/{id}/invite", projects.CreateInvite)
 		r.Delete("/api/projects/{id}/invite/{token}", projects.RevokeInvite)
 
+		// Project categories
+		r.Get("/api/projects/{projectId}/categories", projects.ListProjectCategories)
+		r.Post("/api/projects/{projectId}/categories", projects.CreateProjectCategory)
+		r.Post("/api/projects/{projectId}/categories/global/{catId}", projects.OptInGlobalCategory)
+		r.Delete("/api/projects/{projectId}/categories/{catId}", projects.RemoveProjectCategory)
+
 		// Legacy campaign routes (kept for backwards compat during transition)
 		r.Get("/api/campaigns", campaigns.List)
 		r.Post("/api/campaigns", campaigns.Create)

@@ -140,6 +140,7 @@ func (h *ProjectsHandler) List(w http.ResponseWriter, r *http.Request) {
 		       (SELECT COUNT(*) FROM project_members WHERE project_id = p.id) AS member_count
 		FROM projects p
 		JOIN project_members pm ON pm.project_id = p.id AND pm.user_id = ?
+		WHERE p.type != 'global'
 		ORDER BY p.created_at DESC
 	`, callerID)
 	if err != nil {
