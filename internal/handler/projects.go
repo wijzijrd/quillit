@@ -83,6 +83,7 @@ type ProjectMember struct {
 	ID        string `json:"id"`
 	ProjectID string `json:"projectId"`
 	UserID    string `json:"userId"`
+	Username  string `json:"username"`
 	Role      string `json:"role"`
 	JoinedAt  int64  `json:"joinedAt"`
 }
@@ -218,7 +219,7 @@ func (h *ProjectsHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if _, err := tx.ExecContext(r.Context(),
-		"INSERT INTO project_members (id, project_id, user_id, role, joined_at) VALUES (?, ?, ?, ?, ?)",
+		"INSERT INTO project_members (id, project_id, user_id, role, joined_at, username) VALUES (?, ?, ?, ?, ?, '')",
 		memberID, projectID, callerID, editorRole, now,
 	); err != nil {
 		writeError(w, http.StatusInternalServerError, "db error")
@@ -352,7 +353,7 @@ func (h *ProjectsHandler) ListMembers(w http.ResponseWriter, r *http.Request) {
 	}
 
 	rows, err := h.db.QueryContext(r.Context(),
-		"SELECT id, project_id, user_id, role, joined_at FROM project_members WHERE project_id = ? ORDER BY joined_at ASC", id,
+		"SELECT id, project_id, user_id, username, role, joined_at FROM project_members WHERE project_id = ? ORDER BY joined_at ASC", id,
 	)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "db error")
@@ -363,7 +364,7 @@ func (h *ProjectsHandler) ListMembers(w http.ResponseWriter, r *http.Request) {
 	members := []ProjectMember{}
 	for rows.Next() {
 		var m ProjectMember
-		if err := rows.Scan(&m.ID, &m.ProjectID, &m.UserID, &m.Role, &m.JoinedAt); err != nil {
+		if err := rows.Scan(&m.ID, &m.ProjectID, &m.UserID, &m.Username, &m.Role, &m.JoinedAt); err != nil {
 			writeError(w, http.StatusInternalServerError, "db error")
 			return
 		}
@@ -401,8 +402,9 @@ func (h *ProjectsHandler) AddMember(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var body struct {
-		UserID string `json:"userId"`
-		Role   string `json:"role"`
+		UserID   string `json:"userId"`
+		Role     string `json:"role"`
+		Username string `json:"username"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.UserID == "" || body.Role == "" {
 		writeError(w, http.StatusBadRequest, "userId and role required")
@@ -410,10 +412,10 @@ func (h *ProjectsHandler) AddMember(w http.ResponseWriter, r *http.Request) {
 	}
 
 	now := nowUnix()
-	m := ProjectMember{ID: newID(), ProjectID: id, UserID: body.UserID, Role: body.Role, JoinedAt: now}
+	m := ProjectMember{ID: newID(), ProjectID: id, UserID: body.UserID, Username: body.Username, Role: body.Role, JoinedAt: now}
 	if _, err := h.db.ExecContext(r.Context(),
-		"INSERT OR IGNORE INTO project_members (id, project_id, user_id, role, joined_at) VALUES (?, ?, ?, ?, ?)",
-		m.ID, m.ProjectID, m.UserID, m.Role, m.JoinedAt,
+		"INSERT OR IGNORE INTO project_members (id, project_id, user_id, role, joined_at, username) VALUES (?, ?, ?, ?, ?, ?)",
+		m.ID, m.ProjectID, m.UserID, m.Role, m.JoinedAt, m.Username,
 	); err != nil {
 		writeError(w, http.StatusInternalServerError, "db error")
 		return
@@ -609,7 +611,7 @@ func (h *ProjectsHandler) Join(w http.ResponseWriter, r *http.Request) {
 
 	// Add to project_members (ignore if already a member)
 	if _, err := tx.ExecContext(r.Context(),
-		"INSERT OR IGNORE INTO project_members (id, project_id, user_id, role, joined_at) VALUES (?, ?, ?, ?, ?)",
+		"INSERT OR IGNORE INTO project_members (id, project_id, user_id, role, joined_at, username) VALUES (?, ?, ?, ?, ?, '')",
 		memberID, inv.ProjectID, callerID, inv.Role, now,
 	); err != nil {
 		writeError(w, http.StatusInternalServerError, "db error")
