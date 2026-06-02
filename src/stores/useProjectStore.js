@@ -43,8 +43,8 @@ export const useProjectStore = defineStore('projects', () => {
     return data
   }
 
-  async function addMember(projectId, userId, role) {
-    const m = await api(`/projects/${projectId}/members`, { method: 'POST', body: { userId, role } })
+  async function addMember(projectId, userId, role, username = '') {
+    const m = await api(`/projects/${projectId}/members`, { method: 'POST', body: { userId, role, username } })
     if (membersCache.value[projectId]) membersCache.value[projectId].push(m)
     return m
   }
