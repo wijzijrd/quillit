@@ -793,14 +793,7 @@ func (h *ProjectsHandler) OptInGlobalCategory(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	if _, err := h.db.ExecContext(r.Context(),
-		`INSERT OR IGNORE INTO project_global_categories (project_id, category_id) VALUES (?, ?)`,
-		projectID, catID,
-	); err != nil {
-		writeError(w, http.StatusInternalServerError, "db error")
-		return
-	}
-
+	// Verify the category exists and is global before adding to junction.
 	var c Category
 	if err := h.db.QueryRowContext(r.Context(),
 		`SELECT id, name, icon, color, sort_order, project_id, created_at, updated_at
@@ -809,6 +802,15 @@ func (h *ProjectsHandler) OptInGlobalCategory(w http.ResponseWriter, r *http.Req
 		writeError(w, http.StatusNotFound, "global category not found")
 		return
 	}
+
+	if _, err := h.db.ExecContext(r.Context(),
+		`INSERT OR IGNORE INTO project_global_categories (project_id, category_id) VALUES (?, ?)`,
+		projectID, catID,
+	); err != nil {
+		writeError(w, http.StatusInternalServerError, "db error")
+		return
+	}
+
 	c.Source = "global"
 	c.DefaultTags = h.projectCategoryDefaultTags(r, c.ID)
 	writeJSON(w, http.StatusCreated, c)
@@ -845,12 +847,18 @@ func (h *ProjectsHandler) RemoveProjectCategory(w http.ResponseWriter, r *http.R
 	}
 
 	if storedProjectID == projectID {
+		// Own category — delete it entirely.
 		h.db.ExecContext(r.Context(), `DELETE FROM categories WHERE id = ?`, catID) //nolint:errcheck
-	} else {
+	} else if storedProjectID == "global" {
+		// Global category — remove opt-in from junction table only.
 		h.db.ExecContext(r.Context(), //nolint:errcheck
 			`DELETE FROM project_global_categories WHERE project_id = ? AND category_id = ?`,
 			projectID, catID,
 		)
+	} else {
+		// Belongs to a different project — not removable from here.
+		writeError(w, http.StatusNotFound, "category not found")
+		return
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
