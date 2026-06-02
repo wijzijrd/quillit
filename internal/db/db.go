@@ -48,6 +48,11 @@ func migrate(db *sql.DB) error {
 			return fmt.Errorf("schema v1: %w", err)
 		}
 	}
+	if version < 2 {
+		if err := toV2(db); err != nil {
+			return fmt.Errorf("schema v2: %w", err)
+		}
+	}
 	return nil
 }
 
@@ -247,6 +252,87 @@ func toV1(db *sql.DB) error {
 	}
 
 	if _, err := tx.Exec(`PRAGMA user_version = 1`); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func toV2(db *sql.DB) error {
+	// FK constraints can't be toggled inside a transaction; disable outside.
+	if _, err := db.Exec("PRAGMA foreign_keys=OFF"); err != nil {
+		return err
+	}
+	defer db.Exec("PRAGMA foreign_keys=ON") //nolint:errcheck
+
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	now := time.Now().Unix()
+
+	// Seed the system "global" project that owns admin-managed categories.
+	if _, err := tx.Exec(`
+		INSERT OR IGNORE INTO projects (id, name, type, created_by, created_at)
+		VALUES ('global', 'Global Categories', 'global', 'system', ?)
+	`, now); err != nil {
+		return fmt.Errorf("seed global project: %w", err)
+	}
+
+	// Recreate categories with project_id column and (name, project_id) uniqueness.
+	// The old schema had UNIQUE(name); SQLite requires table recreation to change constraints.
+	// IMPORTANT: Split each DDL statement into separate Exec calls — Go's database/sql
+	// with SQLite does not reliably execute multi-statement strings.
+	if _, err := tx.Exec(`ALTER TABLE categories RENAME TO categories_v1`); err != nil {
+		return fmt.Errorf("rename categories: %w", err)
+	}
+
+	if _, err := tx.Exec(`
+		CREATE TABLE categories (
+			id         TEXT    PRIMARY KEY,
+			name       TEXT    NOT NULL,
+			icon       TEXT    NOT NULL DEFAULT '',
+			color      TEXT    NOT NULL DEFAULT '',
+			sort_order INTEGER NOT NULL DEFAULT 0,
+			project_id TEXT    NOT NULL DEFAULT 'global'
+			               REFERENCES projects(id) ON DELETE CASCADE,
+			created_at INTEGER NOT NULL,
+			updated_at INTEGER NOT NULL,
+			UNIQUE(name, project_id)
+		)
+	`); err != nil {
+		return fmt.Errorf("create categories: %w", err)
+	}
+
+	if _, err := tx.Exec(`
+		INSERT INTO categories (id, name, icon, color, sort_order, project_id, created_at, updated_at)
+		SELECT id, name, icon, color, sort_order, 'global', created_at, updated_at
+		FROM categories_v1
+	`); err != nil {
+		return fmt.Errorf("copy categories: %w", err)
+	}
+
+	if _, err := tx.Exec(`DROP TABLE categories_v1`); err != nil {
+		return fmt.Errorf("drop categories_v1: %w", err)
+	}
+
+	// Junction table: which global categories a project has opted into.
+	if _, err := tx.Exec(`
+		CREATE TABLE IF NOT EXISTS project_global_categories (
+			project_id  TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+			category_id TEXT NOT NULL REFERENCES categories(id) ON DELETE CASCADE,
+			PRIMARY KEY (project_id, category_id)
+		)
+	`); err != nil {
+		return fmt.Errorf("create project_global_categories: %w", err)
+	}
+
+	if err := addColumnIfMissing(tx, "project_members", "username", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return fmt.Errorf("add username column: %w", err)
+	}
+
+	if _, err := tx.Exec(`PRAGMA user_version = 2`); err != nil {
 		return err
 	}
 	return tx.Commit()
