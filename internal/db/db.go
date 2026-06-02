@@ -23,8 +23,11 @@ func Open(path string) (*sql.DB, error) {
 		return nil, fmt.Errorf("open db: %w", err)
 	}
 	database.SetMaxOpenConns(1)
-	if _, err = database.Exec("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;"); err != nil {
-		return nil, fmt.Errorf("pragma: %w", err)
+	if _, err = database.Exec("PRAGMA journal_mode=WAL"); err != nil {
+		return nil, fmt.Errorf("set journal mode: %w", err)
+	}
+	if _, err = database.Exec("PRAGMA foreign_keys=ON"); err != nil {
+		return nil, fmt.Errorf("enable foreign keys: %w", err)
 	}
 	if err = migrate(database); err != nil {
 		return nil, fmt.Errorf("migrate: %w", err)
