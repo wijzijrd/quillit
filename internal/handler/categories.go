@@ -120,17 +120,27 @@ func (h *CategoriesHandler) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	now := nowUnix()
-	if _, err := h.db.ExecContext(r.Context(), `
+	result, err := h.db.ExecContext(r.Context(), `
 		UPDATE categories
 		SET name       = COALESCE(?, name),
 		    icon       = COALESCE(?, icon),
 		    color      = COALESCE(?, color),
 		    sort_order = COALESCE(?, sort_order),
 		    updated_at = ?
-		WHERE id = ?`,
+		WHERE id = ? AND project_id = 'global'`,
 		req.Name, req.Icon, req.Color, req.SortOrder, now, id,
-	); err != nil {
+	)
+	if err != nil {
 		writeError(w, http.StatusInternalServerError, "update failed")
+		return
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "update failed")
+		return
+	}
+	if rowsAffected == 0 {
+		writeError(w, http.StatusNotFound, "not found")
 		return
 	}
 	var c Category
@@ -146,8 +156,18 @@ func (h *CategoriesHandler) Update(w http.ResponseWriter, r *http.Request) {
 
 func (h *CategoriesHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
-	if _, err := h.db.ExecContext(r.Context(), `DELETE FROM categories WHERE id = ?`, id); err != nil {
+	result, err := h.db.ExecContext(r.Context(), `DELETE FROM categories WHERE id = ? AND project_id = 'global'`, id)
+	if err != nil {
 		writeError(w, http.StatusInternalServerError, "delete failed")
+		return
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "delete failed")
+		return
+	}
+	if rowsAffected == 0 {
+		writeError(w, http.StatusNotFound, "not found")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
