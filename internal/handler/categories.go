@@ -21,6 +21,8 @@ type Category struct {
 	Icon        string               `json:"icon"`
 	Color       string               `json:"color"`
 	SortOrder   int                  `json:"sortOrder"`
+	ProjectID   string               `json:"projectId,omitempty"`
+	Source      string               `json:"source,omitempty"`
 	DefaultTags []CategoryDefaultTag `json:"defaultTags"`
 	CreatedAt   int64                `json:"createdAt"`
 	UpdatedAt   int64                `json:"updatedAt"`
@@ -36,7 +38,7 @@ func NewCategories(db *sql.DB) *CategoriesHandler {
 
 func (h *CategoriesHandler) List(w http.ResponseWriter, r *http.Request) {
 	rows, err := h.db.QueryContext(r.Context(),
-		`SELECT id, name, icon, color, sort_order, created_at, updated_at FROM categories ORDER BY sort_order`)
+		`SELECT id, name, icon, color, sort_order, created_at, updated_at FROM categories WHERE project_id = 'global' ORDER BY sort_order`)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "query failed")
 		return
@@ -92,7 +94,7 @@ func (h *CategoriesHandler) Create(w http.ResponseWriter, r *http.Request) {
 	now := nowUnix()
 	id := newID()
 	if _, err := h.db.ExecContext(r.Context(),
-		`INSERT INTO categories (id, name, icon, color, sort_order, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO categories (id, name, icon, color, sort_order, project_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'global', ?, ?)`,
 		id, req.Name, req.Icon, req.Color, req.SortOrder, now, now,
 	); err != nil {
 		writeError(w, http.StatusInternalServerError, "insert failed")
