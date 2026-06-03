@@ -26,10 +26,11 @@
 
 <script setup>
 import { ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '../stores/useAuthStore.js'
 
 const router = useRouter()
+const route = useRoute()
 const auth = useAuthStore()
 const email = ref('')
 const password = ref('')
@@ -42,7 +43,7 @@ async function submit() {
   error.value = ''
   try {
     await auth.login(email.value, password.value)
-    router.push('/')
+    router.push(route.query.redirect || '/')
   } catch {
     error.value = 'Invalid credentials'
   } finally {

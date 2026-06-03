@@ -56,8 +56,23 @@ const error = ref('')
 const loading = ref(false)
 const inviteToken = ref(null)
 
-onMounted(() => {
+onMounted(async () => {
   inviteToken.value = route.query.invite ?? null
+  await auth.fetchMe()
+
+  if (auth.isLoggedIn) {
+    if (inviteToken.value) {
+      // Already logged in — redeem the invite and go straight to the project.
+      try {
+        const membership = await projects.join(inviteToken.value)
+        router.push(`/projects/${membership.projectId}/notes`)
+      } catch {
+        router.push('/')
+      }
+    } else {
+      router.push('/')
+    }
+  }
 })
 
 async function submit() {
@@ -68,7 +83,6 @@ async function submit() {
   }
   if (password.value.length < 8) {
     error.value = 'Password must be at least 8 characters'
-    return
   }
   if (password.value !== confirm.value) {
     error.value = 'Passwords do not match'
@@ -77,12 +91,13 @@ async function submit() {
   loading.value = true
   try {
     await auth.register(email.value, username.value, password.value)
-    // Redeem invite token if present
     if (inviteToken.value) {
       try {
-        await projects.join(inviteToken.value)
+        const membership = await projects.join(inviteToken.value)
+        router.push(`/projects/${membership.projectId}/notes`)
+        return
       } catch {
-        // Join failed — navigate home anyway; user can join manually
+        // Join failed — navigate home; user can join manually
       }
     }
     router.push('/')
