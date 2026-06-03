@@ -398,7 +398,7 @@ func seedCategories(db *sql.DB) error {
 	for i, s := range seeds {
 		catID := newDBID()
 		if _, err := tx.Exec(
-			`INSERT INTO categories (id, name, icon, color, sort_order, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+			`INSERT INTO categories (id, name, icon, color, sort_order, project_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'global', ?, ?)`,
 			catID, s.name, s.icon, s.color, i, now, now,
 		); err != nil {
 			return err

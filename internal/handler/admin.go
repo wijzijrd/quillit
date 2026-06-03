@@ -179,7 +179,7 @@ func (h *AdminHandler) ListProjectMembers(w http.ResponseWriter, r *http.Request
 	}
 
 	rows, err := h.db.QueryContext(r.Context(),
-		`SELECT id, project_id, user_id, role, joined_at FROM project_members WHERE project_id = ? ORDER BY joined_at ASC`,
+		`SELECT id, project_id, user_id, role, joined_at, username FROM project_members WHERE project_id = ? ORDER BY joined_at ASC`,
 		projectID,
 	)
 	if err != nil {
@@ -191,7 +191,7 @@ func (h *AdminHandler) ListProjectMembers(w http.ResponseWriter, r *http.Request
 	members := []ProjectMember{}
 	for rows.Next() {
 		var m ProjectMember
-		if err := rows.Scan(&m.ID, &m.ProjectID, &m.UserID, &m.Role, &m.JoinedAt); err == nil {
+		if err := rows.Scan(&m.ID, &m.ProjectID, &m.UserID, &m.Role, &m.JoinedAt, &m.Username); err == nil {
 			members = append(members, m)
 		}
 	}

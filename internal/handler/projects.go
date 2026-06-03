@@ -688,6 +688,10 @@ var roleLabelPair = func(projectType string) [2]string {
 // ListProjectCategories returns the project's own categories plus global ones it has opted into.
 func (h *ProjectsHandler) ListProjectCategories(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "projectId")
+	if projectID == "global" {
+		writeError(w, http.StatusNotFound, "project not found")
+		return
+	}
 	callerID, ok := h.callerID(r)
 	if !ok {
 		writeError(w, http.StatusUnauthorized, "unauthorized")
@@ -851,13 +855,19 @@ func (h *ProjectsHandler) RemoveProjectCategory(w http.ResponseWriter, r *http.R
 
 	if storedProjectID == projectID {
 		// Own category — delete it entirely.
-		h.db.ExecContext(r.Context(), `DELETE FROM categories WHERE id = ?`, catID) //nolint:errcheck
+		if _, err := h.db.ExecContext(r.Context(), `DELETE FROM categories WHERE id = ?`, catID); err != nil {
+			writeError(w, http.StatusInternalServerError, "db error")
+			return
+		}
 	} else if storedProjectID == "global" {
 		// Global category — remove opt-in from junction table only.
-		h.db.ExecContext(r.Context(), //nolint:errcheck
+		if _, err := h.db.ExecContext(r.Context(),
 			`DELETE FROM project_global_categories WHERE project_id = ? AND category_id = ?`,
 			projectID, catID,
-		)
+		); err != nil {
+			writeError(w, http.StatusInternalServerError, "db error")
+			return
+		}
 	} else {
 		// Belongs to a different project — not removable from here.
 		writeError(w, http.StatusNotFound, "category not found")
