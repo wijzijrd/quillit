@@ -83,6 +83,7 @@ async function submit() {
   }
   if (password.value.length < 8) {
     error.value = 'Password must be at least 8 characters'
+    return
   }
   if (password.value !== confirm.value) {
     error.value = 'Passwords do not match'
