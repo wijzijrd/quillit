@@ -13,8 +13,8 @@
           @blur="save"
           placeholder="Entry title…"
         />
-        <select class="cat-select" v-model="localCategory" @change="save">
-          <option v-for="c in cats.categories" :key="c.id" :value="c.name">{{ c.icon }} {{ c.name }}</option>
+        <select v-if="inProject" class="cat-select" v-model="localCategory" @change="save">
+          <option v-for="c in cats.projectCategories" :key="c.id" :value="c.name">{{ c.icon }} {{ c.name }}</option>
         </select>
         <button
           class="vis-toggle icon-btn"
@@ -169,7 +169,7 @@
 
 <script setup>
 import { ref, computed, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import {
   Bold, Italic, Heading2, Heading3, List, Minus,
   AlignLeft, AlignCenter, AlignRight, AlignJustify,
@@ -194,8 +194,8 @@ const cats = useCategoriesStore()
 const annotations = useAnnotationsStore()
 const ui = useUIStore()
 const router = useRouter()
-
-cats.init()
+const route = useRoute()
+const inProject = computed(() => !!route.params.projectId)
 
 const entry = ref(null)
 const localTitle = ref('')

@@ -20,9 +20,9 @@
       </RouterLink>
     </div>
 
-    <div class="nav-section nav-section--cats">
+    <div v-if="inProject" class="nav-section nav-section--cats">
       <button
-        v-for="cat in cats.categories"
+        v-for="cat in cats.projectCategories"
         :key="cat.id"
         class="nav-item cat-item"
         :class="{ active: ui.activeCategory === cat.name }"
@@ -55,8 +55,8 @@
 </template>
 
 <script setup>
-import { onMounted } from 'vue'
-import { RouterLink } from 'vue-router'
+import { computed } from 'vue'
+import { RouterLink, useRoute } from 'vue-router'
 import { LayoutDashboard, BookOpen, BookMarked, UserCircle, Settings } from 'lucide-vue-next'
 import { useUIStore } from '../stores/useUIStore.js'
 import { useEntriesStore } from '../stores/useEntriesStore.js'
@@ -69,7 +69,8 @@ const entries = useEntriesStore()
 const cats = useCategoriesStore()
 const auth = useAuthStore()
 
-onMounted(() => cats.init())
+const route = useRoute()
+const inProject = computed(() => !!route.params.projectId)
 </script>
 
 <style scoped>
