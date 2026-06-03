@@ -139,9 +139,14 @@ async function removeMember(userId) {
 }
 
 async function generateLink() {
-  const memberRole = project.value?.roleLabels?.[1]?.toLowerCase() ?? 'member'
-  const inv = await projectStore.generateInvite(projectId.value, memberRole)
-  inviteLink.value = `${window.location.origin}/register?invite=${inv.token}`
+  error.value = ''
+  try {
+    const memberRole = project.value?.roleLabels?.[1]?.toLowerCase() ?? 'member'
+    const inv = await projectStore.generateInvite(projectId.value, memberRole)
+    inviteLink.value = `${window.location.origin}/register?invite=${inv.token}`
+  } catch (e) {
+    error.value = e?.data?.error ?? 'Could not generate invite link'
+  }
 }
 
 function copyLink() {

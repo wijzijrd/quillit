@@ -43,7 +43,9 @@ async function submit() {
   error.value = ''
   try {
     await auth.login(email.value, password.value)
-    router.push(route.query.redirect || '/')
+    const dest = route.query.redirect
+    const safe = typeof dest === 'string' && dest.startsWith('/') && !dest.startsWith('//') ? dest : '/'
+    router.push(safe)
   } catch {
     error.value = 'Invalid credentials'
   } finally {

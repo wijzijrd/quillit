@@ -6,7 +6,7 @@
     </div>
 
     <div class="browser-scroll">
-      <div class="browser-empty" v-if="visibleEntries.length === 0 && groupedEntries.length === 0">
+      <div class="browser-empty" v-if="inProject ? groupedEntries.length === 0 : visibleEntries.length === 0">
         No entries yet.
       </div>
 
@@ -75,7 +75,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { ChevronDown } from 'lucide-vue-next'
 import EntryRow from '../components/EntryRow.vue'
@@ -103,6 +103,11 @@ onMounted(async () => {
       projectStore.fetchProjects(),
     ])
   }
+})
+
+watch(projectId, (newId) => {
+  if (newId) cats.initForProject(newId)
+  else cats.projectCategories.value = []
 })
 
 const collapsed = ref({})
