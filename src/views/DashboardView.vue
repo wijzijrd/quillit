@@ -28,45 +28,6 @@
       </div>
     </header>
 
-    <!-- Category tabs strip -->
-    <div class="cat-tabs">
-      <button
-        v-for="cat in cats.categories"
-        :key="cat.id"
-        class="cat-tab"
-        :class="{ active: activeTab === cat.name }"
-        :style="activeTab === cat.name ? { color: cat.color, background: hexToAlpha(cat.color, 0.1) } : {}"
-        @click="activeTab = cat.name"
-      >
-        <component :is="resolveIcon(cat.icon)" :size="14" />
-        <span class="cat-tab-name">{{ cat.name }}</span>
-        <span class="cat-tab-count">{{ entries.byCategory(cat.name).length }}</span>
-      </button>
-    </div>
-
-    <!-- Tag chips for the active category -->
-    <div class="cat-tag-panel" v-if="activeTab">
-      <RouterLink
-        v-for="{ tag, count } in tagsForActiveTab"
-        :key="tag"
-        :to="`/tag/${encodeURIComponent(tag)}`"
-        class="tag-pill"
-        :style="activeTabColor
-          ? { color: activeTabColor, background: hexToAlpha(activeTabColor, 0.12), borderColor: hexToAlpha(activeTabColor, 0.3) }
-          : {}"
-      >
-        <span class="tp-label">{{ tag }}</span>
-        <span class="tp-count">{{ count }}</span>
-      </RouterLink>
-      <span class="tag-pill tag-pill--untagged" v-if="untaggedCount > 0">
-        <span class="tp-label">Untagged</span>
-        <span class="tp-count">{{ untaggedCount }}</span>
-      </span>
-      <span class="tag-pill-empty" v-if="tagsForActiveTab.length === 0 && untaggedCount === 0">
-        No entries in this category yet.
-      </span>
-    </div>
-
     <section class="recent-section">
       <h2>{{ searchResults ? 'Search Results' : 'Recently Updated' }}</h2>
       <div class="recent-list">
@@ -165,12 +126,10 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
-import { hexToAlpha } from '../utils/color.js'
 import { RouterLink } from 'vue-router'
 import { Download, Upload, Search } from 'lucide-vue-next'
 import { useEntriesStore } from '../stores/useEntriesStore.js'
 import { useCategoriesStore } from '../stores/useCategoriesStore.js'
-import { resolveIcon } from '../utils/categoryIcons.js'
 import { useAnnotationsStore } from '../stores/useAnnotationsStore.js'
 import { useCampaignStore } from '../stores/useCampaignStore.js'
 import { useProjectStore } from '../stores/useProjectStore.js'
@@ -187,7 +146,6 @@ const projectStore = useProjectStore()
 const auth = useAuthStore()
 const ui = useUIStore()
 
-const activeTab = ref(null)
 const importInputRef = ref(null)
 const importError = ref('')
 const searchQuery = ref('')
@@ -200,35 +158,11 @@ const pendingInviteLink = ref('')
 
 onMounted(async () => {
   await entries.init()
-  await cats.init()
-  if (!activeTab.value && cats.categories.length > 0) {
-    activeTab.value = cats.categories[0].name
-  }
   await Promise.all([projectStore.fetchProjects(), projectStore.fetchTypes()])
 
   // Handle ?invite= query param
   const inviteToken = route.query.invite
   if (inviteToken) pendingInvite.value = inviteToken
-})
-
-const tagsForActiveTab = computed(() => {
-  if (!activeTab.value) return []
-  const counts = {}
-  for (const e of entries.byCategory(activeTab.value)) {
-    for (const tag of (e.tags ?? [])) {
-      counts[tag] = (counts[tag] ?? 0) + 1
-    }
-  }
-  return Object.entries(counts)
-    .map(([tag, count]) => ({ tag, count }))
-    .sort((a, b) => b.count - a.count)
-})
-
-const activeTabColor = computed(() => cats.categoryFor(activeTab.value)?.color ?? null)
-
-const untaggedCount = computed(() => {
-  if (!activeTab.value) return 0
-  return entries.byCategory(activeTab.value).filter(e => !e.tags || e.tags.length === 0).length
 })
 
 const recent = computed(() =>
@@ -362,43 +296,6 @@ async function handleImport(e) {
   color: var(--text-primary); font-family: var(--font-body); font-size: 0.9em;
 }
 .dash-search-input::placeholder { color: var(--text-faint); }
-
-.cat-tabs { display: flex; gap: 4px; flex-wrap: wrap; border-bottom: 1px solid var(--border); margin-bottom: 16px; }
-.cat-tab {
-  display: flex; align-items: center; gap: 6px; padding: 8px 14px;
-  border: none; border-bottom: 2px solid transparent;
-  background: none; color: var(--text-muted); font-size: 0.85em;
-  font-family: var(--font-body); cursor: pointer;
-  border-radius: var(--radius) var(--radius) 0 0;
-  transition: color var(--transition), border-color var(--transition);
-  margin-bottom: -1px;
-}
-.cat-tab:hover { color: var(--text-primary); }
-.cat-tab.active { border-bottom-color: currentColor; font-weight: 600; }
-.cat-tab-count {
-  font-size: 0.8em; color: var(--text-faint);
-  background: var(--bg-raised); border-radius: 10px; padding: 1px 6px;
-}
-.cat-tab.active .cat-tab-count { color: inherit; background: color-mix(in srgb, currentColor 18%, transparent); }
-
-.cat-tag-panel {
-  display: flex; flex-wrap: wrap; gap: 8px;
-  min-height: 48px; margin-bottom: 32px; align-items: flex-start;
-}
-.tag-pill {
-  display: inline-flex; align-items: center; gap: 6px;
-  padding: 5px 12px; background: var(--bg-raised);
-  border: 1px solid var(--border-light); border-radius: 20px;
-  text-decoration: none; color: var(--text-primary); font-size: 0.85em;
-  transition: background var(--transition), border-color var(--transition); cursor: pointer;
-}
-.tag-pill:hover { background: var(--bg-hover); border-color: var(--accent); }
-.tp-count {
-  font-size: 0.8em; background: var(--accent-dim); color: var(--accent);
-  border-radius: 10px; padding: 1px 6px; font-weight: 600;
-}
-.tag-pill--untagged { opacity: 0.6; cursor: default; }
-.tag-pill-empty { color: var(--text-faint); font-size: 0.88em; padding: 8px 0; }
 
 .recent-section h2 { font-family: var(--font-display); font-size: 0.9em; letter-spacing: 0.08em; color: var(--text-muted); text-transform: uppercase; margin-bottom: 12px; }
 .recent-list { display: flex; flex-direction: column; gap: 2px; }
