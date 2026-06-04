@@ -4,7 +4,6 @@ import { ref, computed } from 'vue'
 export const useUIStore = defineStore('ui', () => {
   const activeEntryId = ref(null)
   const activeCategory = ref(null)
-  const sidebarOpen = ref(false)
   const searchOverlayOpen = ref(false)
   const navigationHistory = ref([])
 
@@ -26,13 +25,12 @@ export const useUIStore = defineStore('ui', () => {
   const canGoBack = computed(() => navigationHistory.value.length > 0)
 
   function setCategory(cat) { activeCategory.value = cat }
-  function toggleSidebar() { sidebarOpen.value = !sidebarOpen.value }
   function toggleSearchOverlay() { searchOverlayOpen.value = !searchOverlayOpen.value }
   function closeSearchOverlay() { searchOverlayOpen.value = false }
 
   return {
-    activeEntryId, activeCategory, sidebarOpen, searchOverlayOpen,
+    activeEntryId, activeCategory, searchOverlayOpen,
     navigationHistory, canGoBack,
-    setActiveEntry, goBack, setCategory, toggleSidebar, toggleSearchOverlay, closeSearchOverlay,
+    setActiveEntry, goBack, setCategory, toggleSearchOverlay, closeSearchOverlay,
   }
 })

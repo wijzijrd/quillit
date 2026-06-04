@@ -1,22 +1,22 @@
 <template>
   <nav class="sidenav">
-    <div class="brand" @click="ui.toggleSidebar()">
+    <div class="brand">
       <span class="brand-icon">᚛</span>
-      <span class="brand-name" v-if="ui.sidebarOpen">Quillit</span>
+      <span class="brand-name">Quillit</span>
     </div>
 
     <div class="nav-section">
-      <RouterLink to="/" class="nav-item" active-class="active" :title="!ui.sidebarOpen ? 'Dashboard' : ''">
+      <RouterLink to="/" class="nav-item" active-class="active">
         <LayoutDashboard :size="16" class="nav-icon" />
-        <span class="nav-label" v-if="ui.sidebarOpen">Dashboard</span>
+        <span class="nav-label">Dashboard</span>
       </RouterLink>
-      <RouterLink to="/notes" class="nav-item" active-class="active" :title="!ui.sidebarOpen ? 'Notes' : ''">
+      <RouterLink to="/notes" class="nav-item" active-class="active">
         <BookOpen :size="16" class="nav-icon" />
-        <span class="nav-label" v-if="ui.sidebarOpen">Notes</span>
+        <span class="nav-label">Notes</span>
       </RouterLink>
-      <RouterLink to="/member" class="nav-item" active-class="active" :title="!ui.sidebarOpen ? 'Shared with me' : ''">
+      <RouterLink to="/member" class="nav-item" active-class="active">
         <BookMarked :size="16" class="nav-icon" />
-        <span class="nav-label" v-if="ui.sidebarOpen">Member</span>
+        <span class="nav-label">Member</span>
       </RouterLink>
     </div>
 
@@ -30,7 +30,7 @@
         @click="ui.setCategory(ui.activeCategory === cat.name ? null : cat.name)"
       >
         <component :is="resolveIcon(cat.icon)" :size="16" :style="{ color: cat.color }" />
-        <span class="cat-count" v-if="ui.sidebarOpen">{{ entries.byCategory(cat.name).length }}</span>
+        <span class="cat-count">{{ entries.byCategory(cat.name).length }}</span>
       </button>
     </div>
 
@@ -40,15 +40,13 @@
         to="/admin"
         class="nav-item"
         active-class="active"
-        :title="!ui.sidebarOpen ? 'Admin' : ''"
       >
         <Settings :size="16" class="nav-icon" />
-        <span class="nav-label" v-if="ui.sidebarOpen">Admin</span>
+        <span class="nav-label">Admin</span>
       </RouterLink>
-      <RouterLink to="/profile" class="nav-item" active-class="active"
-        :title="!ui.sidebarOpen ? 'Profile' : ''">
+      <RouterLink to="/profile" class="nav-item" active-class="active">
         <UserCircle :size="16" class="nav-icon" />
-        <span class="nav-label" v-if="ui.sidebarOpen">Profile</span>
+        <span class="nav-label">Profile</span>
       </RouterLink>
     </div>
   </nav>
@@ -87,7 +85,6 @@ const inProject = computed(() => !!route.params.projectId)
   align-items: center;
   gap: var(--space-sm);
   padding: var(--space-xl) var(--space-lg) var(--space-lg);
-  cursor: pointer;
   border-bottom: 1px solid var(--border);
   margin-bottom: var(--space-sm);
   height: var(--h-xl);
@@ -99,7 +96,6 @@ const inProject = computed(() => !!route.params.projectId)
 .nav-item {
   display: flex;
   align-items: center;
-  justify-content: center;
   gap: var(--space-sm);
   padding: 0 var(--space-sm);
   height: var(--h-md);
