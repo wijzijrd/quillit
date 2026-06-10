@@ -1,11 +1,15 @@
 <template>
   <div class="entry-editor" v-if="entry" :class="{ 'player-preview': previewMode }">
-    <div class="editor-header">
-      <div class="back-row" v-if="ui.canGoBack">
-        <button class="back-btn" @click="navigateBack">
-          <ChevronLeft :size="13" /> Back
-        </button>
+    <div class="popup-controls">
+      <div class="popup-nav">
+        <button v-if="canGoBack"    class="ctrl-btn" @click="goBack"    title="Back">    <ChevronLeft  :size="14" /></button>
+        <button v-if="canGoForward" class="ctrl-btn" @click="goForward" title="Forward"> <ChevronRight :size="14" /></button>
       </div>
+      <button v-if="onClose" class="ctrl-btn" @click="onClose()" title="Close">
+        <X :size="14" />
+      </button>
+    </div>
+    <div class="editor-header">
       <div class="title-row">
         <input
           class="title-input"
@@ -14,7 +18,7 @@
           placeholder="Entry title…"
         />
         <select v-if="inProject" class="cat-select" v-model="localCategory" @change="save">
-          <option v-for="c in cats.projectCategories" :key="c.id" :value="c.name">{{ c.icon }} {{ c.name }}</option>
+          <option v-for="c in (cats.projectCategories.length ? cats.projectCategories : cats.categories)" :key="c.id" :value="c.name">{{ c.icon }} {{ c.name }}</option>
         </select>
         <button
           class="vis-toggle icon-btn"
@@ -98,6 +102,7 @@
         <TiptapEditor
           ref="tiptapRef"
           v-model="localBody"
+          :uploadImageFn="uploadImage"
           @update:modelValue="debouncedSave"
           @selectionUpdate="onSelectionUpdate"
         />
@@ -167,33 +172,35 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { ref, computed, watch } from 'vue'
-import { useRouter, useRoute } from 'vue-router'
+import { useRoute } from 'vue-router'
+import { api } from '../api/client'
 import {
   Bold, Italic, Heading2, Heading3, List, Minus,
   AlignLeft, AlignCenter, AlignRight, AlignJustify,
   Pin, Eye, EyeOff, Printer, Globe, Lock, Trash2,
   PanelRightClose, PanelRightOpen, Link, LayoutList,
-  ChevronLeft, ExternalLink, Share2,
+  ChevronLeft, ChevronRight, X, ExternalLink, Share2,
 } from 'lucide-vue-next'
 import TiptapEditor from './TiptapEditor.vue'
 import AnnotationPanel from './AnnotationPanel.vue'
 import LinkedEntriesPanel from './LinkedEntriesPanel.vue'
 import QuickViewPanel from './QuickViewPanel.vue'
 import NoteSharePanel from './NoteSharePanel.vue'
-import { hexToAlpha } from '../utils/color.js'
-import { useEntriesStore } from '../stores/useEntriesStore.js'
-import { useCategoriesStore } from '../stores/useCategoriesStore.js'
-import { useAnnotationsStore } from '../stores/useAnnotationsStore.js'
-import { useUIStore } from '../stores/useUIStore.js'
-import { stripGmMarks } from '../composables/useAnnotationVisibility.js'
+import { hexToAlpha } from '../utils/color'
+import { useEntriesStore } from '../stores/useEntriesStore'
+import { useCategoriesStore } from '../stores/useCategoriesStore'
+import { useAnnotationsStore } from '../stores/useAnnotationsStore'
+import { useUIStore } from '../stores/useUIStore'
+import { stripGmMarks } from '../composables/useAnnotationVisibility'
+
+defineProps<{ onClose?: () => void }>()
 
 const entries = useEntriesStore()
 const cats = useCategoriesStore()
 const annotations = useAnnotationsStore()
 const ui = useUIStore()
-const router = useRouter()
 const route = useRoute()
 const inProject = computed(() => !!route.params.projectId)
 
@@ -211,10 +218,15 @@ const pendingSelection = ref(null)
 const activePanel = ref('annotations')
 const panelCollapsed = ref(false)
 
+const localHistory = ref<string[]>([])
+const localFuture = ref<string[]>([])
+const canGoBack = computed(() => localHistory.value.length > 0)
+const canGoForward = computed(() => localFuture.value.length > 0)
+
 const tiptapRef = ref(null)
 const editor = computed(() => tiptapRef.value?.editor)
 
-watch(() => ui.activeEntryId, (id) => {
+watch(() => ui.activeEntryId, async (id) => {
   if (!id) { entry.value = null; return }
   const found = entries.getById(id)
   if (!found) return
@@ -226,7 +238,23 @@ watch(() => ui.activeEntryId, (id) => {
   localTags.value = found.tags ?? []
   pendingSelection.value = null
   hasSelection.value = false
+  // Body may be empty when stored in MinIO (list response omits it).
+  // Fetch the full entry to hydrate body content.
+  if (!found.body) {
+    try {
+      const full = await api(`/entries/${id}`)
+      localBody.value = full.body ?? ''
+    } catch { /* non-critical — editor stays empty */ }
+  }
 }, { immediate: true })
+
+async function uploadImage(file: File): Promise<string> {
+  if (!entry.value) throw new Error('no entry')
+  const form = new FormData()
+  form.append('image', file)
+  const res = await api(`/entries/${entry.value.id}/images`, { method: 'POST', body: form })
+  return res.url
+}
 
 let saveTimer = null
 function debouncedSave() {
@@ -419,24 +447,68 @@ function setLink() {
   }
 }
 
-function navigateBack() {
-  const prevId = ui.goBack()
-  if (prevId) router.push(`/notes/${prevId}`)
+function goBack() {
+  if (!localHistory.value.length) return
+  localFuture.value.unshift(ui.activeEntryId!)
+  ui.setActiveEntry(localHistory.value.pop()!)
 }
 
-function onEditorClick(e) {
-  const mention = e.target.closest('.entry-mention')
-  if (!mention) return
-  const id = mention.dataset.entryId
-  if (id) {
-    ui.setActiveEntry(id)
-    router.push('/notes/' + id)
+function goForward() {
+  if (!localFuture.value.length) return
+  localHistory.value.push(ui.activeEntryId!)
+  ui.setActiveEntry(localFuture.value.shift()!)
+}
+
+function onEditorClick(e: MouseEvent) {
+  const mention = (e.target as HTMLElement).closest('.entry-mention') as HTMLElement | null
+  if (mention?.dataset.entryId) {
+    e.preventDefault()
+    const nextId = mention.dataset.entryId
+    const currId = ui.activeEntryId
+    if (currId) {
+      localHistory.value.push(currId)
+      localFuture.value = []
+    }
+    ui.setActiveEntry(nextId)
+    return
+  }
+  if (e.shiftKey) {
+    const mark = (e.target as HTMLElement).closest('.annotation-mark') as HTMLElement | null
+    if (mark) {
+      activePanel.value = 'annotations'
+      panelCollapsed.value = false
+    }
   }
 }
 </script>
 
 <style scoped>
 .entry-editor { display: flex; flex-direction: column; height: 100%; }
+
+.popup-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.popup-nav { display: flex; gap: 2px; }
+.ctrl-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--muted);
+  color: var(--muted-foreground);
+  cursor: pointer;
+  transition: color var(--transition), background var(--transition);
+}
+.ctrl-btn:hover { color: var(--foreground); background: var(--card); }
+
 .editor-header {
   padding: var(--space-xl) var(--space-2xl) 0;
   border-bottom: 1px solid var(--border);
@@ -449,15 +521,15 @@ function onEditorClick(e) {
   border: none;
   font-family: var(--font-display);
   font-size: var(--text-2xl);
-  color: var(--text-primary);
+  color: var(--foreground);
   outline: none;
   height: var(--h-xl);
 }
-.title-input::placeholder { color: var(--text-faint); }
+.title-input::placeholder { color: var(--muted-foreground); }
 .cat-select {
-  background: var(--bg-raised);
-  border: 1px solid var(--border-light);
-  color: var(--text-muted);
+  background: var(--muted);
+  border: 1px solid var(--border);
+  color: var(--muted-foreground);
   font-family: var(--font-body);
   font-size: var(--text-sm);
   height: var(--h-md);
@@ -472,15 +544,15 @@ function onEditorClick(e) {
   height: var(--h-sm);
   width: var(--h-sm);
   background: none;
-  border: 1px solid var(--border-light);
+  border: 1px solid var(--border);
   border-radius: var(--radius);
   cursor: pointer;
-  color: var(--text-muted);
+  color: var(--muted-foreground);
   transition: background var(--transition), color var(--transition), border-color var(--transition);
 }
-.icon-btn:hover { background: var(--bg-hover); color: var(--text-primary); }
+.icon-btn:hover { background: var(--muted); color: var(--foreground); }
 .vis-toggle.vis-public { border-color: rgba(80,200,120,0.4); background: rgba(80,200,120,0.08); color: #8e8; }
-.delete-btn:hover { color: var(--danger); background: rgba(160,48,48,0.1); border-color: rgba(160,48,48,0.3); }
+.delete-btn:hover { color: var(--destructive); background: rgba(220, 38, 38, 0.1); border-color: rgba(220, 38, 38, 0.3); }
 
 .toolbar {
   display: flex;
@@ -496,23 +568,23 @@ function onEditorClick(e) {
   width: var(--h-sm);
   background: none;
   border: none;
-  color: var(--text-muted);
+  color: var(--muted-foreground);
   border-radius: var(--radius);
   cursor: pointer;
   transition: background var(--transition), color var(--transition);
   flex-shrink: 0;
 }
-.tbtn:hover { background: var(--bg-hover); color: var(--text-primary); }
-.tbtn.on { background: var(--accent-dim); color: var(--accent); }
+.tbtn:hover { background: var(--muted); color: var(--foreground); }
+.tbtn.on { background: var(--secondary); color: var(--primary); }
 .tbtn:disabled { opacity: 0.35; cursor: default; }
-.annotate-btn.on { background: rgba(200,146,42,0.15); color: var(--accent); }
+.annotate-btn.on { background: rgba(200,146,42,0.15); color: var(--primary); }
 .preview-btn.on { background: rgba(80,200,120,0.15); color: #8e8; }
 .toolbar-divider {
-  width: 1px; background: var(--border-light);
+  width: 1px; background: var(--border);
   height: 16px; margin: 0 var(--space-xs);
 }
 .toolbar-spacer { flex: 1; }
-.save-status { font-size: var(--text-xs); color: var(--text-faint); margin-left: var(--space-sm); }
+.save-status { font-size: var(--text-xs); color: var(--muted-foreground); margin-left: var(--space-sm); }
 
 .editor-body { display: flex; flex: 1; overflow: hidden; }
 .editor-content { flex: 1; padding: var(--space-xl) var(--space-2xl); overflow-y: auto; }
@@ -524,7 +596,7 @@ function onEditorClick(e) {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  background: var(--bg-surface);
+  background: var(--card);
   transition: width 160ms ease, min-width 160ms ease;
 }
 .right-panel.collapsed {
@@ -547,7 +619,7 @@ function onEditorClick(e) {
   background: none;
   border: none;
   border-bottom: 2px solid transparent;
-  color: var(--text-faint);
+  color: var(--muted-foreground);
   height: var(--h-md);
   cursor: pointer;
   transition: color var(--transition), border-color var(--transition);
@@ -555,8 +627,8 @@ function onEditorClick(e) {
   white-space: nowrap;
   overflow: hidden;
 }
-.panel-tab:hover { color: var(--text-muted); }
-.panel-tab.active { color: var(--text-primary); border-bottom-color: var(--accent); }
+.panel-tab:hover { color: var(--muted-foreground); }
+.panel-tab.active { color: var(--foreground); border-bottom-color: var(--primary); }
 .tab-label {
   font-family: var(--font-body);
   font-size: var(--text-xs);
@@ -572,16 +644,16 @@ function onEditorClick(e) {
   height: var(--h-md);
   background: none;
   border: none;
-  color: var(--text-faint);
+  color: var(--muted-foreground);
   cursor: pointer;
   flex-shrink: 0;
   transition: color var(--transition);
 }
-.panel-collapse-btn:hover { color: var(--text-primary); }
+.panel-collapse-btn:hover { color: var(--foreground); }
 
 .editor-empty {
   display: flex; align-items: center; justify-content: center;
-  height: 100%; color: var(--text-faint); font-size: var(--text-md);
+  height: 100%; color: var(--muted-foreground); font-size: var(--text-md);
 }
 
 .tags-row {
@@ -597,8 +669,8 @@ function onEditorClick(e) {
   display: inline-flex;
   align-items: center;
   gap: 3px;
-  background: var(--accent-dim);
-  color: var(--accent);
+  background: var(--secondary);
+  color: var(--primary);
   border-radius: var(--radius);
   height: var(--h-xs);
   padding: 0 var(--space-sm);
@@ -606,27 +678,18 @@ function onEditorClick(e) {
 }
 .tag-remove {
   background: none; border: none;
-  color: var(--accent); cursor: pointer;
+  color: var(--primary); cursor: pointer;
   padding: 0 2px; font-size: 1em; line-height: 1; opacity: 0.7;
 }
 .tag-remove:hover { opacity: 1; }
 .tag-input {
   background: none; border: none;
-  color: var(--text-muted); font-family: var(--font-body);
+  color: var(--muted-foreground); font-family: var(--font-body);
   font-size: var(--text-md); outline: none; width: 100px;
   height: var(--h-xs);
 }
-.tag-input::placeholder { color: var(--text-faint); }
+.tag-input::placeholder { color: var(--muted-foreground); }
 
-.back-row { padding: 4px 16px 0; }
-.back-btn {
-  display: inline-flex; align-items: center; gap: 3px;
-  background: none; border: none; color: var(--text-faint);
-  font-family: var(--font-body); font-size: 0.78em; cursor: pointer;
-  padding: 2px 6px; border-radius: var(--radius);
-  transition: color var(--transition), background var(--transition);
-}
-.back-btn:hover { color: var(--accent); background: var(--bg-raised); }
 
 .tag-suggestions {
   display: flex;
@@ -637,12 +700,12 @@ function onEditorClick(e) {
 .tag-suggest-chip {
   font-size: 0.75em;
   padding: 2px 8px;
-  border: 1px dashed var(--border-light);
+  border: 1px dashed var(--border);
   border-radius: 12px;
   background: none;
-  color: var(--text-faint);
+  color: var(--muted-foreground);
   cursor: pointer;
   transition: color var(--transition), border-color var(--transition);
 }
-.tag-suggest-chip:hover { color: var(--accent); border-color: var(--accent); }
+.tag-suggest-chip:hover { color: var(--primary); border-color: var(--primary); }
 </style>

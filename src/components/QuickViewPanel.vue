@@ -30,7 +30,7 @@
           v-if="field.type === 'textarea'"
           class="qv-textarea"
           :value="localData[field.key] ?? ''"
-          @input="e => updateField(field.key, e.target.value)"
+          @input="e => updateField(field.key, (e.target as HTMLTextAreaElement).value)"
           @blur="save"
           rows="2"
         />
@@ -38,7 +38,7 @@
           v-else-if="field.type === 'select'"
           class="qv-select"
           :value="localData[field.key] ?? ''"
-          @change="e => { updateField(field.key, e.target.value); save() }"
+          @change="e => { updateField(field.key, (e.target as HTMLSelectElement).value); save() }"
         >
           <option value="">—</option>
           <option v-for="opt in field.options" :key="opt" :value="opt">{{ opt }}</option>
@@ -48,7 +48,7 @@
           class="qv-input"
           type="text"
           :value="localData[field.key] ?? ''"
-          @input="e => updateField(field.key, e.target.value)"
+          @input="e => updateField(field.key, (e.target as HTMLInputElement).value)"
           @blur="save"
         />
       </div>
@@ -59,13 +59,13 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { ref, computed, watch } from 'vue'
 import { X, Plus } from 'lucide-vue-next'
-import { useEntriesStore } from '../stores/useEntriesStore.js'
-import { useQuickViewStore } from '../stores/useQuickViewStore.js'
+import { useEntriesStore } from '../stores/useEntriesStore'
+import { useQuickViewStore } from '../stores/useQuickViewStore'
 
-const props = defineProps({ entryId: String })
+const props = defineProps<{ entryId?: string }>()
 
 const entries = useEntriesStore()
 const quickView = useQuickViewStore()
@@ -75,13 +75,13 @@ const newFieldLabel = ref('')
 
 const entry = computed(() => entries.getById(props.entryId))
 const template = computed(() => entry.value ? quickView.getTemplate(entry.value.category) : [])
-const localData = ref({})
+const localData = ref<Record<string, string>>({})
 
 watch(() => props.entryId, () => {
   localData.value = { ...(entry.value?.quickViewData ?? {}) }
 }, { immediate: true })
 
-function updateField(key, value) {
+function updateField(key: string, value: string) {
   localData.value = { ...localData.value, [key]: value }
 }
 
@@ -118,14 +118,14 @@ function addField() {
   font-size: var(--text-xs);
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: var(--text-faint);
+  color: var(--muted-foreground);
 }
 
 .qv-edit-toggle {
   background: none;
-  border: 1px solid var(--border-light);
+  border: 1px solid var(--border);
   border-radius: var(--radius);
-  color: var(--text-muted);
+  color: var(--muted-foreground);
   font-family: var(--font-body);
   font-size: var(--text-xs);
   height: var(--h-xs);
@@ -133,7 +133,7 @@ function addField() {
   cursor: pointer;
   transition: background var(--transition), color var(--transition);
 }
-.qv-edit-toggle:hover { background: var(--bg-hover); color: var(--text-primary); }
+.qv-edit-toggle:hover { background: var(--muted); color: var(--foreground); }
 
 .qv-fields { padding: var(--space-sm) var(--space-md); display: flex; flex-direction: column; gap: var(--space-sm); }
 
@@ -142,13 +142,13 @@ function addField() {
   font-size: var(--text-xs);
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  color: var(--text-faint);
+  color: var(--muted-foreground);
 }
 .qv-input, .qv-select {
-  background: var(--bg-raised);
-  border: 1px solid var(--border-light);
+  background: var(--muted);
+  border: 1px solid var(--border);
   border-radius: var(--radius);
-  color: var(--text-primary);
+  color: var(--foreground);
   font-family: var(--font-body);
   font-size: var(--text-md);
   height: var(--h-sm);
@@ -156,12 +156,12 @@ function addField() {
   outline: none;
   transition: border-color var(--transition);
 }
-.qv-input:focus, .qv-select:focus { border-color: var(--accent-dim); }
+.qv-input:focus, .qv-select:focus { border-color: var(--secondary); }
 .qv-textarea {
-  background: var(--bg-raised);
-  border: 1px solid var(--border-light);
+  background: var(--muted);
+  border: 1px solid var(--border);
   border-radius: var(--radius);
-  color: var(--text-primary);
+  color: var(--foreground);
   font-family: var(--font-body);
   font-size: var(--text-md);
   padding: var(--space-xs) var(--space-sm);
@@ -169,11 +169,11 @@ function addField() {
   resize: vertical;
   transition: border-color var(--transition);
 }
-.qv-textarea:focus { border-color: var(--accent-dim); }
+.qv-textarea:focus { border-color: var(--secondary); }
 
 .qv-empty {
   font-size: var(--text-sm);
-  color: var(--text-faint);
+  color: var(--muted-foreground);
   padding: var(--space-sm) 0;
 }
 
@@ -185,44 +185,44 @@ function addField() {
   justify-content: space-between;
   height: var(--h-sm);
   padding: 0 var(--space-sm);
-  background: var(--bg-raised);
+  background: var(--muted);
   border-radius: var(--radius);
 }
-.te-label { font-size: var(--text-sm); color: var(--text-muted); }
+.te-label { font-size: var(--text-sm); color: var(--muted-foreground); }
 .te-remove {
   display: inline-flex;
   align-items: center;
   background: none;
   border: none;
-  color: var(--text-faint);
+  color: var(--muted-foreground);
   cursor: pointer;
   transition: color var(--transition);
 }
-.te-remove:hover { color: var(--danger); }
+.te-remove:hover { color: var(--destructive); }
 .te-add-row { display: flex; gap: var(--space-xs); }
 .te-add-input {
   flex: 1;
-  background: var(--bg-raised);
-  border: 1px solid var(--border-light);
+  background: var(--muted);
+  border: 1px solid var(--border);
   border-radius: var(--radius);
-  color: var(--text-primary);
+  color: var(--foreground);
   font-family: var(--font-body);
   font-size: var(--text-sm);
   height: var(--h-sm);
   padding: 0 var(--space-sm);
   outline: none;
 }
-.te-add-input:focus { border-color: var(--accent-dim); }
+.te-add-input:focus { border-color: var(--secondary); }
 .te-add-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   height: var(--h-sm);
   width: var(--h-sm);
-  background: var(--accent-dim);
+  background: var(--secondary);
   border: none;
   border-radius: var(--radius);
-  color: var(--accent);
+  color: var(--primary);
   cursor: pointer;
 }
 .te-add-btn:disabled { opacity: 0.4; cursor: default; }
@@ -230,12 +230,12 @@ function addField() {
   align-self: flex-start;
   background: none;
   border: none;
-  color: var(--text-faint);
+  color: var(--muted-foreground);
   font-family: var(--font-body);
   font-size: var(--text-xs);
   cursor: pointer;
   padding: var(--space-xs) 0;
   transition: color var(--transition);
 }
-.te-reset:hover { color: var(--danger); }
+.te-reset:hover { color: var(--destructive); }
 </style>

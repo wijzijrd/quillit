@@ -30,11 +30,11 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
-import { useEntriesStore } from '../stores/useEntriesStore.js'
-import { useUIStore } from '../stores/useUIStore.js'
+import { useEntriesStore } from '../stores/useEntriesStore'
+import { useUIStore } from '../stores/useUIStore'
 
 const entries = useEntriesStore()
 const ui = useUIStore()
@@ -43,7 +43,7 @@ const router = useRouter()
 const query = ref('')
 const showDropdown = ref(false)
 const focusedIdx = ref(0)
-const inputRef = ref(null)
+const inputRef = ref<HTMLInputElement | null>(null)
 
 const results = computed(() => {
   if (!query.value.trim()) return []
@@ -59,14 +59,14 @@ const results = computed(() => {
   })
 })
 
-let debounceTimer = null
+let debounceTimer: ReturnType<typeof setTimeout> | null = null
 function onInput() {
   focusedIdx.value = 0
-  clearTimeout(debounceTimer)
+  if (debounceTimer) clearTimeout(debounceTimer)
   debounceTimer = setTimeout(() => { showDropdown.value = true }, 150)
 }
 
-function onKeydown(e) {
+function onKeydown(e: KeyboardEvent) {
   if (!showDropdown.value || !results.value.length) return
   if (e.key === 'ArrowDown') {
     e.preventDefault()
@@ -88,7 +88,7 @@ function onBlur() {
   setTimeout(() => { showDropdown.value = false }, 150)
 }
 
-function select(entry) {
+function select(entry: { id: string }) {
   query.value = ''
   showDropdown.value = false
   ui.setActiveEntry(entry.id)
@@ -104,30 +104,30 @@ function select(entry) {
 
 .search-input {
   width: 100%;
-  background: var(--bg-raised);
-  border: 1px solid var(--border-light);
+  background: var(--muted);
+  border: 1px solid var(--border);
   border-radius: var(--radius);
-  color: var(--text-primary);
+  color: var(--foreground);
   font-family: var(--font-body);
   font-size: 0.85em;
   padding: 5px 10px;
   outline: none;
   transition: border-color var(--transition);
 }
-.search-input::placeholder { color: var(--text-faint); }
-.search-input:focus { border-color: var(--accent-dim); }
+.search-input::placeholder { color: var(--muted-foreground); }
+.search-input:focus { border-color: var(--secondary); }
 
 .search-dropdown {
   position: absolute;
   top: 100%;
   left: 8px;
   right: 8px;
-  background: var(--bg-surface);
+  background: var(--card);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   z-index: 200;
   overflow: hidden;
-  box-shadow: 0 4px 16px rgba(0,0,0,0.5);
+  box-shadow: 0 4px 16px rgba(0,0,0,0.12);
 }
 
 .search-result {
@@ -140,7 +140,7 @@ function select(entry) {
   border-bottom: 1px solid var(--border);
 }
 .search-result:last-child { border-bottom: none; }
-.search-result:hover, .search-result.focused { background: var(--bg-hover); }
+.search-result:hover, .search-result.focused { background: var(--muted); }
 
 .sr-cat {
   font-size: 0.65em;
@@ -153,6 +153,6 @@ function select(entry) {
 }
 
 .sr-content { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
-.sr-title { font-size: 0.9em; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.sr-excerpt { font-size: 0.78em; color: var(--text-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sr-title { font-size: 0.9em; color: var(--foreground); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sr-excerpt { font-size: 0.78em; color: var(--muted-foreground); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 </style>

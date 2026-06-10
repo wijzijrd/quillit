@@ -40,18 +40,18 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { ref, watch, onMounted } from 'vue'
-import { useMemberStore } from '../stores/useMemberStore.js'
+import { useMemberStore } from '../stores/useMemberStore'
 
-const props = defineProps({ entryId: String })
+const props = defineProps<{ entryId?: string }>()
 const member = useMemberStore()
 
 const query = ref('')
-const results = ref([])
-const shares = ref([])
+const results = ref<any[]>([])
+const shares = ref<any[]>([])
 const searched = ref(false)
-let searchTimer = null
+let searchTimer: ReturnType<typeof setTimeout> | null = null
 
 onMounted(loadShares)
 
@@ -68,7 +68,7 @@ async function loadShares() {
 }
 
 function onSearch() {
-  clearTimeout(searchTimer)
+  if (searchTimer) clearTimeout(searchTimer)
   if (query.value.length < 2) { results.value = []; searched.value = false; return }
   searchTimer = setTimeout(runSearch, 280)
 }
@@ -78,16 +78,16 @@ async function runSearch() {
   searched.value = true
 }
 
-function alreadyShared(userId) {
+function alreadyShared(userId: string) {
   return shares.value.some(s => s.userId === userId)
 }
 
-async function addUser(u) {
+async function addUser(u: { id: string }) {
   await member.addShares(props.entryId, [u.id])
   shares.value = await member.fetchEntryShares(props.entryId)
 }
 
-async function removeUser(userId) {
+async function removeUser(userId: string) {
   await member.removeShare(props.entryId, userId)
   shares.value = shares.value.filter(s => s.userId !== userId)
 }
@@ -103,21 +103,21 @@ async function removeUser(userId) {
 
 .share-label {
   font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.08em;
-  color: var(--text-faint); margin: 0;
+  color: var(--muted-foreground); margin: 0;
 }
 .share-hint {
-  font-size: var(--text-xs); color: var(--text-faint); margin: 0;
+  font-size: var(--text-xs); color: var(--muted-foreground); margin: 0;
 }
 
 .search-row { display: flex; gap: var(--space-xs); }
 .share-input {
-  flex: 1; background: var(--bg-raised); border: 1px solid var(--border-light);
-  border-radius: var(--radius); color: var(--text-primary);
+  flex: 1; background: var(--muted); border: 1px solid var(--border);
+  border-radius: var(--radius); color: var(--foreground);
   font-family: var(--font-body); font-size: var(--text-sm);
   height: var(--h-sm); padding: 0 var(--space-sm); outline: none;
   transition: border-color var(--transition);
 }
-.share-input:focus { border-color: var(--accent-dim); }
+.share-input:focus { border-color: var(--secondary); }
 
 .search-results { display: flex; flex-direction: column; gap: 2px; }
 .result-row {
@@ -126,25 +126,25 @@ async function removeUser(userId) {
   background: none; border: none; cursor: pointer; text-align: left; width: 100%;
   transition: background var(--transition);
 }
-.result-row:hover:not(:disabled) { background: var(--bg-hover); }
+.result-row:hover:not(:disabled) { background: var(--muted); }
 .result-row:disabled { opacity: 0.5; cursor: default; }
-.result-name { font-size: var(--text-sm); color: var(--text-primary); flex: 1; }
-.result-email { font-size: var(--text-xs); color: var(--text-faint); }
-.result-added { font-size: var(--text-xs); color: var(--accent); }
+.result-name { font-size: var(--text-sm); color: var(--foreground); flex: 1; }
+.result-email { font-size: var(--text-xs); color: var(--muted-foreground); }
+.result-added { font-size: var(--text-xs); color: var(--primary); }
 
 .share-list { display: flex; flex-direction: column; gap: 2px; }
 .share-row {
   display: flex; align-items: center; justify-content: space-between;
   padding: 5px var(--space-sm); border-radius: var(--radius);
-  background: var(--bg-raised);
+  background: var(--muted);
 }
-.share-username { font-size: var(--text-sm); color: var(--text-primary); }
+.share-username { font-size: var(--text-sm); color: var(--foreground); }
 .remove-btn {
-  background: none; border: none; color: var(--text-faint); cursor: pointer;
+  background: none; border: none; color: var(--muted-foreground); cursor: pointer;
   font-size: 1em; line-height: 1; padding: 0 4px;
   transition: color var(--transition);
 }
-.remove-btn:hover { color: var(--danger); }
+.remove-btn:hover { color: var(--destructive); }
 
-.empty-hint { font-size: var(--text-xs); color: var(--text-faint); margin: 0; }
+.empty-hint { font-size: var(--text-xs); color: var(--muted-foreground); margin: 0; }
 </style>

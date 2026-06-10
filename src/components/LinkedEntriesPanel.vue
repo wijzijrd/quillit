@@ -108,16 +108,16 @@
   </aside>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { useEntriesStore } from '../stores/useEntriesStore.js'
-import { useUIStore } from '../stores/useUIStore.js'
-import { useCategoriesStore } from '../stores/useCategoriesStore.js'
-import { useEntryRelationsStore } from '../stores/useEntryRelationsStore.js'
-import { resolveIcon } from '../utils/categoryIcons.js'
+import { useEntriesStore } from '../stores/useEntriesStore'
+import { useUIStore } from '../stores/useUIStore'
+import { useCategoriesStore } from '../stores/useCategoriesStore'
+import { useEntryRelationsStore } from '../stores/useEntryRelationsStore'
+import { resolveIcon } from '../utils/categoryIcons'
 
-const props = defineProps({ entryId: String })
+const props = defineProps<{ entryId?: string }>()
 
 const entries = useEntriesStore()
 const ui = useUIStore()
@@ -135,8 +135,8 @@ onMounted(async () => {
   await relStore.fetchLabels()
 })
 
-function groupByLabel(rels) {
-  const map = {}
+function groupByLabel(rels: any[]) {
+  const map: Record<string, { label: string; items: any[] }> = {}
   for (const rel of rels) {
     if (!map[rel.label]) map[rel.label] = { label: rel.label, items: [] }
     map[rel.label].items.push(rel)
@@ -145,32 +145,32 @@ function groupByLabel(rels) {
 }
 
 const outgoingGroups = computed(() =>
-  groupByLabel(relStore.getForEntry(props.entryId).filter(r => r.direction === 'outgoing'))
+  groupByLabel(relStore.getForEntry(props.entryId).filter((r: any) => r.direction === 'outgoing'))
 )
 
 const incomingGroups = computed(() =>
-  groupByLabel(relStore.getForEntry(props.entryId).filter(r => r.direction === 'incoming'))
+  groupByLabel(relStore.getForEntry(props.entryId).filter((r: any) => r.direction === 'incoming'))
 )
 
 const outboundLinks = computed(() => {
   const entry = entries.getById(props.entryId)
-  return (entry?.linkedEntries ?? []).map(id => entries.getById(id)).filter(Boolean)
+  return (entry?.linkedEntries ?? []).map((id: string) => entries.getById(id)).filter(Boolean)
 })
 const backlinks = computed(() => entries.backlinksFor(props.entryId))
 
 const searchResults = computed(() => {
   const q = searchQuery.value.trim().toLowerCase()
   if (!q) return []
-  const existingIds = new Set(relStore.getForEntry(props.entryId).map(r => r.relatedEntry?.id))
+  const existingIds = new Set(relStore.getForEntry(props.entryId).map((r: any) => r.relatedEntry?.id))
   return entries.entries
-    .filter(e => e.id !== props.entryId && !existingIds.has(e.id) && e.title.toLowerCase().includes(q))
+    .filter((e: any) => e.id !== props.entryId && !existingIds.has(e.id) && e.title.toLowerCase().includes(q))
     .slice(0, 8)
 })
 
-function catColor(category) {
-  return cats.categoryFor(category)?.color ?? 'var(--text-muted)'
+function catColor(category: string) {
+  return cats.categoryFor(category)?.color ?? 'var(--muted-foreground)'
 }
-function catIcon(category) {
+function catIcon(category: string) {
   const cat = cats.categoryFor(category)
   return resolveIcon(cat?.icon ?? '')
 }
@@ -181,7 +181,7 @@ function startAdding() {
   searchQuery.value = ''
 }
 
-async function confirmAdd(toId) {
+async function confirmAdd(toId: string) {
   const label = newLabel.value.trim()
   if (!label) return
   await relStore.create(props.entryId, toId, label)
@@ -189,7 +189,7 @@ async function confirmAdd(toId) {
   adding.value = false
 }
 
-async function removeRelation(relationId) {
+async function removeRelation(relationId: string) {
   await relStore.remove(props.entryId, relationId)
 }
 
@@ -202,7 +202,7 @@ function hideDropdown() {
   setTimeout(() => { showDropdown.value = false }, 150)
 }
 
-function navigate(id) {
+function navigate(id: string) {
   ui.setActiveEntry(id)
   router.push(`/notes/${id}`)
 }
@@ -211,7 +211,7 @@ function navigate(id) {
 <style scoped>
 .links-panel {
   width: 260px; min-width: 260px; border-left: 1px solid var(--border);
-  display: flex; flex-direction: column; overflow-y: auto; background: var(--bg-surface);
+  display: flex; flex-direction: column; overflow-y: auto; background: var(--card);
 }
 .links-section {
   padding: 12px 14px; border-bottom: 1px solid var(--border);
@@ -219,68 +219,68 @@ function navigate(id) {
 }
 .section-heading {
   font-size: 0.68em; letter-spacing: 0.12em; text-transform: uppercase;
-  color: var(--text-faint); margin-bottom: 4px; display: flex; align-items: center; gap: 6px;
+  color: var(--muted-foreground); margin-bottom: 4px; display: flex; align-items: center; gap: 6px;
 }
 .legacy-badge {
-  font-size: 0.75em; background: var(--bg-raised); border: 1px solid var(--border-light);
-  border-radius: 8px; padding: 1px 5px; text-transform: none; letter-spacing: 0; color: var(--text-faint);
+  font-size: 0.75em; background: var(--muted); border: 1px solid var(--border);
+  border-radius: 8px; padding: 1px 5px; text-transform: none; letter-spacing: 0; color: var(--muted-foreground);
 }
 .dir-label {
   font-size: 0.65em; text-transform: uppercase; letter-spacing: 0.1em;
-  color: var(--text-faint); padding: 8px 0 2px; font-weight: 600;
+  color: var(--muted-foreground); padding: 8px 0 2px; font-weight: 600;
 }
-.dir-label--in { color: var(--accent); opacity: 0.7; }
+.dir-label--in { color: var(--primary); opacity: 0.7; }
 .rel-group-label {
   font-size: 0.72em; font-weight: 600; letter-spacing: 0.04em;
-  color: var(--text-muted); margin: 4px 0 2px; font-style: italic;
+  color: var(--muted-foreground); margin: 4px 0 2px; font-style: italic;
 }
-.section-empty { font-size: 0.82em; color: var(--text-faint); padding: 2px 0; }
+.section-empty { font-size: 0.82em; color: var(--muted-foreground); padding: 2px 0; }
 .link-item { display: flex; align-items: center; gap: 6px; padding: 3px 0; }
 .link-cat { font-size: 0.9em; flex-shrink: 0; width: 18px; }
 .link-title {
-  flex: 1; background: none; border: none; color: var(--text-primary);
+  flex: 1; background: none; border: none; color: var(--foreground);
   font-family: var(--font-body); font-size: 0.88em; text-align: left;
   cursor: pointer; padding: 0; white-space: nowrap; overflow: hidden;
   text-overflow: ellipsis; transition: color var(--transition);
 }
-.link-title:hover { color: var(--accent); }
+.link-title:hover { color: var(--primary); }
 .link-remove {
-  background: none; border: none; color: var(--text-faint); font-size: 0.75em;
+  background: none; border: none; color: var(--muted-foreground); font-size: 0.75em;
   cursor: pointer; padding: 2px 4px; border-radius: var(--radius); flex-shrink: 0;
   opacity: 0; transition: opacity var(--transition), color var(--transition);
 }
 .link-item:hover .link-remove { opacity: 1; }
-.link-remove:hover { color: var(--danger); }
-.link-item--back .link-title { color: var(--text-muted); font-style: italic; }
+.link-remove:hover { color: var(--destructive); }
+.link-item--back .link-title { color: var(--muted-foreground); font-style: italic; }
 .add-rel { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
 .search-wrap { position: relative; }
 .add-btn { margin-top: 6px; width: 100%; }
 .search-input {
-  width: 100%; background: var(--bg-raised); border: 1px solid var(--border-light);
-  border-radius: var(--radius); color: var(--text-primary); font-family: var(--font-body);
+  width: 100%; background: var(--muted); border: 1px solid var(--border);
+  border-radius: var(--radius); color: var(--foreground); font-family: var(--font-body);
   font-size: 0.84em; padding: 6px 10px; outline: none;
   transition: border-color var(--transition); box-sizing: border-box;
 }
-.search-input:focus { border-color: var(--accent-dim); }
-.search-input::placeholder { color: var(--text-faint); }
+.search-input:focus { border-color: var(--secondary); }
+.search-input::placeholder { color: var(--muted-foreground); }
 .search-dropdown {
   position: absolute; top: calc(100% + 2px); left: 0; right: 0;
-  background: var(--bg-raised); border: 1px solid var(--border-light);
+  background: var(--muted); border: 1px solid var(--border);
   border-radius: var(--radius); list-style: none; z-index: 20; overflow: hidden;
-  box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+  box-shadow: 0 4px 16px rgba(0,0,0,0.12);
 }
 .search-result {
   display: flex; align-items: center; gap: 8px; padding: 7px 10px;
-  cursor: pointer; font-size: 0.86em; color: var(--text-primary);
+  cursor: pointer; font-size: 0.86em; color: var(--foreground);
   transition: background var(--transition);
 }
-.search-result:hover { background: var(--bg-hover); }
+.search-result:hover { background: var(--muted); }
 .result-cat { font-size: 0.9em; flex-shrink: 0; width: 18px; }
 .btn-ghost {
-  background: var(--bg-raised); color: var(--text-muted); border: 1px solid var(--border-light);
+  background: var(--muted); color: var(--muted-foreground); border: 1px solid var(--border);
   border-radius: var(--radius); padding: 8px 14px; cursor: pointer;
   font-size: 0.88em; transition: background var(--transition);
 }
-.btn-ghost:hover { background: var(--bg-hover); color: var(--text-primary); }
+.btn-ghost:hover { background: var(--muted); color: var(--foreground); }
 .btn-sm { padding: 4px 10px !important; font-size: 0.8em !important; }
 </style>

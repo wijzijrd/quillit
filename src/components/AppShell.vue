@@ -1,27 +1,15 @@
 <template>
-  <div class="shell">
+  <div class="grid grid-cols-[52px_1fr] h-screen">
     <SideNav />
-    <main class="main-content">
+    <main class="overflow-y-auto border-l border-[var(--border)]">
       <RouterView />
     </main>
   </div>
   <SearchOverlay />
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { RouterView } from 'vue-router'
 import SideNav from './SideNav.vue'
 import SearchOverlay from './SearchOverlay.vue'
 </script>
-
-<style scoped>
-.shell {
-  display: grid;
-  grid-template-columns: 240px 1fr;
-  height: 100vh;
-}
-.main-content {
-  overflow-y: auto;
-  border-left: 1px solid var(--border);
-}
-</style>

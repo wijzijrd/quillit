@@ -23,13 +23,13 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import EntryCard from '../components/EntryCard.vue'
 import EntryEditor from '../components/EntryEditor.vue'
-import { useEntriesStore } from '../stores/useEntriesStore.js'
-import { useUIStore } from '../stores/useUIStore.js'
+import { useEntriesStore } from '../stores/useEntriesStore'
+import { useUIStore } from '../stores/useUIStore'
 
 const entries = useEntriesStore()
 const ui = useUIStore()
@@ -51,7 +51,7 @@ const tagEntries = computed(() =>
   height: 100vh;
 }
 .entry-list {
-  background: var(--bg-surface);
+  background: var(--card);
   border-right: 1px solid var(--border);
   display: flex;
   flex-direction: column;
@@ -64,10 +64,10 @@ const tagEntries = computed(() =>
   font-family: var(--font-display);
   font-size: 0.82em;
   letter-spacing: 0.06em;
-  color: var(--text-muted);
+  color: var(--muted-foreground);
 }
-.list-title em { color: var(--text-faint); font-style: normal; }
+.list-title em { color: var(--muted-foreground); font-style: normal; }
 .list-scroll { overflow-y: auto; flex: 1; }
-.list-empty { padding: 24px 16px; color: var(--text-faint); font-size: 0.88em; }
+.list-empty { padding: 24px 16px; color: var(--muted-foreground); font-size: 0.88em; }
 .editor-panel { overflow-y: auto; }
 </style>

@@ -78,10 +78,10 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { ref, nextTick } from 'vue'
-import { useCategoriesStore } from '../stores/useCategoriesStore.js'
-import { resolveIcon, AVAILABLE_ICONS } from '../utils/categoryIcons.js'
+import { useCategoriesStore } from '../stores/useCategoriesStore'
+import { resolveIcon, AVAILABLE_ICONS } from '../utils/categoryIcons'
 
 const cats = useCategoriesStore()
 cats.init()
@@ -140,72 +140,72 @@ async function removeTag(catId, tagId) {
 </script>
 
 <style scoped>
-.admin-categories { padding: 40px 48px; max-width: 720px; margin: 0 auto; }
+.admin-categories { padding: 40px 48px; }
 .admin-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 32px; }
-.admin-header h1 { font-family: var(--font-display); font-size: 1.6em; color: var(--accent); }
+.admin-header h1 { font-family: var(--font-display); font-size: 1.6em; color: var(--primary); }
 .admin-form, .cat-edit-form {
-  background: var(--bg-raised); border: 1px solid var(--border-light);
+  background: var(--muted); border: 1px solid var(--border);
   border-radius: var(--radius); padding: 16px; margin-bottom: 20px;
   display: flex; flex-wrap: wrap; gap: 10px; align-items: center;
 }
-.admin-form h3 { width: 100%; margin: 0 0 4px; font-size: 0.9em; color: var(--text-muted); }
+.admin-form h3 { width: 100%; margin: 0 0 4px; font-size: 0.9em; color: var(--muted-foreground); }
 .admin-form input, .cat-edit-form input {
-  background: var(--bg-surface); border: 1px solid var(--border-light);
-  border-radius: var(--radius); padding: 6px 10px; color: var(--text-primary);
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 6px 10px; color: var(--foreground);
   font-family: var(--font-body); font-size: 0.9em;
 }
 .form-actions { display: flex; gap: 8px; }
 .cat-list { display: flex; flex-direction: column; gap: 12px; }
 .cat-row {
-  background: var(--bg-surface); border: 1px solid var(--border);
+  background: var(--card); border: 1px solid var(--border);
   border-radius: var(--radius); padding: 14px 16px;
 }
 .cat-row-header { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
 .cat-row-icon { flex-shrink: 0; }
 .icon-select-wrap {
   display: flex; align-items: center; gap: 6px;
-  background: var(--bg-surface); border: 1px solid var(--border-light);
+  background: var(--card); border: 1px solid var(--border);
   border-radius: var(--radius); padding: 4px 8px;
 }
-.icon-preview { color: var(--text-muted); flex-shrink: 0; }
+.icon-preview { color: var(--muted-foreground); flex-shrink: 0; }
 .icon-select {
-  background: none; border: none; color: var(--text-primary);
+  background: none; border: none; color: var(--foreground);
   font-family: var(--font-body); font-size: 0.88em; cursor: pointer; outline: none;
 }
 .cat-row-name { font-weight: 600; flex: 1; }
 .cat-row-actions { display: flex; gap: 6px; }
 .default-tags { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
-.dt-label { font-size: 0.75em; color: var(--text-faint); text-transform: uppercase; letter-spacing: 0.06em; }
+.dt-label { font-size: 0.75em; color: var(--muted-foreground); text-transform: uppercase; letter-spacing: 0.06em; }
 .dt-chip {
   display: inline-flex; align-items: center; gap: 4px;
-  background: var(--accent-dim); color: var(--accent);
+  background: var(--secondary); color: var(--primary);
   border-radius: 12px; padding: 2px 8px; font-size: 0.8em;
 }
-.dt-remove { background: none; border: none; cursor: pointer; color: var(--accent); padding: 0; line-height: 1; }
+.dt-remove { background: none; border: none; cursor: pointer; color: var(--primary); padding: 0; line-height: 1; }
 .dt-add { display: flex; gap: 6px; align-items: center; }
 .dt-add input {
-  background: var(--bg-surface); border: 1px solid var(--border-light);
+  background: var(--card); border: 1px solid var(--border);
   border-radius: var(--radius); padding: 3px 8px; font-size: 0.82em;
-  color: var(--text-primary); font-family: var(--font-body);
+  color: var(--foreground); font-family: var(--font-body);
 }
 .dt-add-btn { font-size: 0.8em; }
 .btn-primary {
-  background: var(--accent); color: var(--bg-base); border: none;
+  background: var(--primary); color: var(--background); border: none;
   border-radius: var(--radius); padding: 8px 16px; cursor: pointer; font-weight: 600;
   font-size: 0.88em; transition: opacity var(--transition);
 }
 .btn-primary:hover { opacity: 0.88; }
 .btn-ghost {
-  background: var(--bg-raised); color: var(--text-muted); border: 1px solid var(--border-light);
+  background: var(--muted); color: var(--muted-foreground); border: 1px solid var(--border);
   border-radius: var(--radius); padding: 8px 14px; cursor: pointer;
   font-size: 0.88em; transition: background var(--transition);
 }
-.btn-ghost:hover { background: var(--bg-hover); color: var(--text-primary); }
+.btn-ghost:hover { background: var(--muted); color: var(--foreground); }
 .btn-danger {
-  background: none; color: var(--danger, #e06c75); border: 1px solid var(--danger, #e06c75);
+  background: none; color: var(--destructive); border: 1px solid var(--destructive);
   border-radius: var(--radius); padding: 8px 14px; cursor: pointer; font-size: 0.88em;
   transition: background var(--transition);
 }
-.btn-danger:hover { background: rgba(224, 108, 117, 0.1); }
+.btn-danger:hover { background: rgba(220,38,38,0.1); }
 .btn-sm { padding: 4px 10px !important; font-size: 0.8em !important; }
 </style>

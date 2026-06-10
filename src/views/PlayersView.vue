@@ -72,9 +72,9 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { ref } from 'vue'
-import { useCampaignStore } from '../stores/useCampaignStore.js'
+import { useCampaignStore } from '../stores/useCampaignStore'
 
 const campaign = useCampaignStore()
 
@@ -119,15 +119,15 @@ function formatDate(ts) {
   border: none;
   font-family: var(--font-display);
   font-size: 2em;
-  color: var(--accent);
+  color: var(--primary);
   letter-spacing: 0.06em;
   outline: none;
   width: 100%;
   padding: 0;
 }
-.campaign-name-input:focus { border-bottom: 1px solid var(--accent-dim); }
+.campaign-name-input:focus { border-bottom: 1px solid var(--secondary); }
 
-.header-sub { color: var(--text-muted); margin-top: 4px; font-size: 0.95em; }
+.header-sub { color: var(--muted-foreground); margin-top: 4px; font-size: 0.95em; }
 
 .players-body { display: flex; flex-direction: column; gap: 20px; }
 
@@ -138,24 +138,24 @@ function formatDate(ts) {
 
 .add-input {
   flex: 1;
-  background: var(--bg-raised);
-  border: 1px solid var(--border-light);
+  background: var(--muted);
+  border: 1px solid var(--border);
   border-radius: var(--radius);
-  color: var(--text-primary);
+  color: var(--foreground);
   font-family: var(--font-body);
   font-size: 0.95em;
   padding: 9px 14px;
   outline: none;
   transition: border-color var(--transition);
 }
-.add-input:focus { border-color: var(--accent-dim); }
-.add-input::placeholder { color: var(--text-faint); }
+.add-input:focus { border-color: var(--secondary); }
+.add-input::placeholder { color: var(--muted-foreground); }
 
 .btn-add {
-  background: var(--accent-dim);
+  background: var(--secondary);
   border: none;
   border-radius: var(--radius);
-  color: var(--accent);
+  color: var(--primary);
   font-family: var(--font-body);
   font-size: 0.9em;
   padding: 9px 20px;
@@ -163,22 +163,22 @@ function formatDate(ts) {
   transition: background var(--transition), color var(--transition);
   white-space: nowrap;
 }
-.btn-add:hover:not(:disabled) { background: var(--accent); color: var(--bg-deep); }
+.btn-add:hover:not(:disabled) { background: var(--primary); color: var(--background); }
 .btn-add:disabled { opacity: 0.4; cursor: default; }
 
 .empty-state {
   padding: 32px;
   text-align: center;
-  color: var(--text-faint);
+  color: var(--muted-foreground);
   font-size: 0.9em;
-  border: 1px dashed var(--border-light);
+  border: 1px dashed var(--border);
   border-radius: var(--radius);
 }
 
 .player-list { display: flex; flex-direction: column; gap: 12px; }
 
 .player-card {
-  background: var(--bg-surface);
+  background: var(--card);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 16px 20px;
@@ -191,18 +191,18 @@ function formatDate(ts) {
 .player-name {
   font-family: var(--font-display);
   font-size: 1.05em;
-  color: var(--text-primary);
+  color: var(--foreground);
 }
-.player-since { font-size: 0.78em; color: var(--text-faint); }
+.player-since { font-size: 0.78em; color: var(--muted-foreground); }
 
 .share-row { display: flex; gap: 6px; align-items: center; }
 
 .share-url-input {
   flex: 1;
-  background: var(--bg-raised);
+  background: var(--muted);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  color: var(--text-muted);
+  color: var(--muted-foreground);
   font-family: monospace;
   font-size: 0.78em;
   padding: 6px 10px;
@@ -214,10 +214,10 @@ function formatDate(ts) {
 }
 
 .btn-copy, .btn-preview {
-  background: var(--bg-raised);
-  border: 1px solid var(--border-light);
+  background: var(--muted);
+  border: 1px solid var(--border);
   border-radius: var(--radius);
-  color: var(--text-muted);
+  color: var(--muted-foreground);
   font-size: 0.88em;
   padding: 6px 10px;
   cursor: pointer;
@@ -226,19 +226,19 @@ function formatDate(ts) {
   display: flex;
   align-items: center;
 }
-.btn-copy:hover, .btn-preview:hover { background: var(--bg-hover); color: var(--text-primary); }
+.btn-copy:hover, .btn-preview:hover { background: var(--muted); color: var(--foreground); }
 .btn-copy.copied { color: #8e8; border-color: rgba(80,200,120,0.4); }
 
 .btn-remove {
   align-self: flex-start;
   background: none;
   border: none;
-  color: var(--text-faint);
+  color: var(--muted-foreground);
   font-family: var(--font-body);
   font-size: 0.8em;
   cursor: pointer;
   padding: 2px 0;
   transition: color var(--transition);
 }
-.btn-remove:hover { color: var(--danger); }
+.btn-remove:hover { color: var(--destructive); }
 </style>

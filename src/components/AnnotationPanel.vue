@@ -92,17 +92,17 @@
   </aside>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { ref, computed } from 'vue'
 import { RouterLink } from 'vue-router'
-import { useAnnotationsStore } from '../stores/useAnnotationsStore.js'
-import { useCampaignStore } from '../stores/useCampaignStore.js'
+import { useAnnotationsStore } from '../stores/useAnnotationsStore'
+import { useCampaignStore } from '../stores/useCampaignStore'
 
-const props = defineProps({
-  entryId: String,
-  previewMode: Boolean,
-  pendingSelection: Object, // null | { from, to, text }
-})
+const props = defineProps<{
+  entryId?: string
+  previewMode?: boolean
+  pendingSelection: { from: number; to: number; text: string } | null
+}>()
 
 const emit = defineEmits(['apply-annotation', 'remove-annotation', 'cancel'])
 
@@ -110,20 +110,19 @@ const annotations = useAnnotationsStore()
 const campaign = useCampaignStore()
 
 const VISIBILITIES = [
-  { value: 'gm',     label: '🔒 GM Only' },
-  { value: 'player', label: '👁 Player' },
+  { value: 'gm',     label: '🔒 Private' },
   { value: 'shared', label: '👥 Shared' },
 ]
 
-const VISIBILITY_LABELS = { gm: '🔒 GM', player: '👁 Player', shared: '👥 Shared' }
+const VISIBILITY_LABELS: Record<string, string> = { gm: 'Private', shared: 'Shared', player: 'Shared' }
 
 const draftText = ref('')
 const draftVisibility = ref('gm')
-const draftSharedWith = ref([])
-const editingId = ref(null)
+const draftSharedWith = ref<string[]>([])
+const editingId = ref<string | null>(null)
 const editText = ref('')
 const editVisibility = ref('gm')
-const editSharedWith = ref([])
+const editSharedWith = ref<string[]>([])
 
 const visibleAnnotations = computed(() => {
   const list = annotations.getByEntry(props.entryId)
@@ -143,14 +142,14 @@ function saveAnnotation() {
   draftSharedWith.value = []
 }
 
-function startEdit(ann) {
+function startEdit(ann: { id: string; text: string; visibility: string; sharedWith?: string[] }) {
   editingId.value = ann.id
   editText.value = ann.text
   editVisibility.value = ann.visibility
   editSharedWith.value = ann.sharedWith ? [...ann.sharedWith] : []
 }
 
-function saveEdit(id) {
+function saveEdit(id: string) {
   annotations.updateAnnotation(id, {
     text: editText.value.trim(),
     visibility: editVisibility.value,
@@ -159,7 +158,7 @@ function saveEdit(id) {
   editingId.value = null
 }
 
-function remove(id) {
+function remove(id: string) {
   annotations.deleteAnnotation(id)
   emit('remove-annotation', id)
 }
@@ -183,7 +182,7 @@ function remove(id) {
 
 .selected-text {
   font-size: 0.82em;
-  color: var(--text-muted);
+  color: var(--muted-foreground);
   font-style: italic;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -191,10 +190,10 @@ function remove(id) {
 }
 
 .annotation-input {
-  background: var(--bg-raised);
-  border: 1px solid var(--border-light);
+  background: var(--muted);
+  border: 1px solid var(--border);
   border-radius: var(--radius);
-  color: var(--text-primary);
+  color: var(--foreground);
   font-family: var(--font-body);
   font-size: 0.88em;
   padding: 8px 10px;
@@ -202,7 +201,7 @@ function remove(id) {
   width: 100%;
   line-height: 1.5;
 }
-.annotation-input:focus { outline: none; border-color: var(--accent-dim); }
+.annotation-input:focus { outline: none; border-color: var(--secondary); }
 
 .visibility-row {
   display: flex;
@@ -215,14 +214,13 @@ function remove(id) {
   font-size: 0.75em;
   padding: 4px 2px;
   border-radius: var(--radius);
-  border: 1px solid var(--border-light);
+  border: 1px solid var(--border);
   cursor: pointer;
-  color: var(--text-muted);
+  color: var(--muted-foreground);
   transition: background var(--transition), color var(--transition), border-color var(--transition);
   user-select: none;
 }
 .vis-option.selected.vis-gm     { background: rgba(220,80,80,0.2);  border-color: rgba(220,80,80,0.5);  color: #e88; }
-.vis-option.selected.vis-player { background: rgba(80,200,120,0.2); border-color: rgba(80,200,120,0.5); color: #8e8; }
 .vis-option.selected.vis-shared { background: rgba(80,160,220,0.2); border-color: rgba(80,160,220,0.5); color: #8ae; }
 
 .form-actions {
@@ -232,35 +230,35 @@ function remove(id) {
 
 .btn-save {
   flex: 1;
-  background: var(--accent-dim);
+  background: var(--secondary);
   border: none;
   border-radius: var(--radius);
-  color: var(--accent);
+  color: var(--primary);
   font-family: var(--font-body);
   font-size: 0.84em;
   padding: 5px 10px;
   cursor: pointer;
   transition: background var(--transition);
 }
-.btn-save:hover:not(:disabled) { background: var(--accent); color: var(--bg-deep); }
+.btn-save:hover:not(:disabled) { background: var(--primary); color: var(--background); }
 .btn-save:disabled { opacity: 0.4; cursor: default; }
 
 .btn-cancel {
   background: none;
-  border: 1px solid var(--border-light);
+  border: 1px solid var(--border);
   border-radius: var(--radius);
-  color: var(--text-muted);
+  color: var(--muted-foreground);
   font-family: var(--font-body);
   font-size: 0.84em;
   padding: 5px 10px;
   cursor: pointer;
   transition: background var(--transition);
 }
-.btn-cancel:hover { background: var(--bg-hover); }
+.btn-cancel:hover { background: var(--muted); }
 
 .panel-empty {
   padding: 20px 16px;
-  color: var(--text-faint);
+  color: var(--muted-foreground);
   font-size: 0.84em;
   line-height: 1.5;
 }
@@ -289,23 +287,22 @@ function remove(id) {
   font-weight: 600;
 }
 .vis-badge.vis-gm     { background: rgba(220,80,80,0.18);  color: #e88; }
-.vis-badge.vis-player { background: rgba(80,200,120,0.18); color: #8e8; }
 .vis-badge.vis-shared { background: rgba(80,160,220,0.18); color: #8ae; }
 
 .ann-actions { display: flex; gap: 4px; }
 
 .ann-btn {
   background: none; border: none;
-  color: var(--text-faint); font-size: 0.85em;
+  color: var(--muted-foreground); font-size: 0.85em;
   cursor: pointer; padding: 2px 5px; border-radius: var(--radius);
   transition: color var(--transition), background var(--transition);
 }
-.ann-btn:hover { color: var(--text-primary); background: var(--bg-hover); }
-.ann-btn.danger:hover { color: var(--danger); background: rgba(160,48,48,0.1); }
+.ann-btn:hover { color: var(--foreground); background: var(--muted); }
+.ann-btn.danger:hover { color: var(--destructive); background: rgba(220, 38, 38, 0.1); }
 
 .ann-text {
   font-size: 0.88em;
-  color: var(--text-muted);
+  color: var(--muted-foreground);
   line-height: 1.5;
   white-space: pre-wrap;
 }
@@ -315,11 +312,11 @@ function remove(id) {
   flex-direction: column;
   gap: 4px;
 }
-.player-picker--empty { font-size: 0.82em; color: var(--text-faint); }
-.player-picker--empty a { color: var(--accent); }
+.player-picker--empty { font-size: 0.82em; color: var(--muted-foreground); }
+.player-picker--empty a { color: var(--primary); }
 .picker-label {
   font-size: 0.75em;
-  color: var(--text-faint);
+  color: var(--muted-foreground);
   text-transform: uppercase;
   letter-spacing: 0.06em;
 }
@@ -328,8 +325,8 @@ function remove(id) {
   align-items: center;
   gap: 6px;
   font-size: 0.84em;
-  color: var(--text-muted);
+  color: var(--muted-foreground);
   cursor: pointer;
 }
-.player-check input { accent-color: var(--accent); cursor: pointer; }
+.player-check input { accent-color: var(--primary); cursor: pointer; }
 </style>

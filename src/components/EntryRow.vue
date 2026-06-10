@@ -11,20 +11,24 @@
       <button class="er-btn" @click.stop="$emit('view')" title="View">
         <Eye :size="13" />
       </button>
+      <button class="er-btn er-btn--danger" @click.stop="$emit('delete')" title="Delete">
+        <Trash2 :size="13" />
+      </button>
     </div>
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { computed } from 'vue'
-import { Link2, Pencil, Eye } from 'lucide-vue-next'
-import { useCategoriesStore } from '../stores/useCategoriesStore.js'
+import { Link2, Pencil, Eye, Trash2 } from 'lucide-vue-next'
+import { useCategoriesStore } from '../stores/useCategoriesStore'
+import type { Entry } from '../types'
 
-const props = defineProps({ entry: Object })
-defineEmits(['view', 'edit', 'links'])
+const props = defineProps<{ entry: Entry }>()
+defineEmits<{ view: []; edit: []; links: []; delete: [] }>()
 
 const cats = useCategoriesStore()
-const catColor = computed(() => cats.categoryFor(props.entry?.category)?.color ?? 'var(--text-muted)')
+const catColor = computed(() => cats.categoryFor(props.entry?.category)?.color ?? 'var(--muted-foreground)')
 </script>
 
 <style scoped>
@@ -35,13 +39,16 @@ const catColor = computed(() => cats.categoryFor(props.entry?.category)?.color ?
   padding: 9px 16px 9px 32px;
   cursor: pointer;
   border-radius: var(--radius);
-  transition: background var(--transition);
+  background: var(--card);
+  border: 1px solid var(--border);
+  margin-bottom: 4px;
+  transition: background var(--transition), border-color var(--transition);
 }
-.entry-row:hover { background: var(--bg-hover); }
+.entry-row:hover { background: var(--muted); border-color: var(--secondary); }
 .er-title {
   flex: 1;
   font-size: 0.9em;
-  color: var(--text-primary);
+  color: var(--foreground);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -57,7 +64,7 @@ const catColor = computed(() => cats.categoryFor(props.entry?.category)?.color ?
 .er-btn {
   background: none;
   border: none;
-  color: var(--text-faint);
+  color: var(--muted-foreground);
   cursor: pointer;
   padding: 4px 5px;
   border-radius: var(--radius);
@@ -65,5 +72,6 @@ const catColor = computed(() => cats.categoryFor(props.entry?.category)?.color ?
   align-items: center;
   transition: color var(--transition), background var(--transition);
 }
-.er-btn:hover { color: var(--text-primary); background: var(--bg-raised); }
+.er-btn:hover { color: var(--foreground); background: var(--muted); }
+.er-btn--danger:hover { color: var(--destructive); background: rgba(220, 38, 38, 0.1); }
 </style>

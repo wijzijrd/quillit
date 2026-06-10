@@ -24,10 +24,10 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { ref } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { useAuthStore } from '../stores/useAuthStore.js'
+import { useAuthStore } from '../stores/useAuthStore'
 
 const router = useRouter()
 const route = useRoute()
@@ -60,11 +60,11 @@ async function submit() {
   align-items: center;
   justify-content: center;
   min-height: 100vh;
-  background: var(--bg-deep);
+  background: var(--background);
 }
 .auth-card {
   width: 360px;
-  background: var(--bg-surface);
+  background: var(--card);
   border: 1px solid var(--border);
   border-radius: calc(var(--radius) * 2);
   padding: var(--space-3xl) var(--space-2xl);
@@ -74,25 +74,25 @@ async function submit() {
 }
 .auth-brand {
   font-family: var(--font-display);
-  color: var(--accent);
+  color: var(--primary);
   font-size: var(--text-md);
   letter-spacing: 0.08em;
 }
 .auth-title {
   font-family: var(--font-display);
   font-size: var(--text-2xl);
-  color: var(--text-primary);
+  color: var(--foreground);
   font-weight: 400;
   margin: 0;
 }
 .auth-form { display: flex; flex-direction: column; gap: var(--space-md); }
 .auth-field { display: flex; flex-direction: column; gap: 4px; }
-.auth-label { font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-faint); }
+.auth-label { font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted-foreground); }
 .auth-input {
-  background: var(--bg-raised);
-  border: 1px solid var(--border-light);
+  background: var(--muted);
+  border: 1px solid var(--border);
   border-radius: var(--radius);
-  color: var(--text-primary);
+  color: var(--foreground);
   font-family: var(--font-body);
   font-size: var(--text-md);
   height: var(--h-md);
@@ -100,23 +100,23 @@ async function submit() {
   outline: none;
   transition: border-color var(--transition);
 }
-.auth-input:focus { border-color: var(--accent-dim); }
-.auth-error { font-size: var(--text-sm); color: var(--danger); margin: 0; }
+.auth-input:focus { border-color: var(--secondary); }
+.auth-error { font-size: var(--text-sm); color: var(--destructive); margin: 0; }
 .auth-btn {
   height: var(--h-md);
-  background: var(--accent-dim);
+  background: var(--secondary);
   border: none;
   border-radius: var(--radius);
-  color: var(--accent);
+  color: var(--primary);
   font-family: var(--font-body);
   font-size: var(--text-md);
   cursor: pointer;
   transition: background var(--transition);
   margin-top: var(--space-xs);
 }
-.auth-btn:hover { background: var(--accent); color: var(--bg-deep); }
+.auth-btn:hover { background: var(--primary); color: var(--background); }
 .auth-btn:disabled { opacity: 0.5; cursor: default; }
-.auth-footer { font-size: var(--text-sm); color: var(--text-faint); margin: 0; text-align: center; }
-.auth-link { color: var(--accent); text-decoration: none; }
+.auth-footer { font-size: var(--text-sm); color: var(--muted-foreground); margin: 0; text-align: center; }
+.auth-link { color: var(--primary); text-decoration: none; }
 .auth-link:hover { text-decoration: underline; }
 </style>

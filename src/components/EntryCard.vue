@@ -11,17 +11,18 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { computed } from 'vue'
 import { Globe } from 'lucide-vue-next'
-import { useUIStore } from '../stores/useUIStore.js'
+import { useUIStore } from '../stores/useUIStore'
+import type { Entry } from '../types'
 
-const props = defineProps({ entry: Object })
-const emit = defineEmits(['select'])
+const props = defineProps<{ entry: Entry }>()
+const emit = defineEmits<{ select: [] }>()
 const ui = useUIStore()
 const isActive = computed(() => ui.activeEntryId === props.entry.id)
 
-function timeAgo(ts) {
+function timeAgo(ts: number): string {
   const diff = Date.now() - ts
   const m = Math.floor(diff / 60000)
   if (m < 1) return 'just now'
@@ -39,20 +40,20 @@ function timeAgo(ts) {
   cursor: pointer;
   transition: background var(--transition);
 }
-.entry-card:hover { background: var(--bg-hover); }
-.entry-card.active { background: var(--bg-raised); border-left: 2px solid var(--accent); }
+.entry-card:hover { background: var(--muted); }
+.entry-card.active { background: var(--muted); border-left: 2px solid var(--primary); }
 .card-header { margin-bottom: var(--space-xs); display: flex; align-items: center; justify-content: space-between; }
 .cat-badge { font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.1em; font-weight: 600; }
-.vis-indicator { color: var(--text-faint); opacity: 0.7; }
+.vis-indicator { color: var(--muted-foreground); opacity: 0.7; }
 .card-title {
   font-family: var(--font-display);
   font-size: var(--text-md);
   font-weight: 400;
-  color: var(--text-primary);
+  color: var(--foreground);
   margin-bottom: var(--space-xs);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.card-date { font-size: var(--text-sm); color: var(--text-faint); }
+.card-date { font-size: var(--text-sm); color: var(--muted-foreground); }
 </style>

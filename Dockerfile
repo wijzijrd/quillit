@@ -1,9 +1,11 @@
 FROM node:22-alpine AS build
 WORKDIR /app
 COPY package*.json ./
-RUN npm install --prefer-offline
+RUN --mount=type=cache,target=/root/.npm \
+    npm install --prefer-offline
 COPY . .
-RUN npm run build
+RUN --mount=type=cache,target=/app/node_modules/.vite \
+    npm run build
 
 FROM nginx:alpine
 COPY --from=build /app/dist /usr/share/nginx/html

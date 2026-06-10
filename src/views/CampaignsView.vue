@@ -71,10 +71,10 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { ref, reactive } from 'vue'
 import { Plus, ChevronRight, Pencil, Trash2, Copy, X, UserPlus } from 'lucide-vue-next'
-import { useCampaignStore } from '../stores/useCampaignStore.js'
+import { useCampaignStore } from '../stores/useCampaignStore'
 
 const campaign = useCampaignStore()
 
@@ -128,8 +128,6 @@ function copyLink(player, camp) {
 
 <style scoped>
 .campaigns-view {
-  max-width: 680px;
-  margin: 0 auto;
   padding: var(--space-2xl);
 }
 
@@ -137,33 +135,33 @@ function copyLink(player, camp) {
 .cv-title {
   font-family: var(--font-display);
   font-size: var(--text-2xl);
-  color: var(--text-primary);
+  color: var(--foreground);
   margin-bottom: var(--space-md);
 }
 .cv-add-row { display: flex; gap: var(--space-sm); }
 .cv-name-input {
   flex: 1;
-  background: var(--bg-raised);
-  border: 1px solid var(--border-light);
+  background: var(--muted);
+  border: 1px solid var(--border);
   border-radius: var(--radius);
-  color: var(--text-primary);
+  color: var(--foreground);
   font-family: var(--font-body);
   font-size: var(--text-md);
   height: var(--h-md);
   padding: 0 var(--space-sm);
   outline: none;
 }
-.cv-name-input:focus { border-color: var(--accent-dim); }
+.cv-name-input:focus { border-color: var(--secondary); }
 .cv-add-btn {
   display: inline-flex;
   align-items: center;
   gap: var(--space-xs);
   height: var(--h-md);
   padding: 0 var(--space-md);
-  background: var(--accent-dim);
+  background: var(--secondary);
   border: none;
   border-radius: var(--radius);
-  color: var(--accent);
+  color: var(--primary);
   font-family: var(--font-body);
   font-size: var(--text-sm);
   cursor: pointer;
@@ -173,8 +171,8 @@ function copyLink(player, camp) {
 .cv-list { display: flex; flex-direction: column; gap: var(--space-sm); }
 
 .cv-campaign {
-  background: var(--bg-raised);
-  border: 1px solid var(--border-light);
+  background: var(--muted);
+  border: 1px solid var(--border);
   border-radius: var(--radius);
   overflow: hidden;
 }
@@ -188,28 +186,28 @@ function copyLink(player, camp) {
   cursor: pointer;
   transition: background var(--transition);
 }
-.cvc-header:hover { background: var(--bg-hover); }
+.cvc-header:hover { background: var(--muted); }
 
 .cvc-left { display: flex; align-items: center; gap: var(--space-xs); flex: 1; min-width: 0; }
 .cvc-chevron {
-  color: var(--text-faint);
+  color: var(--muted-foreground);
   flex-shrink: 0;
   transition: transform 180ms ease;
 }
 .cvc-chevron.expanded { transform: rotate(90deg); }
 .cvc-name {
   font-size: var(--text-md);
-  color: var(--text-primary);
+  color: var(--foreground);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 .cvc-rename-input {
   flex: 1;
-  background: var(--bg-surface);
-  border: 1px solid var(--accent-dim);
+  background: var(--card);
+  border: 1px solid var(--secondary);
   border-radius: var(--radius);
-  color: var(--text-primary);
+  color: var(--foreground);
   font-family: var(--font-body);
   font-size: var(--text-md);
   height: var(--h-sm);
@@ -218,7 +216,7 @@ function copyLink(player, camp) {
 }
 
 .cvc-actions { display: flex; align-items: center; gap: var(--space-xs); flex-shrink: 0; }
-.cvc-player-count { font-size: var(--text-xs); color: var(--text-faint); margin-right: var(--space-xs); }
+.cvc-player-count { font-size: var(--text-xs); color: var(--muted-foreground); margin-right: var(--space-xs); }
 .cvc-btn {
   display: inline-flex;
   align-items: center;
@@ -227,13 +225,13 @@ function copyLink(player, camp) {
   width: var(--h-xs);
   background: none;
   border: none;
-  color: var(--text-faint);
+  color: var(--muted-foreground);
   cursor: pointer;
   border-radius: var(--radius);
   transition: color var(--transition), background var(--transition);
 }
-.cvc-btn:hover { color: var(--text-muted); background: var(--bg-hover); }
-.cvc-btn.danger:hover { color: var(--danger); }
+.cvc-btn:hover { color: var(--muted-foreground); background: var(--muted); }
+.cvc-btn.danger:hover { color: var(--destructive); }
 
 .cvc-players {
   border-top: 1px solid var(--border);
@@ -251,49 +249,49 @@ function copyLink(player, camp) {
   padding: 0 var(--space-xs);
   border-radius: var(--radius);
 }
-.cvp-row:hover { background: var(--bg-hover); }
-.cvp-name { font-size: var(--text-sm); color: var(--text-muted); }
+.cvp-row:hover { background: var(--muted); }
+.cvp-name { font-size: var(--text-sm); color: var(--muted-foreground); }
 .cvp-actions { display: flex; gap: var(--space-xs); }
 
 .cvp-add-row { display: flex; gap: var(--space-xs); margin-top: var(--space-xs); }
 .cvp-input {
   flex: 1;
-  background: var(--bg-surface);
-  border: 1px solid var(--border-light);
+  background: var(--card);
+  border: 1px solid var(--border);
   border-radius: var(--radius);
-  color: var(--text-primary);
+  color: var(--foreground);
   font-family: var(--font-body);
   font-size: var(--text-sm);
   height: var(--h-sm);
   padding: 0 var(--space-sm);
   outline: none;
 }
-.cvp-input:focus { border-color: var(--accent-dim); }
+.cvp-input:focus { border-color: var(--secondary); }
 .cvp-add-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   height: var(--h-sm);
   width: var(--h-sm);
-  background: var(--accent-dim);
+  background: var(--secondary);
   border: none;
   border-radius: var(--radius);
-  color: var(--accent);
+  color: var(--primary);
   cursor: pointer;
 }
 .cvp-add-btn:disabled { opacity: 0.4; cursor: default; }
 
-.cv-empty { color: var(--text-faint); font-size: var(--text-sm); padding: var(--space-md) 0; }
+.cv-empty { color: var(--muted-foreground); font-size: var(--text-sm); padding: var(--space-md) 0; }
 
 .cv-toast {
   position: fixed;
   bottom: var(--space-xl);
   left: 50%;
   transform: translateX(-50%);
-  background: var(--bg-raised);
-  border: 1px solid var(--border-light);
+  background: var(--muted);
+  border: 1px solid var(--border);
   border-radius: var(--radius);
-  color: var(--text-primary);
+  color: var(--foreground);
   font-size: var(--text-sm);
   padding: var(--space-xs) var(--space-md);
   pointer-events: none;

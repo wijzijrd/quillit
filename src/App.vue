@@ -2,28 +2,15 @@
   <AppShell />
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { onMounted, onUnmounted } from 'vue'
 import AppShell from './components/AppShell.vue'
-import { useAnnotationsStore } from './stores/useAnnotationsStore.js'
-import { useCampaignStore } from './stores/useCampaignStore.js'
-import { useProjectStore } from './stores/useProjectStore.js'
-import { useAuthStore } from './stores/useAuthStore.js'
-import { useUIStore } from './stores/useUIStore.js'
+import { useUIStore } from './stores/useUIStore'
 
-const auth = useAuthStore()
-const annotations = useAnnotationsStore()
-const campaign = useCampaignStore()
-const projects = useProjectStore()
 const ui = useUIStore()
 
-onMounted(async () => {
-  await auth.fetchMe()
-  if (auth.isLoggedIn) {
-    annotations.init()
-    campaign.init()
-    projects.init()
-  }
+onMounted(() => {
+  ui.initTheme()
   window.addEventListener('keydown', onKeydown)
 })
 onUnmounted(() => window.removeEventListener('keydown', onKeydown))

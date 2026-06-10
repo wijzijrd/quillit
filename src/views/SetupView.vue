@@ -37,11 +37,11 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { useAuthStore } from '../stores/useAuthStore.js'
-import { useProjectStore } from '../stores/useProjectStore.js'
+import { useAuthStore } from '../stores/useAuthStore'
+import { useProjectStore } from '../stores/useProjectStore'
 
 const router = useRouter()
 const route = useRoute()
@@ -113,42 +113,42 @@ async function submit() {
 <style scoped>
 .auth-shell {
   display: flex; align-items: center; justify-content: center;
-  min-height: 100vh; background: var(--bg-deep);
+  min-height: 100vh; background: var(--background);
 }
 .auth-card {
-  width: 360px; background: var(--bg-surface);
+  width: 360px; background: var(--card);
   border: 1px solid var(--border); border-radius: calc(var(--radius) * 2);
   padding: var(--space-3xl) var(--space-2xl);
   display: flex; flex-direction: column; gap: var(--space-lg);
 }
-.auth-brand { font-family: var(--font-display); color: var(--accent); font-size: var(--text-md); letter-spacing: 0.08em; }
-.auth-title { font-family: var(--font-display); font-size: var(--text-2xl); color: var(--text-primary); font-weight: 400; margin: 0; }
+.auth-brand { font-family: var(--font-display); color: var(--primary); font-size: var(--text-md); letter-spacing: 0.08em; }
+.auth-title { font-family: var(--font-display); font-size: var(--text-2xl); color: var(--foreground); font-weight: 400; margin: 0; }
 .invite-notice {
-  background: color-mix(in srgb, var(--accent) 10%, var(--bg-raised));
-  border: 1px solid var(--accent-dim); border-radius: var(--radius);
-  padding: 10px 14px; font-size: var(--text-sm); color: var(--text-primary);
+  background: color-mix(in srgb, var(--primary) 10%, var(--muted));
+  border: 1px solid var(--secondary); border-radius: var(--radius);
+  padding: 10px 14px; font-size: var(--text-sm); color: var(--foreground);
 }
 .auth-form { display: flex; flex-direction: column; gap: var(--space-md); }
 .auth-field { display: flex; flex-direction: column; gap: 4px; }
-.auth-label { font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-faint); }
+.auth-label { font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted-foreground); }
 .auth-input {
-  background: var(--bg-raised); border: 1px solid var(--border-light);
-  border-radius: var(--radius); color: var(--text-primary);
+  background: var(--muted); border: 1px solid var(--border);
+  border-radius: var(--radius); color: var(--foreground);
   font-family: var(--font-body); font-size: var(--text-md);
   height: var(--h-md); padding: 0 var(--space-sm); outline: none;
   transition: border-color var(--transition);
 }
-.auth-input:focus { border-color: var(--accent-dim); }
-.auth-error { font-size: var(--text-sm); color: var(--danger); margin: 0; }
+.auth-input:focus { border-color: var(--secondary); }
+.auth-error { font-size: var(--text-sm); color: var(--destructive); margin: 0; }
 .auth-btn {
-  height: var(--h-md); background: var(--accent-dim); border: none;
-  border-radius: var(--radius); color: var(--accent);
+  height: var(--h-md); background: var(--secondary); border: none;
+  border-radius: var(--radius); color: var(--primary);
   font-family: var(--font-body); font-size: var(--text-md); cursor: pointer;
   transition: background var(--transition); margin-top: var(--space-xs);
 }
-.auth-btn:hover { background: var(--accent); color: var(--bg-deep); }
+.auth-btn:hover { background: var(--primary); color: var(--background); }
 .auth-btn:disabled { opacity: 0.5; cursor: default; }
-.auth-footer { font-size: var(--text-sm); color: var(--text-faint); margin: 0; text-align: center; }
-.auth-link { color: var(--accent); text-decoration: none; }
+.auth-footer { font-size: var(--text-sm); color: var(--muted-foreground); margin: 0; text-align: center; }
+.auth-link { color: var(--primary); text-decoration: none; }
 .auth-link:hover { text-decoration: underline; }
 </style>

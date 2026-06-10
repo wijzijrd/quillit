@@ -39,9 +39,12 @@
             class="recent-item"
             @click="ui.setActiveEntry(entry.id)"
           >
-            <span class="ri-cat" :style="{ color: cats.categoryFor(entry.category)?.color ?? 'var(--text-muted)' }">
-              {{ entry.category }}
-            </span>
+            <component
+              :is="resolveIcon(cats.categoryFor(entry.category)?.icon ?? '')"
+              :size="14"
+              class="ri-cat"
+              :style="{ color: cats.categoryFor(entry.category)?.color ?? 'var(--muted-foreground)' }"
+            />
             <span class="ri-title">{{ entry.title }}</span>
           </RouterLink>
           <p v-if="searchResults.length === 0" class="no-recent">No entries match your search.</p>
@@ -54,9 +57,12 @@
             class="recent-item"
             @click="ui.setActiveEntry(entry.id)"
           >
-            <span class="ri-cat" :style="{ color: cats.categoryFor(entry.category)?.color ?? 'var(--text-muted)' }">
-              {{ entry.category }}
-            </span>
+            <component
+              :is="resolveIcon(cats.categoryFor(entry.category)?.icon ?? '')"
+              :size="14"
+              class="ri-cat"
+              :style="{ color: cats.categoryFor(entry.category)?.color ?? 'var(--muted-foreground)' }"
+            />
             <span class="ri-title">{{ entry.title }}</span>
           </RouterLink>
           <p v-if="recent.length === 0" class="no-recent">
@@ -95,7 +101,7 @@
       </div>
 
       <div class="project-grid" v-if="projectStore.projects.length > 0">
-        <div class="project-card" v-for="p in projectStore.projects" :key="p.id">
+        <div class="project-card" v-for="p in projectStore.projects" :key="p.id" @click="router.push('/projects/' + p.id + '/notes')">
           <div class="pc-top">
             <span class="pc-type-badge">{{ p.type }}</span>
             <span class="pc-role-badge" v-if="p.myRole">{{ displayRole(p.myRole, p.roleLabels) }}</span>
@@ -103,8 +109,8 @@
           <h3 class="pc-name">{{ p.name }}</h3>
           <p class="pc-meta">{{ p.memberCount }} {{ p.memberCount === 1 ? 'member' : 'members' }}</p>
           <div class="pc-actions">
-            <button class="btn-ghost btn-xs" @click="openProjectInvite(p)">Invite</button>
-            <button class="btn-danger-xs" @click="confirmDeleteProject(p)" v-if="isEditorOf(p)">Delete</button>
+            <button class="btn-ghost btn-xs" @click.stop="openProjectInvite(p)">Invite</button>
+            <button class="btn-danger-xs" @click.stop="confirmDeleteProject(p)" v-if="isEditorOf(p)">Delete</button>
           </div>
           <!-- Invite link display -->
           <div class="pc-invite-row" v-if="activeInviteProject === p.id && pendingInviteLink">
@@ -123,21 +129,23 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { RouterLink } from 'vue-router'
 import { Download, Upload, Search } from 'lucide-vue-next'
-import { useEntriesStore } from '../stores/useEntriesStore.js'
-import { useCategoriesStore } from '../stores/useCategoriesStore.js'
-import { useAnnotationsStore } from '../stores/useAnnotationsStore.js'
-import { useCampaignStore } from '../stores/useCampaignStore.js'
-import { useProjectStore } from '../stores/useProjectStore.js'
-import { useAuthStore } from '../stores/useAuthStore.js'
-import { useUIStore } from '../stores/useUIStore.js'
-import { api } from '../api/client.js'
+import { resolveIcon } from '../utils/categoryIcons'
+import { useEntriesStore } from '../stores/useEntriesStore'
+import { useCategoriesStore } from '../stores/useCategoriesStore'
+import { useAnnotationsStore } from '../stores/useAnnotationsStore'
+import { useCampaignStore } from '../stores/useCampaignStore'
+import { useProjectStore } from '../stores/useProjectStore'
+import { useAuthStore } from '../stores/useAuthStore'
+import { useUIStore } from '../stores/useUIStore'
+import { api } from '../api/client'
 
 const route = useRoute()
+const router = useRouter()
 const entries = useEntriesStore()
 const cats = useCategoriesStore()
 const annotations = useAnnotationsStore()
@@ -267,129 +275,130 @@ async function handleImport(e) {
 </script>
 
 <style scoped>
-.dashboard { padding: 40px 48px; max-width: 900px; margin: 0 auto; }
+.dashboard { padding: 40px 48px; }
 .dash-header { margin-bottom: 0; }
 .dash-title-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
-.dash-header h1 { font-family: var(--font-display); font-size: 2em; color: var(--accent); letter-spacing: 0.06em; }
-.dash-sub { color: var(--text-muted); margin-top: 4px; }
+.dash-header h1 { font-family: var(--font-display); font-size: 2em; color: var(--primary); letter-spacing: 0.06em; }
+.dash-sub { color: var(--muted-foreground); margin-top: 4px; }
 .dash-actions { display: flex; gap: 8px; align-items: center; padding-top: 6px; }
 .btn-icon {
   display: inline-flex; align-items: center; justify-content: center;
   width: 32px; height: 32px;
-  background: var(--bg-raised);
-  border: 1px solid var(--border-light);
+  background: var(--muted);
+  border: 1px solid var(--border);
   border-radius: var(--radius);
-  color: var(--text-muted); cursor: pointer;
+  color: var(--muted-foreground); cursor: pointer;
   transition: background var(--transition), color var(--transition);
 }
-.btn-icon:hover { background: var(--bg-hover); color: var(--text-primary); }
+.btn-icon:hover { background: var(--muted); color: var(--foreground); }
 
 .dash-search {
   position: relative; display: flex; align-items: center;
   gap: 8px; margin-top: 16px; margin-bottom: 28px;
-  background: var(--bg-raised); border: 1px solid var(--border-light);
+  background: var(--muted); border: 1px solid var(--border);
   border-radius: var(--radius); padding: 6px 12px;
 }
-.dash-search-icon { color: var(--text-faint); flex-shrink: 0; }
+.dash-search-icon { color: var(--muted-foreground); flex-shrink: 0; }
 .dash-search-input {
   flex: 1; background: none; border: none; outline: none;
-  color: var(--text-primary); font-family: var(--font-body); font-size: 0.9em;
+  color: var(--foreground); font-family: var(--font-body); font-size: 0.9em;
 }
-.dash-search-input::placeholder { color: var(--text-faint); }
+.dash-search-input::placeholder { color: var(--muted-foreground); }
 
-.recent-section h2 { font-family: var(--font-display); font-size: 0.9em; letter-spacing: 0.08em; color: var(--text-muted); text-transform: uppercase; margin-bottom: 12px; }
+.recent-section h2 { font-family: var(--font-display); font-size: 0.9em; letter-spacing: 0.08em; color: var(--muted-foreground); text-transform: uppercase; margin-bottom: 12px; }
 .recent-list { display: flex; flex-direction: column; gap: 2px; }
 .recent-item {
   display: flex; align-items: center; gap: 14px;
   padding: 10px 14px; border-radius: var(--radius);
   text-decoration: none; transition: background var(--transition);
 }
-.recent-item:hover { background: var(--bg-raised); }
-.ri-cat { font-size: 0.72em; text-transform: uppercase; letter-spacing: 0.1em; font-weight: 600; width: 64px; flex-shrink: 0; }
-.ri-title { color: var(--text-primary); font-size: 0.95em; }
-.no-recent { color: var(--text-faint); font-size: 0.9em; padding: 8px 14px; }
-.no-recent a { color: var(--accent); }
+.recent-item:hover { background: var(--muted); }
+.ri-cat { width: 20px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; }
+.ri-title { color: var(--foreground); font-size: 0.95em; }
+.no-recent { color: var(--muted-foreground); font-size: 0.9em; padding: 8px 14px; }
+.no-recent a { color: var(--primary); }
 
 /* Projects section */
 .projects-section { margin-top: 48px; }
 .projects-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
-.projects-header h2 { font-family: var(--font-display); font-size: 0.9em; letter-spacing: 0.08em; color: var(--text-muted); text-transform: uppercase; }
+.projects-header h2 { font-family: var(--font-display); font-size: 0.9em; letter-spacing: 0.08em; color: var(--muted-foreground); text-transform: uppercase; }
 .btn-sm-primary {
-  background: var(--accent-dim); color: var(--accent); border: none;
+  background: var(--secondary); color: var(--primary); border: none;
   border-radius: var(--radius); padding: 5px 12px; font-size: 0.82em;
   cursor: pointer; transition: background var(--transition);
 }
-.btn-sm-primary:hover { background: var(--accent); color: var(--bg-deep); }
+.btn-sm-primary:hover { background: var(--primary); color: var(--background); }
 
 .project-form {
-  background: var(--bg-raised); border: 1px solid var(--border-light);
+  background: var(--muted); border: 1px solid var(--border);
   border-radius: var(--radius); padding: 16px; margin-bottom: 20px;
   display: flex; flex-wrap: wrap; gap: 10px; align-items: center;
 }
 .pf-input, .pf-select {
-  background: var(--bg-surface); border: 1px solid var(--border-light);
+  background: var(--card); border: 1px solid var(--border);
   border-radius: var(--radius); padding: 6px 10px;
-  color: var(--text-primary); font-family: var(--font-body); font-size: 0.9em;
+  color: var(--foreground); font-family: var(--font-body); font-size: 0.9em;
 }
 .pf-input { flex: 1; min-width: 160px; }
 .pf-actions { display: flex; gap: 8px; }
 
 .invite-banner {
   display: flex; align-items: center; gap: 12px;
-  background: color-mix(in srgb, var(--accent) 10%, var(--bg-raised));
-  border: 1px solid var(--accent-dim); border-radius: var(--radius);
-  padding: 10px 16px; margin-bottom: 16px; font-size: 0.88em; color: var(--text-primary);
+  background: color-mix(in srgb, var(--primary) 10%, var(--muted));
+  border: 1px solid var(--secondary); border-radius: var(--radius);
+  padding: 10px 16px; margin-bottom: 16px; font-size: 0.88em; color: var(--foreground);
 }
 .btn-xs { padding: 3px 8px !important; font-size: 0.78em !important; }
 
 .project-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 14px; }
 .project-card {
-  background: var(--bg-surface); border: 1px solid var(--border);
+  background: var(--card); border: 1px solid var(--border);
   border-radius: var(--radius); padding: 16px;
   display: flex; flex-direction: column; gap: 8px;
   transition: border-color var(--transition);
+  cursor: pointer;
 }
-.project-card:hover { border-color: var(--border-light); }
+.project-card:hover { border-color: var(--primary); }
 .pc-top { display: flex; align-items: center; gap: 6px; }
 .pc-type-badge {
   font-size: 0.65em; text-transform: uppercase; letter-spacing: 0.1em;
-  background: var(--bg-raised); color: var(--text-faint);
+  background: var(--muted); color: var(--muted-foreground);
   border-radius: 4px; padding: 2px 6px;
 }
 .pc-role-badge {
   font-size: 0.65em; text-transform: uppercase; letter-spacing: 0.08em;
-  background: var(--accent-dim); color: var(--accent);
+  background: var(--secondary); color: var(--primary);
   border-radius: 4px; padding: 2px 6px;
 }
-.pc-name { font-family: var(--font-display); font-size: 1em; color: var(--text-primary); margin: 0; font-weight: 400; }
-.pc-meta { font-size: 0.78em; color: var(--text-faint); margin: 0; }
+.pc-name { font-family: var(--font-display); font-size: 1em; color: var(--foreground); margin: 0; font-weight: 400; }
+.pc-meta { font-size: 0.78em; color: var(--muted-foreground); margin: 0; }
 .pc-actions { display: flex; gap: 6px; margin-top: 4px; }
 .btn-ghost {
-  background: var(--bg-raised); color: var(--text-muted); border: 1px solid var(--border-light);
+  background: var(--muted); color: var(--muted-foreground); border: 1px solid var(--border);
   border-radius: var(--radius); padding: 6px 12px; cursor: pointer;
   font-size: 0.85em; transition: background var(--transition);
 }
-.btn-ghost:hover { background: var(--bg-hover); color: var(--text-primary); }
+.btn-ghost:hover { background: var(--muted); color: var(--foreground); }
 .btn-primary {
-  background: var(--accent); color: var(--bg-base); border: none;
+  background: var(--primary); color: var(--background); border: none;
   border-radius: var(--radius); padding: 6px 14px; cursor: pointer;
   font-weight: 600; font-size: 0.88em; transition: opacity var(--transition);
 }
 .btn-primary:hover { opacity: 0.88; }
 .btn-primary:disabled { opacity: 0.4; cursor: default; }
 .btn-danger-xs {
-  background: none; color: var(--danger); border: 1px solid var(--danger);
+  background: none; color: var(--destructive); border: 1px solid var(--destructive);
   border-radius: var(--radius); padding: 3px 8px; font-size: 0.78em; cursor: pointer;
   transition: background var(--transition);
 }
-.btn-danger-xs:hover { background: rgba(160,48,48,0.12); }
+.btn-danger-xs:hover { background: rgba(220,38,38,0.1); }
 .pc-invite-row { display: flex; gap: 6px; align-items: center; margin-top: 4px; }
 .pc-invite-input {
-  flex: 1; background: var(--bg-raised); border: 1px solid var(--border-light);
+  flex: 1; background: var(--muted); border: 1px solid var(--border);
   border-radius: var(--radius); padding: 4px 8px; font-size: 0.75em;
-  color: var(--text-muted); cursor: pointer;
+  color: var(--muted-foreground); cursor: pointer;
 }
 
-.no-projects { color: var(--text-faint); font-size: 0.9em; padding: 24px 0; }
-.import-error { margin-top: 12px; color: var(--danger); font-size: 0.88em; }
+.no-projects { color: var(--muted-foreground); font-size: 0.9em; padding: 24px 0; }
+.import-error { margin-top: 12px; color: var(--destructive); font-size: 0.88em; }
 </style>
