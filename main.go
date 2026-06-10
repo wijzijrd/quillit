@@ -7,6 +7,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net/http"
@@ -23,6 +24,7 @@ import (
 	"github.com/quillit/svc/internal/handler"
 	"github.com/quillit/svc/internal/middleware"
 	"github.com/quillit/svc/internal/session"
+	"github.com/quillit/svc/internal/storage"
 )
 
 func main() {
@@ -41,11 +43,25 @@ func main() {
 
 	sessions := session.NewStore(database, cookieSecure)
 
+	// MinIO blob storage (optional — gracefully skipped if not configured).
+	var blobs *storage.MinioStore
+	if os.Getenv("MINIO_ENDPOINT") != "" {
+		store, err := storage.NewMinio()
+		if err != nil {
+			log.Printf("minio: init failed (%v) — blob storage disabled", err)
+		} else if err := store.EnsureBucket(context.Background()); err != nil {
+			log.Printf("minio: bucket init failed (%v) — blob storage disabled", err)
+		} else {
+			blobs = store
+			log.Printf("minio: blob storage enabled")
+		}
+	}
+
 	auth := handler.NewAuth(authURL, sessions, jwtSecret)
 	admin := handler.NewAdmin(database, jwtSecret, authURL)
 	campaigns := handler.NewCampaigns(database)
 	projects := handler.NewProjects(database, jwtSecret)
-	entries := handler.NewEntries(database, jwtSecret)
+	entries := handler.NewEntriesWithBlobs(database, jwtSecret, blobs)
 	entryShares := handler.NewEntryShares(database, jwtSecret, authURL)
 	annotations := handler.NewAnnotations(database, jwtSecret)
 	member := handler.NewMember(database, jwtSecret)
@@ -83,6 +99,7 @@ func main() {
 		r.Post("/api/entries", entries.Create)
 		r.Patch("/api/entries/{id}", entries.Update)
 		r.Delete("/api/entries/{id}", entries.Delete)
+		r.Post("/api/entries/{id}/images", entries.UploadImage)
 
 		r.Get("/api/entries/{id}/shares", entryShares.ListShares)
 		r.Post("/api/entries/{id}/shares", entryShares.AddShares)

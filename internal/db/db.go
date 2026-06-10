@@ -56,6 +56,11 @@ func migrate(db *sql.DB) error {
 			return fmt.Errorf("schema v2: %w", err)
 		}
 	}
+	if version < 3 {
+		if err := toV3(db); err != nil {
+			return fmt.Errorf("schema v3: %w", err)
+		}
+	}
 	return nil
 }
 
@@ -336,6 +341,25 @@ func toV2(db *sql.DB) error {
 	}
 
 	if _, err := tx.Exec(`PRAGMA user_version = 2`); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func toV3(db *sql.DB) error {
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	// body_key stores the MinIO object key for entries whose body lives in blob storage.
+	// Null means the body is stored inline in the body column (legacy).
+	if err := addColumnIfMissing(tx, "entries", "body_key", "TEXT"); err != nil {
+		return fmt.Errorf("add body_key column: %w", err)
+	}
+
+	if _, err := tx.Exec(`PRAGMA user_version = 3`); err != nil {
 		return err
 	}
 	return tx.Commit()
