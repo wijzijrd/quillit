@@ -1,0 +1,882 @@
+basePath: /
+definitions:
+  handler.AddPlayerRequest:
+    properties:
+      name:
+        type: string
+    type: object
+  handler.Annotation:
+    properties:
+      createdAt:
+        type: integer
+      entryId:
+        type: string
+      id:
+        type: string
+      sharedWith:
+        type: string
+      text:
+        type: string
+      updatedAt:
+        type: integer
+      visibility:
+        type: string
+    type: object
+  handler.AuthLoginRequest:
+    properties:
+      email:
+        type: string
+      password:
+        type: string
+    type: object
+  handler.AuthRegisterRequest:
+    properties:
+      email:
+        type: string
+      password:
+        type: string
+      username:
+        type: string
+    type: object
+  handler.AuthStatusResponse:
+    properties:
+      registered:
+        type: boolean
+    type: object
+  handler.Campaign:
+    properties:
+      createdAt:
+        type: integer
+      id:
+        type: string
+      name:
+        type: string
+      players:
+        items:
+          $ref: '#/definitions/handler.Player'
+        type: array
+    type: object
+  handler.CreateAnnotationRequest:
+    properties:
+      entryId:
+        type: string
+      sharedWith:
+        type: string
+      text:
+        type: string
+      visibility:
+        type: string
+    type: object
+  handler.CreateCampaignRequest:
+    properties:
+      name:
+        type: string
+    type: object
+  handler.CreateEntryRequest:
+    properties:
+      body:
+        type: string
+      campaignIds:
+        type: string
+      category:
+        type: string
+      linkedEntries:
+        type: string
+      quickViewData:
+        type: string
+      tags:
+        type: string
+      title:
+        type: string
+      visibility:
+        type: string
+    type: object
+  handler.CreateNoteRequest:
+    properties:
+      body:
+        type: string
+      category:
+        type: string
+      tags:
+        type: string
+      title:
+        type: string
+    type: object
+  handler.Entry:
+    properties:
+      body:
+        type: string
+      campaignIds:
+        type: string
+      category:
+        type: string
+      createdAt:
+        type: integer
+      id:
+        type: string
+      linkedEntries:
+        type: string
+      quickViewData:
+        type: string
+      tags:
+        type: string
+      title:
+        type: string
+      updatedAt:
+        type: integer
+      visibility:
+        type: string
+    type: object
+  handler.ErrorResponse:
+    properties:
+      error:
+        type: string
+    type: object
+  handler.ImportPayload:
+    properties:
+      annotations:
+        items: {}
+        type: array
+      campaigns:
+        items: {}
+        type: array
+      entries:
+        items: {}
+        type: array
+      playerNotes:
+        items: {}
+        type: array
+      players:
+        items: {}
+        type: array
+      quickViewTemplates:
+        items: {}
+        type: array
+    type: object
+  handler.MeResponse:
+    properties:
+      email:
+        type: string
+      role:
+        type: string
+      sub:
+        type: string
+    type: object
+  handler.OkResponse:
+    properties:
+      ok:
+        type: boolean
+    type: object
+  handler.Player:
+    properties:
+      campaignId:
+        type: string
+      createdAt:
+        type: integer
+      id:
+        type: string
+      name:
+        type: string
+      token:
+        type: string
+    type: object
+  handler.PlayerNote:
+    properties:
+      body:
+        type: string
+      category:
+        type: string
+      createdAt:
+        type: integer
+      id:
+        type: string
+      tags:
+        type: string
+      title:
+        type: string
+      token:
+        type: string
+      updatedAt:
+        type: integer
+      visibility:
+        type: string
+    type: object
+  handler.QuickViewTemplate:
+    properties:
+      category:
+        type: string
+      fields:
+        type: string
+    type: object
+  handler.UpsertQuickViewRequest:
+    properties:
+      fields: {}
+    type: object
+host: localhost:3000
+info:
+  contact: {}
+  description: 'Backend-for-frontend: session management, campaigns, entries, annotations.'
+  title: Quillit BFF API
+  version: "1.0"
+paths:
+  /api/annotations:
+    get:
+      parameters:
+      - description: Filter by entry ID
+        in: query
+        name: entryId
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/handler.Annotation'
+            type: array
+      summary: List annotations
+      tags:
+      - annotations
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Annotation data
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.CreateAnnotationRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/handler.Annotation'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+      summary: Create annotation
+      tags:
+      - annotations
+  /api/annotations/{id}:
+    delete:
+      parameters:
+      - description: Annotation ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handler.OkResponse'
+      summary: Delete annotation
+      tags:
+      - annotations
+    patch:
+      consumes:
+      - application/json
+      description: Partial update — send only the fields to change.
+      parameters:
+      - description: Annotation ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Fields to update
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.CreateAnnotationRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handler.Annotation'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+      summary: Update annotation
+      tags:
+      - annotations
+  /api/auth/login:
+    post:
+      consumes:
+      - application/json
+      description: Forwards credentials to auth-svc, creates an HTTP-only session
+        cookie on success.
+      parameters:
+      - description: Login credentials
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.AuthLoginRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handler.OkResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+      summary: Login
+      tags:
+      - auth
+  /api/auth/logout:
+    post:
+      description: Deletes the session and clears the session cookie.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handler.OkResponse'
+      summary: Logout
+      tags:
+      - auth
+  /api/auth/me:
+    get:
+      description: Returns identity decoded from the session JWT cookie.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handler.MeResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+      summary: Current user
+      tags:
+      - auth
+  /api/auth/register:
+    post:
+      consumes:
+      - application/json
+      description: Forwards credentials to auth-svc, creates an HTTP-only session
+        cookie on success.
+      parameters:
+      - description: Registration credentials
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.AuthRegisterRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handler.OkResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+      summary: Register
+      tags:
+      - auth
+  /api/auth/status:
+    get:
+      description: Proxies to auth-svc to check whether any users are registered.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handler.AuthStatusResponse'
+      summary: Auth status
+      tags:
+      - auth
+  /api/campaigns:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/handler.Campaign'
+            type: array
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+      summary: List campaigns
+      tags:
+      - campaigns
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Campaign name
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.CreateCampaignRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/handler.Campaign'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+      summary: Create campaign
+      tags:
+      - campaigns
+  /api/campaigns/{campaignId}/players:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Campaign ID
+        in: path
+        name: campaignId
+        required: true
+        type: string
+      - description: Player name
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.AddPlayerRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/handler.Player'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+      summary: Add player to campaign
+      tags:
+      - campaigns
+  /api/campaigns/{campaignId}/players/{playerId}:
+    delete:
+      parameters:
+      - description: Campaign ID
+        in: path
+        name: campaignId
+        required: true
+        type: string
+      - description: Player ID
+        in: path
+        name: playerId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handler.OkResponse'
+      summary: Remove player from campaign
+      tags:
+      - campaigns
+  /api/campaigns/{id}:
+    delete:
+      parameters:
+      - description: Campaign ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handler.OkResponse'
+      summary: Delete campaign
+      tags:
+      - campaigns
+    patch:
+      consumes:
+      - application/json
+      parameters:
+      - description: Campaign ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Campaign name
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.CreateCampaignRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handler.Campaign'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+      summary: Update campaign
+      tags:
+      - campaigns
+  /api/entries:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/handler.Entry'
+            type: array
+      summary: List entries
+      tags:
+      - entries
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Entry data
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.CreateEntryRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/handler.Entry'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+      summary: Create entry
+      tags:
+      - entries
+  /api/entries/{id}:
+    delete:
+      parameters:
+      - description: Entry ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handler.OkResponse'
+      summary: Delete entry
+      tags:
+      - entries
+    get:
+      parameters:
+      - description: Entry ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handler.Entry'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+      summary: Get entry
+      tags:
+      - entries
+    patch:
+      consumes:
+      - application/json
+      description: Partial update — send only the fields to change.
+      parameters:
+      - description: Entry ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Fields to update
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.CreateEntryRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handler.Entry'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+      summary: Update entry
+      tags:
+      - entries
+  /api/migrate/import:
+    post:
+      consumes:
+      - application/json
+      description: Clears all existing data and imports the provided dataset in a
+        single transaction.
+      parameters:
+      - description: Full data export
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.ImportPayload'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handler.OkResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+      summary: Bulk import
+      tags:
+      - migrate
+  /api/quickview:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/handler.QuickViewTemplate'
+            type: array
+      summary: List quick-view templates
+      tags:
+      - quickview
+  /api/quickview/{category}:
+    delete:
+      parameters:
+      - description: Category name
+        in: path
+        name: category
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handler.OkResponse'
+      summary: Delete quick-view template
+      tags:
+      - quickview
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: Category name
+        in: path
+        name: category
+        required: true
+        type: string
+      - description: Template fields (JSON array)
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.UpsertQuickViewRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handler.QuickViewTemplate'
+      summary: Upsert quick-view template
+      tags:
+      - quickview
+  /api/share/{token}:
+    get:
+      description: Returns public entries visible to the player identified by token.
+      parameters:
+      - description: Player share token
+        in: path
+        name: token
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/handler.Entry'
+            type: array
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+      summary: Get shared entries
+      tags:
+      - share
+  /api/share/{token}/notes:
+    get:
+      parameters:
+      - description: Player share token
+        in: path
+        name: token
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/handler.PlayerNote'
+            type: array
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+      summary: List player notes
+      tags:
+      - share
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Player share token
+        in: path
+        name: token
+        required: true
+        type: string
+      - description: Note data
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.CreateNoteRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/handler.PlayerNote'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+      summary: Create player note
+      tags:
+      - share
+  /api/share/{token}/notes/{noteId}:
+    delete:
+      parameters:
+      - description: Player share token
+        in: path
+        name: token
+        required: true
+        type: string
+      - description: Note ID
+        in: path
+        name: noteId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handler.OkResponse'
+      summary: Delete player note
+      tags:
+      - share
+    patch:
+      consumes:
+      - application/json
+      parameters:
+      - description: Player share token
+        in: path
+        name: token
+        required: true
+        type: string
+      - description: Note ID
+        in: path
+        name: noteId
+        required: true
+        type: string
+      - description: Fields to update
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.CreateNoteRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handler.PlayerNote'
+      summary: Update player note
+      tags:
+      - share
+swagger: "2.0"
