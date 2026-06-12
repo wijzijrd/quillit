@@ -54,14 +54,15 @@ if command -v ufw &>/dev/null; then
     sudo ufw allow ssh               > /dev/null  # port 22 — keep SSH open first
     sudo ufw allow 80/tcp            > /dev/null  # HTTP (ACME challenge + redirect)
     sudo ufw allow 443/tcp           > /dev/null  # HTTPS
-    # MinIO console — uncomment and replace IP to restrict access:
-    # sudo ufw allow from YOUR_ADMIN_IP to any port 9001
-    sudo ufw allow 9001/tcp          > /dev/null  # MinIO console (admin)
+    # MinIO (9000/9001) binds to 127.0.0.1 only in docker-compose.yml.
+    # Access the console remotely via SSH tunnel:
+    #   ssh -L 9001:localhost:9001 user@your-server
+    # Then open http://localhost:9001 in your browser.
     sudo ufw --force enable          > /dev/null
-    info "UFW enabled. Ports open: 22 (SSH), 80, 443, 9001"
-    warn "Ports 3000, 3002, 9000 are intentionally not exposed (internal Docker network only)"
+    info "UFW enabled. Ports open: 22 (SSH), 80, 443"
+    warn "MinIO console (9001) is localhost-only — access via SSH tunnel: ssh -L 9001:localhost:9001 user@server"
 else
-    warn "UFW not found. Skipping firewall setup — ensure your firewall allows 80, 443, 9001 and blocks 3000/3002/9000."
+    warn "UFW not found. Ensure your firewall allows 80 and 443 only. MinIO binds to 127.0.0.1 so no firewall rule needed."
 fi
 
 # ── 4. Collect configuration ──────────────────────────────────────────────────
@@ -117,6 +118,7 @@ ENV_FILE="${REPO_DIR}/.env"
 if [[ -f "$ENV_FILE" ]]; then
     warn ".env already exists — backing up to .env.bak"
     cp "$ENV_FILE" "${ENV_FILE}.bak"
+    chmod 600 "${ENV_FILE}.bak"
 fi
 
 cat > "$ENV_FILE" <<EOF
@@ -172,11 +174,11 @@ echo ""
 echo -e "${GREEN}${BOLD}── Quillit is running ─────────────────────────────────────────${NC}"
 if [[ "$USE_HTTPS" =~ ^[Yy]$ ]]; then
     echo -e "  App:          ${BOLD}https://${HOST}${NC}"
-    echo -e "  MinIO:        http://${HOST}:9001"
 else
     echo -e "  App:          ${BOLD}http://${HOST}:8080${NC}"
-    echo -e "  MinIO:        http://${HOST}:9001"
 fi
+echo -e "  MinIO console: localhost:9001 via SSH tunnel"
+echo -e "                 ssh -L 9001:localhost:9001 user@${HOST}"
 echo ""
 echo -e "  Admin email:    ${ADMIN_EMAIL}"
 echo -e "  Admin password: ${ADMIN_PASSWORD}"
