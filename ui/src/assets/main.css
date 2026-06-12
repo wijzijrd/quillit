@@ -1,0 +1,277 @@
+
+@import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=Crimson+Pro:ital,wght@0,300;0,400;0,600;1,300;1,400&display=swap');
+
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn-vue/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
+
+/* Map shadcn CSS variable names to Tailwind utilities */
+@theme inline {
+  --font-sans: var(--font-body);
+  --font-heading: var(--font-display);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+}
+
+/* Parchment & Ink palette — unlayered so it wins over shadcn @layer base defaults */
+:root {
+  --background: #F5F0E8;
+  --foreground: #1C1410;
+  --card: #EDE7D9;
+  --card-foreground: #1C1410;
+  --popover: #F9F5EE;
+  --popover-foreground: #1C1410;
+  --primary: #8B2E2E;
+  --primary-foreground: #F5F0E8;
+  --secondary: #D4C9B0;
+  --secondary-foreground: #1C1410;
+  --muted: #E0D9CB;
+  --muted-foreground: #6B5D4F;
+  --accent: #C4844A;
+  --accent-foreground: #F5F0E8;
+  --destructive: #B91C1C;
+  --destructive-foreground: #F5F0E8;
+  --border: #C8BDA8;
+  --input: #C8BDA8;
+  --ring: #8B2E2E;
+  --radius: 3px;
+  --radius-sm: 0px;
+
+  --sidebar: #EDE7D9;
+  --sidebar-foreground: #1C1410;
+  --sidebar-primary: #8B2E2E;
+  --sidebar-primary-foreground: #F5F0E8;
+  --sidebar-accent: #C4844A;
+  --sidebar-accent-foreground: #F5F0E8;
+  --sidebar-border: #C8BDA8;
+  --sidebar-ring: #8B2E2E;
+
+  --cat-npc: #1E4D8C;
+  --cat-location: #1A5C35;
+  --cat-faction: #5B1F8A;
+  --cat-event: #8C5A0A;
+  --cat-item: #8B1A1A;
+  --cat-lore: #2C2E8C;
+
+  --space-xs: 4px;   --space-sm: 8px;   --space-md: 12px;  --space-lg: 16px;
+  --space-xl: 24px;  --space-2xl: 32px; --space-3xl: 48px;
+
+  --h-xs: 22px; --h-sm: 28px; --h-md: 34px; --h-lg: 40px; --h-xl: 48px;
+
+  --font-display: 'Cinzel', serif;
+  --font-body:    'Crimson Pro', serif;
+
+  --transition: 200ms ease-in-out;
+}
+
+.dark {
+  --background: #14141F;
+  --foreground: #E8E0D0;
+  --card: #1E1E2E;
+  --card-foreground: #E8E0D0;
+  --popover: #1A1A2C;
+  --popover-foreground: #E8E0D0;
+  --primary: #C4956A;
+  --primary-foreground: #14141F;
+  --secondary: #2A2A3E;
+  --secondary-foreground: #E8E0D0;
+  --muted: #252535;
+  --muted-foreground: #9A9AB0;
+  --accent: #7B4F3A;
+  --accent-foreground: #E8E0D0;
+  --destructive: #EF4444;
+  --destructive-foreground: #14141F;
+  --border: #2E2E42;
+  --input: #2E2E42;
+  --ring: #C4956A;
+
+  --sidebar: #1E1E2E;
+  --sidebar-foreground: #E8E0D0;
+  --sidebar-primary: #C4956A;
+  --sidebar-primary-foreground: #14141F;
+  --sidebar-accent: #7B4F3A;
+  --sidebar-accent-foreground: #E8E0D0;
+  --sidebar-border: #2E2E42;
+  --sidebar-ring: #C4956A;
+
+  --cat-npc: #6B9ED4;
+  --cat-location: #52A874;
+  --cat-faction: #A66DD4;
+  --cat-event: #D4A44C;
+  --cat-item: #D46464;
+  --cat-lore: #7070D4;
+}
+
+@theme {
+  --color-cat-npc: #1E4D8C;
+  --color-cat-location: #1A5C35;
+  --color-cat-faction: #5B1F8A;
+  --color-cat-event: #8C5A0A;
+  --color-cat-item: #8B1A1A;
+  --color-cat-lore: #2C2E8C;
+  --color-parchment: #F5F0E8;
+  --color-midnight: #14141F;
+  --color-burgundy: #8B2E2E;
+  --color-amber: #C4956A;
+  --font-display: 'Cinzel', serif;
+  --font-body: 'Crimson Pro', serif;
+}
+
+@layer base {
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  * { @apply border-border outline-ring/50; }
+
+  html, body, #app {
+    height: 100%;
+    background: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-body);
+    font-size: 18px;
+    line-height: 1.7;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+}
+
+@layer components {
+  /* Tiptap editor content — do NOT convert to Tailwind utilities */
+  .tiptap { outline: none; min-height: 320px; }
+  .tiptap p { margin-bottom: 0.85em; }
+  .tiptap h1, .tiptap h2, .tiptap h3 {
+    font-family: var(--font-display);
+    color: var(--primary);
+    margin: 1.2em 0 0.4em;
+    letter-spacing: 0.04em;
+  }
+  .tiptap h1 { font-size: 1.5em; }
+  .tiptap h2 { font-size: 1.25em; }
+  .tiptap em { color: var(--muted-foreground); }
+  .tiptap strong { color: var(--foreground); font-weight: 600; }
+  .tiptap ul, .tiptap ol { padding-left: 1.4em; margin-bottom: 0.85em; }
+  .tiptap p.is-editor-empty:first-child::before {
+    content: attr(data-placeholder);
+    color: var(--muted-foreground);
+    pointer-events: none;
+    float: left;
+    height: 0;
+  }
+
+  /* Annotation mark highlights */
+  .annotation-mark { cursor: pointer; border-radius: 2px; padding: 0 1px; }
+  .annotation-mark--gm     { background: rgba(220, 80, 80, 0.22); border-bottom: 2px solid rgba(220, 80, 80, 0.75); }
+  .annotation-mark--shared { background: rgba(80, 160, 220, 0.22); border-bottom: 2px solid rgba(80, 160, 220, 0.75); }
+  .annotation-mark--player { background: rgba(80, 200, 120, 0.22); border-bottom: 2px solid rgba(80, 200, 120, 0.75); }
+
+  .player-preview .annotation-mark--gm {
+    background: none;
+    border-bottom: none;
+    cursor: text;
+    pointer-events: none;
+  }
+
+  /* Entry mention inline links */
+  .entry-mention {
+    color: var(--primary);
+    text-decoration: underline;
+    cursor: pointer;
+    font-style: normal;
+  }
+  .entry-mention:hover { color: var(--foreground); }
+
+  /* Entry suggestion popup (Tiptap mention dropdown) */
+  .entry-suggestion-popup {
+    background: var(--popover);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: 0 4px 16px rgba(0,0,0,0.12);
+    overflow: hidden;
+    min-width: 220px;
+  }
+  .esug-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 14px;
+    cursor: pointer;
+    transition: background var(--transition);
+    border-bottom: 1px solid var(--border);
+  }
+  .esug-item:last-child { border-bottom: none; }
+  .esug-item--focused, .esug-item:hover { background: var(--muted); }
+  .esug-cat {
+    font-size: 0.65em;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-weight: 600;
+    color: var(--muted-foreground);
+    width: 52px;
+    flex-shrink: 0;
+  }
+  .esug-title { font-size: 0.88em; color: var(--foreground); }
+
+  /* Annotation number superscript */
+  mark[data-annotation-index]::after {
+    content: ' [' attr(data-annotation-index) ']';
+    font-size: 0.65em;
+    vertical-align: super;
+    opacity: 0.7;
+  }
+}
+
+/* Print styles */
+@media print {
+  @page { margin: 2cm; }
+  .app-shell-sidebar,
+  .right-panel,
+  .editor-header .toolbar,
+  .tags-row,
+  .title-row .vis-toggle,
+  .title-row .delete-btn,
+  .title-row .cat-select {
+    display: none !important;
+  }
+  body, #app {
+    background: white !important;
+    color: black !important;
+    font-size: 12pt !important;
+  }
+  .tiptap { min-height: auto; }
+  .annotation-mark--gm { background: none !important; border: none !important; }
+  .annotation-mark--shared,
+  .annotation-mark--player { background: none !important; border-bottom: 1px solid #aaa !important; }
+  .ann-print-footer { page-break-inside: avoid; }
+}
+
