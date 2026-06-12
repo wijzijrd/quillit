@@ -20,23 +20,22 @@ if [[ ! -x "$COMPOSE_CMD" ]]; then
     COMPOSE_CMD="docker compose"
 fi
 
-# ── SQLite: quillit-svc ───────────────────────────────────────────────────────
+# ── SQLite: svc ───────────────────────────────────────────────────────────────
 info "Backing up quillit.db..."
-# Copy inside the container first (atomic snapshot via sqlite3 .backup or cp)
-$COMPOSE_CMD exec -T quillit-svc sh -c \
+$COMPOSE_CMD exec -T svc sh -c \
     'sqlite3 /data/quillit.db ".backup /data/quillit.db.bak"' 2>/dev/null \
-    || $COMPOSE_CMD exec -T quillit-svc cp /data/quillit.db /data/quillit.db.bak
+    || $COMPOSE_CMD exec -T svc cp /data/quillit.db /data/quillit.db.bak
 
-SVC_CONTAINER=$($COMPOSE_CMD ps -q quillit-svc)
+SVC_CONTAINER=$($COMPOSE_CMD ps -q svc)
 docker cp "${SVC_CONTAINER}:/data/quillit.db.bak" "${BACKUP_DIR}/quillit.db"
 
-# ── SQLite: quillit-auth-svc ──────────────────────────────────────────────────
+# ── SQLite: auth ──────────────────────────────────────────────────────────────
 info "Backing up quillit-auth.db..."
-$COMPOSE_CMD exec -T quillit-auth-svc sh -c \
+$COMPOSE_CMD exec -T auth sh -c \
     'sqlite3 /data/quillit-auth.db ".backup /data/quillit-auth.db.bak"' 2>/dev/null \
-    || $COMPOSE_CMD exec -T quillit-auth-svc cp /data/quillit-auth.db /data/quillit-auth.db.bak
+    || $COMPOSE_CMD exec -T auth cp /data/quillit-auth.db /data/quillit-auth.db.bak
 
-AUTH_CONTAINER=$($COMPOSE_CMD ps -q quillit-auth-svc)
+AUTH_CONTAINER=$($COMPOSE_CMD ps -q auth)
 docker cp "${AUTH_CONTAINER}:/data/quillit-auth.db.bak" "${BACKUP_DIR}/quillit-auth.db"
 
 # ── MinIO data ────────────────────────────────────────────────────────────────

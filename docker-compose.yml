@@ -1,8 +1,8 @@
 services:
-  quillit-auth-svc:
+  auth:
     build:
-      context: ./quillit-auth-svc
-    image: quillit-auth-svc
+      context: ./auth
+    image: quillit-auth
     volumes:
       - auth-data:/data
     environment:
@@ -13,16 +13,16 @@ services:
       SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD}
     restart: unless-stopped
 
-  quillit-svc:
+  svc:
     build:
-      context: ./quillit-svc
+      context: ./svc
     image: quillit-svc
     volumes:
       - svc-data:/data
     environment:
       PORT: 3000
       DB_PATH: /data/quillit.db
-      AUTH_SERVICE_URL: http://quillit-auth-svc:3002
+      AUTH_SERVICE_URL: http://auth:3002
       JWT_SECRET: ${JWT_SECRET}
       COOKIE_SECURE: ${COOKIE_SECURE:-false}
       CORS_ORIGIN: ${CORS_ORIGIN}
@@ -32,7 +32,7 @@ services:
       MINIO_BUCKET: quillit
       MINIO_USE_SSL: "false"
     depends_on:
-      - quillit-auth-svc
+      - auth
       - minio
     restart: unless-stopped
 
@@ -49,14 +49,14 @@ services:
       - "9001:9001"
     restart: unless-stopped
 
-  quillit-ui:
+  ui:
     build:
-      context: ./quillit-ui
+      context: ./ui
     image: quillit-ui
     ports:
       - "8080:80"
     depends_on:
-      - quillit-svc
+      - svc
     restart: unless-stopped
 
 volumes:

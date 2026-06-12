@@ -8,7 +8,7 @@
 #   - CORS_ORIGIN=https://your.domain.com and COOKIE_SECURE=true in .env
 
 services:
-  quillit-ui:
+  ui:
     ports: !reset []
 
   caddy:
@@ -22,7 +22,7 @@ services:
       - caddy-data:/data
       - caddy-config:/config
     depends_on:
-      - quillit-ui
+      - ui
     restart: unless-stopped
 
 volumes:
