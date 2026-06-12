@@ -1,0 +1,30 @@
+# Overlay for HTTPS via Caddy.
+# Usage: docker compose -f docker-compose.yml -f docker-compose.caddy.yml up -d
+#
+# Requirements:
+#   - Docker Compose v2.24+ (ships with Docker Engine 25+)
+#   - A domain with an A record pointing at this machine's public IP
+#   - Ports 80 and 443 open in your firewall
+#   - CORS_ORIGIN=https://your.domain.com and COOKIE_SECURE=true in .env
+
+services:
+  quillit-ui:
+    ports: !reset []
+
+  caddy:
+    image: caddy:alpine
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - quillit-ui
+    restart: unless-stopped
+
+volumes:
+  caddy-data:
+  caddy-config:
