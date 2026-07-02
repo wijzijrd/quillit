@@ -1,4 +1,4 @@
 # Replace with your domain. Caddy fetches a Let's Encrypt cert automatically.
 your.domain.com {
-    reverse_proxy quillit-ui:80
+    reverse_proxy ui:80
 }

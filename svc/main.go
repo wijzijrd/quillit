@@ -70,11 +70,15 @@ func main() {
 	migrate := handler.NewMigrate(database)
 	categories := handler.NewCategories(database)
 	relations := handler.NewRelations(database)
+	health := handler.NewHealth(database)
 
 	r := chi.NewRouter()
 	r.Use(chimw.Logger)
 	r.Use(chimw.Recoverer)
 	r.Use(corsMiddleware(corsOrigin))
+
+	// Health probe (no session required) — used by the deploy pipeline & uptime monitors
+	r.Get("/healthz", health.Check)
 
 	// Auth routes (no session required)
 	r.Get("/api/auth/status", auth.Status)

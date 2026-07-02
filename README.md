@@ -196,6 +196,37 @@ git pull
 
 ---
 
+## Automated deploys (CI/CD)
+
+`.github/workflows/deploy.yml` deploys to the home server on every push to `main`
+(or via the **Run workflow** button). Because a home server may be off, a
+GitHub-hosted **health gate** first checks that the server's runner is online and
+fails fast if it isn't — no half-applied deploys, no jobs stuck in a queue.
+
+A **self-hosted runner** on the server polls GitHub over outbound HTTPS, so nothing
+new is exposed inbound (UFW still only allows 22/80/443). The pipeline pulls `main`
+in the `setup.sh` repo dir, rebuilds, restarts, runs `/healthz` smoke tests, and
+**rolls back** to the previous commit if they fail.
+
+**One-time setup on the server** (as the deploy user, in the repo dir):
+
+1. Register a runner labelled `quillit` — see **Settings → Actions → Runners → New**.
+2. Install it as a service so it survives reboots:
+   ```sh
+   sudo ./svc.sh install <username> && sudo ./svc.sh start
+   ```
+3. Add repo secret **`RUNNER_STATUS_TOKEN`** — a fine-grained PAT scoped to this repo
+   with **Administration: Read** (used only to check runner status).
+4. Optional: repo variable **`QUILLIT_DIR`** if the repo isn't at `$HOME/quillit`.
+
+Health endpoints (`GET /healthz` on `svc` and `auth`) also make good targets for an
+uptime monitor such as [Uptime Kuma](https://github.com/louislam/uptime-kuma).
+
+See **[docs/SERVER_SETUP.md](docs/SERVER_SETUP.md)** for the full zero-to-production
+runbook (OS prep, Docker, UFW, HTTPS, and the exact runner install/registration steps).
+
+---
+
 ## MinIO console
 
 MinIO's admin console is bound to `localhost` only and not exposed through the firewall. Access it via an SSH tunnel:
