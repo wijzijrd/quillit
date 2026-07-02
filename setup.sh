@@ -149,7 +149,9 @@ docker compose $COMPOSE_FLAGS up -d
 info "Waiting for services to be ready..."
 MAX_WAIT=60
 ELAPSED=0
-until curl -sf "http://localhost:3000/" > /dev/null 2>&1 || [[ $ELAPSED -ge $MAX_WAIT ]]; do
+# svc's port is not published to the host; probe its /healthz from inside the compose network.
+# shellcheck disable=SC2086
+until docker compose $COMPOSE_FLAGS exec -T svc wget -q -O /dev/null "http://localhost:3000/healthz" 2>/dev/null || [[ $ELAPSED -ge $MAX_WAIT ]]; do
     sleep 2
     ELAPSED=$((ELAPSED + 2))
 done

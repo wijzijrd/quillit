@@ -35,6 +35,7 @@ func main() {
 	defer database.Close()
 
 	auth := handler.NewAuth(database, jwtSecret)
+	health := handler.NewHealth(database)
 
 	// Seed admin account if credentials are configured
 	adminEmail := os.Getenv("SEED_ADMIN_EMAIL")
@@ -50,6 +51,9 @@ func main() {
 	r := chi.NewRouter()
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
+
+	// Health probe — used by the deploy pipeline & uptime monitors
+	r.Get("/healthz", health.Check)
 
 	r.Get("/auth/status", auth.Status)
 	r.Post("/auth/register", auth.Register)

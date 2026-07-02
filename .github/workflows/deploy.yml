@@ -1,0 +1,116 @@
+name: Deploy to home server
+
+# Automated deploy to the self-hosted home server.
+#
+# Model: a self-hosted GitHub Actions runner runs ON the home server and polls
+# GitHub over outbound HTTPS — so nothing new is exposed inbound (the server's
+# UFW still only allows 22/80/443).
+#
+# Health gate: because a home server may be powered off, the `preflight` job runs
+# on a GitHub-hosted runner and checks whether the self-hosted runner is online.
+# Server down -> runner offline -> preflight fails fast with a clear message and
+# the deploy never queues.
+#
+# One-time setup on the server (as the deploy user, inside the setup.sh repo dir):
+#   1. Install & register the runner with the label `quillit`:
+#        https://github.com/wijzijrd/quillit/settings/actions/runners/new
+#   2. Install it as a systemd service so it survives reboots:
+#        sudo ./svc.sh install <deploy-user> && sudo ./svc.sh start
+#   3. Repo secret  RUNNER_STATUS_TOKEN : a fine-grained PAT scoped to this repo
+#      with "Administration: Read" (needed to query runner status; GITHUB_TOKEN
+#      cannot read the runners list).
+#   4. (optional) Repo variable  QUILLIT_DIR : absolute path to the setup.sh repo
+#      dir if it is not "$HOME/quillit".
+
+on:
+  workflow_dispatch: {}      # manual "Run workflow" button
+  push:
+    branches: [main]         # auto-deploy on merge/push to main
+
+# Never run two deploys against the box at once.
+concurrency:
+  group: deploy-home-server
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    name: Health gate — is the server online?
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check self-hosted runner is online
+        env:
+          GH_TOKEN: ${{ secrets.RUNNER_STATUS_TOKEN }}
+        run: |
+          set -euo pipefail
+          echo "Querying runner status for ${{ github.repository }}..."
+          status=$(gh api "repos/${{ github.repository }}/actions/runners" \
+            --jq '.runners[] | select(any(.labels[]; .name == "quillit")) | .status' \
+            | head -n1 || true)
+          echo "Runner status: ${status:-<not registered>}"
+          if [ "$status" != "online" ]; then
+            echo "::error::Home server runner is not online (status: ${status:-not-registered}). Skipping deploy."
+            exit 1
+          fi
+          echo "Runner online — proceeding to deploy."
+
+  deploy:
+    name: Build, deploy & smoke test
+    needs: preflight
+    runs-on: [self-hosted, quillit]
+    timeout-minutes: 30
+    env:
+      QUILLIT_DIR: ${{ vars.QUILLIT_DIR }}   # empty -> falls back to $HOME/quillit below
+    steps:
+      - name: Record current revision (for rollback)
+        run: |
+          set -euo pipefail
+          DIR="${QUILLIT_DIR:-$HOME/quillit}"
+          echo "PREV_SHA=$(git -C "$DIR" rev-parse HEAD)" >> "$GITHUB_ENV"
+          echo "Deploying from: $DIR"
+
+      - name: Pull latest main
+        run: |
+          set -euo pipefail
+          DIR="${QUILLIT_DIR:-$HOME/quillit}"
+          cd "$DIR"
+          git fetch --prune origin
+          git reset --hard origin/main   # gitignored .env / compose.sh / backups are untouched
+
+      - name: Build & start
+        run: |
+          set -euo pipefail
+          DIR="${QUILLIT_DIR:-$HOME/quillit}"
+          cd "$DIR"
+          ./compose.sh build
+          ./compose.sh up -d --remove-orphans
+
+      - name: Smoke test
+        run: |
+          set -euo pipefail
+          DIR="${QUILLIT_DIR:-$HOME/quillit}"
+          cd "$DIR"
+          echo "UI (published :8080)..."
+          curl -fsS -o /dev/null http://localhost:8080/
+          echo "svc /healthz..."
+          ./compose.sh exec -T svc wget -q -O - http://localhost:3000/healthz
+          echo
+          echo "auth /healthz..."
+          ./compose.sh exec -T auth wget -q -O - http://localhost:3002/healthz
+          echo
+          echo "All health checks passed."
+
+      - name: Roll back on failure
+        if: failure()
+        run: |
+          set -euo pipefail
+          DIR="${QUILLIT_DIR:-$HOME/quillit}"
+          cd "$DIR"
+          if [ -z "${PREV_SHA:-}" ]; then
+            echo "::error::No previous revision recorded — cannot roll back."
+            exit 1
+          fi
+          echo "::warning::Deploy or smoke test failed — rolling back to $PREV_SHA"
+          git reset --hard "$PREV_SHA"
+          ./compose.sh build
+          ./compose.sh up -d --remove-orphans
+          echo "Rolled back to $PREV_SHA."
