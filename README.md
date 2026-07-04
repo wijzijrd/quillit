@@ -102,6 +102,77 @@ After it completes, the app is available at **http://YOUR_SERVER_IP:8080**.
 
 </details>
 
+### Stable LAN address
+
+<details>
+<summary>Expand stable LAN address options</summary>
+
+A plain DHCP-assigned IP can change on lease renewal, which will break a self-signed cert or bookmark pinned to it. Two ways to get an address that doesn't drift:
+
+- **Router DHCP reservation** (recommended baseline): in your router's admin UI, find the DHCP client list / reservation settings and bind the server's current LAN IP to its MAC address (`ip link show` on the server to find the MAC). Steps vary by router.
+- **`<hostname>.local` mDNS alias**: `setup.sh` installs and enables `avahi-daemon` automatically, which advertises the box at `$(hostname).local` with zero router config. Works out of the box on macOS/iOS, usually fine on Linux; support on Windows and some Android versions is inconsistent, so keep the DHCP reservation as a fallback for those clients.
+
+</details>
+
+### HTTPS on your local network (self-signed, no domain)
+
+<details>
+<summary>Expand LAN self-signed HTTPS instructions</summary>
+
+No domain, no public DNS, no port-forwarding — just a TLS-encrypted connection between your devices and the server over LAN. Caddy mints its own certificate from a locally-generated root CA instead of using Let's Encrypt.
+
+1. Get a stable address first (see "Stable LAN address" above) — a router DHCP reservation, the `<hostname>.local` mDNS alias, or both.
+
+2. Copy the internal-CA template over the default `Caddyfile`:
+
+   ```sh
+   cp Caddyfile.internal.example Caddyfile
+   ```
+
+3. Edit `Caddyfile` and replace the placeholder(s) with your stable IP and/or `.local` alias (comma-separated if using both):
+
+   ```
+   192.168.1.50, quillit.local {
+       tls internal
+       reverse_proxy ui:80
+   }
+   ```
+
+4. Update `.env`:
+
+   ```
+   CORS_ORIGIN=https://192.168.1.50
+   COOKIE_SECURE=true
+   ```
+
+   CORS only accepts a single origin, so pick whichever address you'll actually browse to — the `.local` alias is the more durable choice since it survives even if a DHCP reservation is ever misconfigured.
+
+5. Start with the same Caddy overlay used for the public-domain path:
+
+   ```sh
+   docker compose -f docker-compose.yml -f docker-compose.caddy.yml up -d
+   ```
+
+   On first run Caddy generates a local root CA and mints a leaf certificate for the address above — no internet access or domain required.
+
+6. Trust Caddy's root CA on every device that will connect (otherwise browsers show a "not secure" warning):
+
+   ```sh
+   docker compose -f docker-compose.yml -f docker-compose.caddy.yml cp caddy:/data/caddy/pki/authorities/local/root.crt ./quillit-lan-root.crt
+   ```
+
+   Copy `quillit-lan-root.crt` to each client device, then install it as a trusted root:
+
+   - **macOS**: double-click to open Keychain Access, double-click the cert → Trust → "Always Trust" (or `sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain quillit-lan-root.crt`).
+   - **Windows**: double-click the file → Install Certificate → Local Machine → Trusted Root Certification Authorities (or, elevated: `certutil -addstore -f ROOT quillit-lan-root.crt`).
+   - **Linux**: `sudo cp quillit-lan-root.crt /usr/local/share/ca-certificates/ && sudo update-ca-certificates`. Firefox and some Chrome builds use their own certificate store — import via the browser's certificate settings instead.
+   - **iOS**: AirDrop/email the file, tap it to install the profile (Settings → General → VPN & Device Management), then enable full trust at Settings → General → About → Certificate Trust Settings.
+   - **Android**: Settings → Security → Encryption & credentials → Install a certificate → CA certificate.
+
+Port 80 isn't required for certificate issuance in this mode (there's no ACME challenge), but Caddy still uses it for automatic HTTP→HTTPS redirects, so there's no need to change `docker-compose.caddy.yml` or your firewall rules.
+
+</details>
+
 ---
 
 ## Option 3 — Native local development

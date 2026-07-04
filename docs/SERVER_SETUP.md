@@ -69,12 +69,19 @@ What it does, in order:
    sudo ufw allow ssh       # 22
    sudo ufw allow 80/tcp
    sudo ufw allow 443/tcp
+   sudo ufw allow 5353/udp  # mDNS
    sudo ufw --force enable
    ```
-   Only **22, 80, 443** are ever opened. MinIO (9000/9001) gets no firewall rule
-   because `docker-compose.yml` binds it to `127.0.0.1` only — it's unreachable from
-   the network regardless of UFW.
-4. **Interactive prompts**:
+   Only **22, 80, 443, and 5353/udp (mDNS)** are ever opened. MinIO (9000/9001) gets no
+   firewall rule because `docker-compose.yml` binds it to `127.0.0.1` only — it's
+   unreachable from the network regardless of UFW.
+4. **mDNS (avahi)** — installs `avahi-daemon` if missing and enables it via
+   `systemctl enable --now`. This advertises the server at `$(hostname).local` on the
+   LAN with zero router configuration, so you have a stable name to hit even if the
+   box's DHCP-assigned IP changes. Works out of the box on macOS/iOS and most Linux
+   desktops; support on Windows and some Android versions is inconsistent — pair it
+   with a router DHCP reservation (see §5) for those clients.
+5. **Interactive prompts**:
    - Server IP or domain (defaults to the detected LAN/public IP).
    - Use HTTPS with Caddy? (y/N) — if yes, sets `CORS_ORIGIN=https://<host>`,
      `COOKIE_SECURE=true`, rewrites `Caddyfile`'s domain via `sed`, and adds
@@ -82,25 +89,25 @@ What it does, in order:
      (and baked into `compose.sh`, see below).
    - Admin email (default `admin@quillit.local`).
    - Admin password (blank = auto-generated 20-char alnum string).
-5. **Secrets auto-generated**: `JWT_SECRET=$(openssl rand -hex 32)`,
+6. **Secrets auto-generated**: `JWT_SECRET=$(openssl rand -hex 32)`,
    `MINIO_PASSWORD=$(openssl rand -hex 20)`.
-6. **Writes `.env`** (mode `600`) with `JWT_SECRET`, `SEED_ADMIN_EMAIL`,
+7. **Writes `.env`** (mode `600`) with `JWT_SECRET`, `SEED_ADMIN_EMAIL`,
    `SEED_ADMIN_PASSWORD`, `MINIO_USER=quillit`, `MINIO_PASSWORD`, `CORS_ORIGIN`,
    `COOKIE_SECURE`. If `.env` already exists it's backed up to `.env.bak` (mode `600`)
    first.
-7. **Builds and starts**: `docker compose $COMPOSE_FLAGS build` then
+8. **Builds and starts**: `docker compose $COMPOSE_FLAGS build` then
    `docker compose $COMPOSE_FLAGS up -d`.
-8. **Waits for readiness** — polls `svc`'s `/healthz` from inside the compose network
+9. **Waits for readiness** — polls `svc`'s `/healthz` from inside the compose network
    (its port isn't published to the host) for up to 60s, via
    `docker compose exec -T svc wget -q -O /dev/null http://localhost:3000/healthz`.
-9. **Generates `compose.sh`** — a wrapper in the repo root that always includes the
-   right `-f` flags for your install (plain, or `+ -f docker-compose.caddy.yml` if you
-   chose HTTPS). Use this instead of raw `docker compose` from now on. Also
-   `chmod +x`'s `backup.sh`.
+10. **Generates `compose.sh`** — a wrapper in the repo root that always includes the
+    right `-f` flags for your install (plain, or `+ -f docker-compose.caddy.yml` if you
+    chose HTTPS). Use this instead of raw `docker compose` from now on. Also
+    `chmod +x`'s `backup.sh`.
 
-At the end you'll see the app URL, admin credentials (also saved in `.env`), and the
-manage/backup/update commands. Without HTTPS, the app is at
-**http://YOUR_SERVER_IP:8080**.
+At the end you'll see the app URL, admin credentials (also saved in `.env`), a LAN
+mDNS alias (`$(hostname).local`), and the manage/backup/update commands. Without
+HTTPS, the app is at **http://YOUR_SERVER_IP:8080**.
 
 ## 4. Environment variable reference
 
@@ -164,6 +171,16 @@ it manually / after the fact:
 If you ran `setup.sh`, `compose.sh` already has the right `-f` flags baked in — just
 use `./compose.sh up -d` going forward instead of the raw `docker compose` command
 above.
+
+**No public domain, LAN only:** if you just want TLS encryption over your local
+network without a domain or Let's Encrypt, use `Caddyfile.internal.example`
+(`tls internal`) instead of the ACME flow above — same overlay, same `compose.sh`,
+different `Caddyfile`. See the README sections "Stable LAN address" and "HTTPS on
+your local network (self-signed, no domain)" for the full walkthrough, including
+trusting Caddy's self-signed root CA on client devices. Whichever address you put in
+that Caddyfile (a LAN IP or the `$(hostname).local` mDNS alias from step 4 above)
+should be stable — see "Stable LAN address" for a router DHCP reservation, which
+avoids the address drifting after a DHCP lease renewal.
 
 ## 6. Always-on / reboot survival
 

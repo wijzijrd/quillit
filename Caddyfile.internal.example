@@ -1,0 +1,28 @@
+# Self-signed HTTPS for LAN-only access — no public domain or Let's Encrypt needed.
+#
+# `tls internal` tells Caddy to mint certs from its own local root CA (generated
+# on first run and persisted in the caddy-data volume) instead of requesting one
+# from Let's Encrypt. This works for LAN IPs and local hostnames, which public
+# CAs can't issue certs for anyway.
+#
+# Browsers will still show a certificate warning until Caddy's root CA is
+# installed in the trust store of each device that connects — see the README
+# section "HTTPS on your local network (self-signed, no domain)".
+#
+# Use a STABLE address here, not whatever DHCP happens to hand out today —
+# otherwise the cert (and CORS_ORIGIN) breaks the next time the lease renews.
+# Two ways to get one (see the README section "Stable LAN address"):
+#   - Reserve the current LAN IP for this machine's MAC in your router's DHCP
+#     settings, or
+#   - Use the <hostname>.local mDNS alias that setup.sh's avahi-daemon step
+#     advertises automatically (find it with: hostname).
+# You can list both, comma-separated, so either one works if the other fails.
+#
+# To use:
+#   1. cp Caddyfile.internal.example Caddyfile
+#   2. Replace the placeholder(s) below with your stable IP and/or .local alias.
+#   3. docker compose -f docker-compose.yml -f docker-compose.caddy.yml up -d
+192.168.1.50, quillit.local {
+    tls internal
+    reverse_proxy ui:80
+}

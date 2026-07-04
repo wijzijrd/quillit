@@ -6,6 +6,10 @@
 #   - A domain with an A record pointing at this machine's public IP
 #   - Ports 80 and 443 open in your firewall
 #   - CORS_ORIGIN=https://your.domain.com and COOKIE_SECURE=true in .env
+#
+# For LAN-only self-signed HTTPS (no domain, no ACME) instead, see
+# Caddyfile.internal.example and the README section "HTTPS on your local
+# network (self-signed, no domain)" — same overlay, different Caddyfile.
 
 services:
   ui:

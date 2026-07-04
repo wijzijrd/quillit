@@ -54,16 +54,28 @@ if command -v ufw &>/dev/null; then
     sudo ufw allow ssh               > /dev/null  # port 22 — keep SSH open first
     sudo ufw allow 80/tcp            > /dev/null  # HTTP (ACME challenge + redirect)
     sudo ufw allow 443/tcp           > /dev/null  # HTTPS
+    sudo ufw allow 5353/udp          > /dev/null  # mDNS (avahi hostname.local advertisement)
     # MinIO (9000/9001) binds to 127.0.0.1 only in docker-compose.yml.
     # Access the console remotely via SSH tunnel:
     #   ssh -L 9001:localhost:9001 user@your-server
     # Then open http://localhost:9001 in your browser.
     sudo ufw --force enable          > /dev/null
-    info "UFW enabled. Ports open: 22 (SSH), 80, 443"
+    info "UFW enabled. Ports open: 22 (SSH), 80, 443, 5353/udp (mDNS)"
     warn "MinIO console (9001) is localhost-only — access via SSH tunnel: ssh -L 9001:localhost:9001 user@server"
 else
     warn "UFW not found. Ensure your firewall allows 80 and 443 only. MinIO binds to 127.0.0.1 so no firewall rule needed."
 fi
+
+# ── 3b. mDNS (avahi) ──────────────────────────────────────────────────────────
+if command -v avahi-daemon &>/dev/null; then
+    info "avahi-daemon already installed"
+else
+    info "Installing avahi-daemon for LAN hostname discovery (<hostname>.local)..."
+    sudo apt-get install -y -qq avahi-daemon
+fi
+sudo systemctl enable --now avahi-daemon &>/dev/null || true
+MDNS_HOST="$(hostname).local"
+info "Reachable on the LAN at: ${MDNS_HOST}"
 
 # ── 4. Collect configuration ──────────────────────────────────────────────────
 echo ""
@@ -179,6 +191,7 @@ if [[ "$USE_HTTPS" =~ ^[Yy]$ ]]; then
 else
     echo -e "  App:          ${BOLD}http://${HOST}:8080${NC}"
 fi
+echo -e "  LAN alias:     ${BOLD}${MDNS_HOST}${NC} (mDNS — no static IP needed)"
 echo -e "  MinIO console: localhost:9001 via SSH tunnel"
 echo -e "                 ssh -L 9001:localhost:9001 user@${HOST}"
 echo ""
