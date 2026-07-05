@@ -311,9 +311,10 @@ Actions**):
 2. Watch `preflight` — it should report the runner `online` and pass.
 3. Watch `deploy` — pulls `main`, `./compose.sh build`, `./compose.sh up -d
    --remove-orphans`.
-4. Watch `smoke` — curls `http://localhost:8080/` (ui), and
-   `/healthz` on `svc` (`:3000`) and `auth` (`:3002`) via `compose.sh exec`. All
-   three must pass for the job to go green.
+4. Watch `smoke` — checks `ui` (via `compose.sh exec` against its internal port 80,
+   so it works whether or not `ui` has a host port published), and `/healthz` on
+   `svc` (`:3000`) and `auth` (`:3002`), also via `compose.sh exec`. All three must
+   pass for the job to go green.
 5. **Negative test** — stop the runner (`sudo ./svc.sh stop` in `~/actions-runner`),
    trigger the workflow again, and confirm `preflight` fails fast with
    `Home server runner is not online` instead of the job hanging or queuing
