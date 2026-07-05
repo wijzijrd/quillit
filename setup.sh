@@ -24,18 +24,40 @@ if command -v docker &>/dev/null && docker compose version &>/dev/null; then
     info "Docker and Compose already installed ($(docker --version | cut -d' ' -f3 | tr -d ','))"
 else
     info "Installing Docker Engine + Compose plugin..."
+    DOCKER_FRESH_INSTALL=1
     sudo apt-get update -qq
     sudo apt-get install -y -qq ca-certificates curl gnupg lsb-release
 
+    # Docker only publishes apt repos for a handful of base distros (ubuntu, debian, ...).
+    # Ubuntu/Debian derivatives (Pop!_OS, Mint, elementary, Zorin, ...) report their own ID
+    # here, so fall back to the upstream base via ID_LIKE, preferring its own codename field
+    # (some derivatives' `lsb_release -cs` returns their own codename, not the Ubuntu/Debian
+    # base codename Docker's repo actually needs).
+    . /etc/os-release
+    DOCKER_DISTRO_ID="$ID"
+    DOCKER_DISTRO_CODENAME="$(lsb_release -cs)"
+    if [[ "$DOCKER_DISTRO_ID" != "ubuntu" && "$DOCKER_DISTRO_ID" != "debian" ]]; then
+        if [[ "${ID_LIKE:-}" == *ubuntu* ]]; then
+            DOCKER_DISTRO_ID="ubuntu"
+            DOCKER_DISTRO_CODENAME="${UBUNTU_CODENAME:-$DOCKER_DISTRO_CODENAME}"
+        elif [[ "${ID_LIKE:-}" == *debian* ]]; then
+            DOCKER_DISTRO_ID="debian"
+            DOCKER_DISTRO_CODENAME="${DEBIAN_CODENAME:-$DOCKER_DISTRO_CODENAME}"
+        else
+            error "Unsupported distro for automated Docker install: $ID. Install Docker manually: https://docs.docker.com/engine/install/"
+        fi
+        warn "Distro '$ID' isn't a Docker-supported base — using Docker's '$DOCKER_DISTRO_ID' apt repo ($DOCKER_DISTRO_CODENAME)."
+    fi
+
     sudo install -m 0755 -d /etc/apt/keyrings
-    curl -fsSL https://download.docker.com/linux/$(. /etc/os-release && echo "$ID")/gpg \
-        | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+    curl -fsSL "https://download.docker.com/linux/${DOCKER_DISTRO_ID}/gpg" \
+        | sudo gpg --yes --dearmor -o /etc/apt/keyrings/docker.gpg
     sudo chmod a+r /etc/apt/keyrings/docker.gpg
 
     echo \
         "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] \
-        https://download.docker.com/linux/$(. /etc/os-release && echo "$ID") \
-        $(lsb_release -cs) stable" \
+        https://download.docker.com/linux/${DOCKER_DISTRO_ID} \
+        ${DOCKER_DISTRO_CODENAME} stable" \
         | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
 
     sudo apt-get update -qq
@@ -146,16 +168,32 @@ EOF
 chmod 600 "$ENV_FILE"
 info ".env written (mode 600)"
 
+# usermod (section 2) only takes effect in a NEW login session. If this shell's
+# group list doesn't include docker yet (i.e. Docker was just installed above),
+# run docker commands via `sg docker` so this run doesn't fail with "permission
+# denied" before the user ever gets a fresh shell.
+run_docker() {
+    # `id -nG` (no argument) reports THIS PROCESS's live group credentials, which is
+    # what matters here — `id -nG "$USER"` would instead query the account's group
+    # database, which already shows docker right after usermod even though this
+    # shell's live credentials haven't picked it up yet.
+    if id -nG | grep -qw docker; then
+        docker "$@"
+    else
+        sg docker -c "docker $(printf '%q ' "$@")"
+    fi
+}
+
 # ── 6. Build + launch ─────────────────────────────────────────────────────────
 cd "$REPO_DIR"
 
 info "Building images (this takes a few minutes on first run)..."
 # shellcheck disable=SC2086
-docker compose $COMPOSE_FLAGS build
+run_docker compose $COMPOSE_FLAGS build
 
 info "Starting services..."
 # shellcheck disable=SC2086
-docker compose $COMPOSE_FLAGS up -d
+run_docker compose $COMPOSE_FLAGS up -d
 
 # ── 7. Wait for services ──────────────────────────────────────────────────────
 info "Waiting for services to be ready..."
@@ -163,7 +201,7 @@ MAX_WAIT=60
 ELAPSED=0
 # svc's port is not published to the host; probe its /healthz from inside the compose network.
 # shellcheck disable=SC2086
-until docker compose $COMPOSE_FLAGS exec -T svc wget -q -O /dev/null "http://localhost:3000/healthz" 2>/dev/null || [[ $ELAPSED -ge $MAX_WAIT ]]; do
+until run_docker compose $COMPOSE_FLAGS exec -T svc wget -q -O /dev/null "http://localhost:3000/healthz" 2>/dev/null || [[ $ELAPSED -ge $MAX_WAIT ]]; do
     sleep 2
     ELAPSED=$((ELAPSED + 2))
 done
@@ -204,3 +242,6 @@ echo -e "  Manage:    ${BOLD}./compose.sh up -d / down / logs${NC}"
 echo -e "  Backup:    ${BOLD}./backup.sh${NC}"
 echo -e "  Update:    ${BOLD}git pull && ./compose.sh build && ./compose.sh up -d${NC}"
 echo ""
+if [[ "${DOCKER_FRESH_INSTALL:-0}" == "1" ]]; then
+    warn "Docker was just installed — log out and back in (or run 'newgrp docker') before using 'docker' or './compose.sh' directly in this terminal."
+fi
