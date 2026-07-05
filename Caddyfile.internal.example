@@ -9,6 +9,13 @@
 # installed in the trust store of each device that connects — see the README
 # section "HTTPS on your local network (self-signed, no domain)".
 #
+# The address below is resolved from the CADDY_HOST env var at load time (Caddy
+# reads {$VAR} placeholders from the container's environment) — the committed
+# Caddyfile already looks exactly like this, so you never need to edit it or
+# commit your own address. Just set CADDY_HOST in .env:
+#
+#   CADDY_HOST=192.168.1.50, quillit.local
+#
 # Use a STABLE address here, not whatever DHCP happens to hand out today —
 # otherwise the cert (and CORS_ORIGIN) breaks the next time the lease renews.
 # Two ways to get one (see the README section "Stable LAN address"):
@@ -18,11 +25,9 @@
 #     advertises automatically (find it with: hostname).
 # You can list both, comma-separated, so either one works if the other fails.
 #
-# To use:
-#   1. cp Caddyfile.internal.example Caddyfile
-#   2. Replace the placeholder(s) below with your stable IP and/or .local alias.
-#   3. docker compose -f docker-compose.yml -f docker-compose.caddy.yml up -d
-192.168.1.50, quillit.local {
+# This file is kept as a reference / reset point — restore it over Caddyfile
+# if you ever need to start over: cp Caddyfile.internal.example Caddyfile
+{$CADDY_HOST} {
     tls internal
     reverse_proxy ui:80
 }

@@ -123,31 +123,17 @@ No domain, no public DNS, no port-forwarding — just a TLS-encrypted connection
 
 1. Get a stable address first (see "Stable LAN address" above) — a router DHCP reservation, the `<hostname>.local` mDNS alias, or both.
 
-2. Copy the internal-CA template over the default `Caddyfile`:
-
-   ```sh
-   cp Caddyfile.internal.example Caddyfile
-   ```
-
-3. Edit `Caddyfile` and replace the placeholder(s) with your stable IP and/or `.local` alias (comma-separated if using both):
+2. Update `.env` — the default `Caddyfile` already reads its address from `CADDY_HOST`, so this is the only file you need to touch (comma-separated if using both a LAN IP and a `.local` alias):
 
    ```
-   192.168.1.50, quillit.local {
-       tls internal
-       reverse_proxy ui:80
-   }
-   ```
-
-4. Update `.env`:
-
-   ```
+   CADDY_HOST=192.168.1.50, quillit.local
    CORS_ORIGIN=https://192.168.1.50
    COOKIE_SECURE=true
    ```
 
-   CORS only accepts a single origin, so pick whichever address you'll actually browse to — the `.local` alias is the more durable choice since it survives even if a DHCP reservation is ever misconfigured.
+   CORS only accepts a single origin, so pick whichever address you'll actually browse to — the `.local` alias is the more durable choice since it survives even if a DHCP reservation is ever misconfigured. `Caddyfile.internal.example` documents this same pattern if you ever need to reset `Caddyfile` back to it.
 
-5. Start with the same Caddy overlay used for the public-domain path:
+3. Start with the same Caddy overlay used for the public-domain path:
 
    ```sh
    docker compose -f docker-compose.yml -f docker-compose.caddy.yml up -d
@@ -155,7 +141,7 @@ No domain, no public DNS, no port-forwarding — just a TLS-encrypted connection
 
    On first run Caddy generates a local root CA and mints a leaf certificate for the address above — no internet access or domain required.
 
-6. Trust Caddy's root CA on every device that will connect (otherwise browsers show a "not secure" warning):
+4. Trust Caddy's root CA on every device that will connect (otherwise browsers show a "not secure" warning):
 
    ```sh
    docker compose -f docker-compose.yml -f docker-compose.caddy.yml cp caddy:/data/caddy/pki/authorities/local/root.crt ./quillit-lan-root.crt

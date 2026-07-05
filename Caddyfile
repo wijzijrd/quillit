@@ -1,4 +1,5 @@
-# Replace with your domain. Caddy fetches a Let's Encrypt cert automatically.
-your.domain.com {
+# Self-signed LAN HTTPS (tls internal). Set CADDY_HOST in .env — see Caddyfile.internal.example.
+{$CADDY_HOST} {
+    tls internal
     reverse_proxy ui:80
 }
