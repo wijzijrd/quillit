@@ -117,14 +117,13 @@ USE_HTTPS="${USE_HTTPS_INPUT:-N}"
 if [[ "$USE_HTTPS" =~ ^[Yy]$ ]]; then
     CORS_ORIGIN="https://${HOST}"
     COOKIE_SECURE="true"
+    CADDY_HOST="${HOST}"
     COMPOSE_FLAGS="-f docker-compose.yml -f docker-compose.caddy.yml"
-
-    # Update Caddyfile with the domain
-    sed -i "s/your\.domain\.com/${HOST}/g" "${REPO_DIR}/Caddyfile"
-    info "Updated Caddyfile with domain: ${HOST}"
+    info "Caddy will serve ${HOST} (set via CADDY_HOST in .env — Caddyfile itself never needs editing)"
 else
     CORS_ORIGIN="http://${HOST}:8080"
     COOKIE_SECURE="false"
+    CADDY_HOST=""
     COMPOSE_FLAGS="-f docker-compose.yml"
 fi
 
@@ -163,6 +162,7 @@ MINIO_USER=quillit
 MINIO_PASSWORD=${MINIO_PASSWORD}
 CORS_ORIGIN=${CORS_ORIGIN}
 COOKIE_SECURE=${COOKIE_SECURE}
+CADDY_HOST=${CADDY_HOST}
 EOF
 
 chmod 600 "$ENV_FILE"

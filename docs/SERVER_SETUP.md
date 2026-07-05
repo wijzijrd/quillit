@@ -173,15 +173,20 @@ If you ran `setup.sh`, `compose.sh` already has the right `-f` flags baked in �
 use `./compose.sh up -d` going forward instead of the raw `docker compose` command
 above.
 
-**No public domain, LAN only:** if you just want TLS encryption over your local
-network without a domain or Let's Encrypt, use `Caddyfile.internal.example`
-(`tls internal`) instead of the ACME flow above — same overlay, same `compose.sh`,
-different `Caddyfile`. See the README sections "Stable LAN address" and "HTTPS on
-your local network (self-signed, no domain)" for the full walkthrough, including
-trusting Caddy's self-signed root CA on client devices. Whichever address you put in
-that Caddyfile (a LAN IP or the `$(hostname).local` mDNS alias from step 4 above)
-should be stable — see "Stable LAN address" for a router DHCP reservation, which
-avoids the address drifting after a DHCP lease renewal.
+**No public domain, LAN only:** the committed `Caddyfile` already runs in this mode by
+default — `tls internal` instead of ACME, and its address (`{$CADDY_HOST}`) resolved
+from the `CADDY_HOST` env var rather than hardcoded, so nothing in the file itself
+ever needs editing or committing. Set in `.env`:
+```
+CADDY_HOST=192.168.1.50, quillit.local
+```
+`Caddyfile.internal.example` documents this same pattern as a reference / reset point.
+See the README sections "Stable LAN address" and "HTTPS on your local network
+(self-signed, no domain)" for the full walkthrough, including trusting Caddy's
+self-signed root CA on client devices. Whichever address you put in `CADDY_HOST` (a
+LAN IP or the `$(hostname).local` mDNS alias from step 4 above) should be stable — see
+"Stable LAN address" for a router DHCP reservation, which avoids the address drifting
+after a DHCP lease renewal.
 
 ## 6. Log aggregation with Loki/Grafana (optional)
 

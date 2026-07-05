@@ -9,7 +9,8 @@
 #
 # For LAN-only self-signed HTTPS (no domain, no ACME) instead, see
 # Caddyfile.internal.example and the README section "HTTPS on your local
-# network (self-signed, no domain)" — same overlay, different Caddyfile.
+# network (self-signed, no domain)" — same overlay, same Caddyfile, just set
+# CADDY_HOST in .env.
 
 services:
   ui:
@@ -17,6 +18,8 @@ services:
 
   caddy:
     image: caddy:alpine
+    environment:
+      - CADDY_HOST=${CADDY_HOST}
     ports:
       - "80:80"
       - "443:443"
