@@ -104,8 +104,8 @@ jobs:
           set -euo pipefail
           DIR="${QUILLIT_DIR:-$HOME/quillit}"
           cd "$DIR"
-          echo "UI (published :8080)..."
-          curl -fsS -o /dev/null http://localhost:8080/
+          echo "UI (internal)..."
+          ./compose.sh exec -T ui wget -q -O /dev/null http://localhost:80/
           echo "svc /healthz..."
           ./compose.sh exec -T svc wget -q -O - http://localhost:3000/healthz
           echo

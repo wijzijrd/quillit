@@ -115,11 +115,13 @@ anything, or run its own stack. `pop-os` is already running the full app.
 
 ## Open items — not yet done
 
-- **Confirm the self-hosted runner is actually registered and online on `pop-os`.**
-  This wasn't verified as part of this round of changes — if it's not registered (or
-  the `RUNNER_STATUS_TOKEN` secret isn't set), `preflight` will fail every run. Check
-  via `sudo ./svc.sh status` in `~/actions-runner` on the server, or GitHub's
-  **Settings → Actions → Runners** page. Full setup steps: SERVER_SETUP.md §8–9.
+- **Self-hosted runner is confirmed registered and online** — a manual
+  `workflow_dispatch` run passed `preflight` and reached `deploy`. That run did surface
+  a real bug in the `smoke test` step (it checked `ui` via a host-published port 8080
+  that doesn't exist once the Caddy overlay drops it) — fixed by checking `ui`
+  internally via `compose.sh exec`, the same pattern already used for `svc`/`auth`.
+  The deploy's own rollback step worked correctly when the old smoke test failed,
+  restoring the box to its prior commit with no manual intervention needed.
 - **Remote access beyond the LAN** (Tailscale, dynamic DNS) is mentioned in
   SERVER_SETUP.md as "covered in prior planning notes" but not implemented — out of
   scope for now since everything is LAN-only until a domain is purchased.
