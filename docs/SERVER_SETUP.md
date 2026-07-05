@@ -11,11 +11,12 @@ the automated GitHub Actions deploy pipeline. For a quick summary see the
 3. [Clone + run `setup.sh`](#3-clone--run-setupsh)
 4. [Environment variable reference](#4-environment-variable-reference)
 5. [HTTPS with Caddy (optional)](#5-https-with-caddy-optional)
-6. [Always-on / reboot survival](#6-always-on--reboot-survival)
-7. [GitHub Actions self-hosted runner](#7-github-actions-self-hosted-runner)
-8. [Pipeline secrets & variables](#8-pipeline-secrets--variables)
-9. [Verify end-to-end](#9-verify-end-to-end)
-10. [Day 2 ops](#10-day-2-ops)
+6. [Log aggregation with Loki/Grafana (optional)](#6-log-aggregation-with-lokigrafana-optional)
+7. [Always-on / reboot survival](#7-always-on--reboot-survival)
+8. [GitHub Actions self-hosted runner](#8-github-actions-self-hosted-runner)
+9. [Pipeline secrets & variables](#9-pipeline-secrets--variables)
+10. [Verify end-to-end](#10-verify-end-to-end)
+11. [Day 2 ops](#11-day-2-ops)
 
 ---
 
@@ -182,7 +183,51 @@ that Caddyfile (a LAN IP or the `$(hostname).local` mDNS alias from step 4 above
 should be stable — see "Stable LAN address" for a router DHCP reservation, which
 avoids the address drifting after a DHCP lease renewal.
 
-## 6. Always-on / reboot survival
+## 6. Log aggregation with Loki/Grafana (optional)
+
+Adds three containers via a second overlay: `loki` (log storage/index, filesystem-
+backed), `promtail` (ships every running container's logs to Loki), and `grafana`
+(LogQL query UI, bound to `127.0.0.1` — same access model as the MinIO console).
+
+1. Set in `.env`:
+   ```
+   LOKI_RETENTION_DAYS=14
+   GRAFANA_ADMIN_USER=admin
+   GRAFANA_ADMIN_PASSWORD=a-real-password
+   ```
+2. Start with the overlay (combinable with the Caddy overlay):
+   ```sh
+   docker compose -f docker-compose.yml -f docker-compose.logging.yml up -d
+   ```
+3. If you used `setup.sh`, edit the generated `compose.sh` to add
+   `-f docker-compose.logging.yml` to its `docker compose ${COMPOSE_FLAGS} "$@"`
+   line, so `./compose.sh` includes it on every future invocation.
+
+`promtail-config.yml` uses Docker service discovery (`docker_sd_configs`) against
+the Docker socket — it needs no fixed list of container names and needs no access
+to `/var/lib/docker/containers`: it pulls logs via the same Docker Engine API that
+`docker logs` uses, over the socket. Each log stream is labeled `service=<compose
+service name>` (`auth`, `svc`, `minio`, `ui`, `caddy` if that overlay is active,
+plus `loki`/`promtail`/`grafana` themselves).
+
+This overlay is **not** part of `setup.sh`'s interactive prompts — enable it
+manually, the same way the LAN self-signed-HTTPS path (§5) is manual rather than
+wired into the `setup.sh` HTTPS prompt.
+
+**Retention:** Loki's compactor deletes chunks/index entries older than
+`LOKI_RETENTION_DAYS` automatically, so unlike Docker's default `json-file` log
+driver (which has no size cap in this repo's compose files today), storage stays
+bounded.
+
+**Access Grafana:**
+```sh
+ssh -L 3001:localhost:3001 user@your-server
+```
+then open `http://localhost:3001`, log in with `GRAFANA_ADMIN_USER` /
+`GRAFANA_ADMIN_PASSWORD`. Loki is pre-provisioned as a datasource — use **Explore**
+with LogQL, e.g. `{service="svc"} |= "error"`.
+
+## 7. Always-on / reboot survival
 
 - `sudo systemctl enable docker` so the Docker daemon starts on boot (do this if you
   didn't use `setup.sh`'s package install, which enables it automatically).
@@ -196,7 +241,7 @@ avoids the address drifting after a DHCP lease renewal.
   deploy-pipeline planning notes from the prior session — ask if you'd like those
   folded into this doc as a dedicated section.
 
-## 7. GitHub Actions self-hosted runner
+## 8. GitHub Actions self-hosted runner
 
 This is what lets `.github/workflows/deploy.yml` deploy to the server automatically.
 The runner polls GitHub over **outbound HTTPS only** — no inbound port is opened, so
@@ -240,7 +285,7 @@ UFW stays at 22/80/443.
 Check runner health any time with `sudo ./svc.sh status` (from `~/actions-runner`), or
 in GitHub under **Settings → Actions → Runners**.
 
-## 8. Pipeline secrets & variables
+## 9. Pipeline secrets & variables
 
 Set these once in the repo's GitHub settings (**Settings → Secrets and variables →
 Actions**):
@@ -254,7 +299,7 @@ Actions**):
 - **Variable `QUILLIT_DIR`** *(optional)* — absolute path to the app checkout on the
   server, only needed if it isn't at `$HOME/quillit`.
 
-## 9. Verify end-to-end
+## 10. Verify end-to-end
 
 1. In GitHub, go to **Actions → Deploy to home server → Run workflow** (manual
    dispatch).
@@ -272,7 +317,7 @@ Actions**):
    confirm `smoke` fails and the `Roll back on failure` step resets to the previous
    commit and redeploys it automatically.
 
-## 10. Day 2 ops
+## 11. Day 2 ops
 
 **Backups:**
 ```sh
@@ -289,6 +334,13 @@ ssh -L 9001:localhost:9001 user@your-server
 then open `http://localhost:9001` — credentials are `MINIO_USER` / `MINIO_PASSWORD`
 from `.env`.
 
+**Grafana / log dashboard** (bound to `127.0.0.1`, if the logging overlay is enabled):
+```sh
+ssh -L 3001:localhost:3001 user@your-server
+```
+then open `http://localhost:3001` — credentials are `GRAFANA_ADMIN_USER` /
+`GRAFANA_ADMIN_PASSWORD` from `.env`.
+
 **Manual update** (fallback if you're not using the pipeline):
 ```sh
 git pull && ./compose.sh build && ./compose.sh up -d
@@ -302,4 +354,4 @@ git pull && ./compose.sh build && ./compose.sh up -d
 | `smoke` fails on a service's `/healthz` | `./compose.sh logs <svc\|auth>` — the handler pings its SQLite DB, so a `503` usually means a DB/volume problem. |
 | App unreachable at `:8080` / domain | `sudo ufw status` (only 22/80/443 should be open), `./compose.sh ps` to confirm containers are `Up`. |
 | HTTPS not issuing a cert | Confirm the domain's A record resolves to the server and 80/443 are actually reachable from the internet (not just locally); check `./compose.sh logs caddy`. |
-| Deploy pipeline can't `git pull` | Confirm `git -C ~/quillit remote -v` and that the runner's user can read it non-interactively (see §7.6). |
+| Deploy pipeline can't `git pull` | Confirm `git -C ~/quillit remote -v` and that the runner's user can read it non-interactively (see §8.6). |

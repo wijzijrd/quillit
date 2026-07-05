@@ -173,6 +173,50 @@ Port 80 isn't required for certificate issuance in this mode (there's no ACME ch
 
 </details>
 
+### Log aggregation (optional)
+
+<details>
+<summary>Expand log aggregation setup instructions (Loki + Grafana)</summary>
+
+Adds Grafana Loki (log storage), Promtail (log shipper), and Grafana (query UI) so
+container logs are searchable in one place instead of scattered across `docker
+compose logs <service>`. No parsing setup needed — logs stay plain text and are
+filtered at query time.
+
+1. Set in `.env` (see `.env.example`):
+
+   ```
+   LOKI_RETENTION_DAYS=14
+   GRAFANA_ADMIN_USER=admin
+   GRAFANA_ADMIN_PASSWORD=a-real-password
+   ```
+
+2. Start with the logging overlay:
+
+   ```sh
+   docker compose -f docker-compose.yml -f docker-compose.logging.yml up -d
+   ```
+
+   Combine with the Caddy overlay if you're also using it:
+
+   ```sh
+   docker compose -f docker-compose.yml -f docker-compose.caddy.yml -f docker-compose.logging.yml up -d
+   ```
+
+   If you used `setup.sh`, add `-f docker-compose.logging.yml` to the `docker compose ${COMPOSE_FLAGS}` line inside the generated `compose.sh`, so `./compose.sh` keeps including it going forward.
+
+3. Access Grafana via SSH tunnel (same pattern as the MinIO console):
+
+   ```sh
+   ssh -L 3001:localhost:3001 user@your-server
+   ```
+
+   Then open **http://localhost:3001** and log in with `GRAFANA_ADMIN_USER` / `GRAFANA_ADMIN_PASSWORD`. A "Loki" datasource is pre-configured — go to **Explore** and query, e.g. `{service="svc"}` or `{service="svc"} |= "error"`.
+
+Promtail discovers all running containers automatically via the Docker socket — no container list to maintain. Loki keeps `LOKI_RETENTION_DAYS` days of logs (default 14) and deletes older data automatically via its compactor, so storage doesn't grow unbounded the way Docker's default `json-file` log driver does today.
+
+</details>
+
 ---
 
 ## Option 3 — Native local development

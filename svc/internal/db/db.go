@@ -32,6 +32,9 @@ func Open(path string) (*sql.DB, error) {
 	if err = migrate(database); err != nil {
 		return nil, fmt.Errorf("migrate: %w", err)
 	}
+	if err := checkForeignKeys(database); err != nil {
+		return nil, fmt.Errorf("migrate: %w", err)
+	}
 	if err = seedCategories(database); err != nil {
 		return nil, fmt.Errorf("seed categories: %w", err)
 	}
@@ -39,6 +42,21 @@ func Open(path string) (*sql.DB, error) {
 		return nil, fmt.Errorf("migrate npc: %w", err)
 	}
 	return database, nil
+}
+
+// checkForeignKeys fails fast with a clear error if a migration left the schema
+// with a dangling foreign key reference, instead of surfacing later as a
+// confusing runtime error from whatever query happens to hit it first.
+func checkForeignKeys(db *sql.DB) error {
+	rows, err := db.Query(`PRAGMA foreign_key_check`)
+	if err != nil {
+		return fmt.Errorf("foreign_key_check: %w", err)
+	}
+	defer rows.Close()
+	if rows.Next() {
+		return fmt.Errorf("post-migration integrity check failed: schema has a dangling foreign key (see PRAGMA foreign_key_check)")
+	}
+	return rows.Err()
 }
 
 func migrate(db *sql.DB) error {
@@ -59,6 +77,11 @@ func migrate(db *sql.DB) error {
 	if version < 3 {
 		if err := toV3(db); err != nil {
 			return fmt.Errorf("schema v3: %w", err)
+		}
+	}
+	if version < 4 {
+		if err := toV4(db); err != nil {
+			return fmt.Errorf("schema v4: %w", err)
 		}
 	}
 	return nil
@@ -267,10 +290,18 @@ func toV1(db *sql.DB) error {
 
 func toV2(db *sql.DB) error {
 	// FK constraints can't be toggled inside a transaction; disable outside.
+	// legacy_alter_table=ON prevents SQLite from rewriting OTHER tables'
+	// REFERENCES clauses when we rename `categories` below — without this,
+	// category_default_tags.category_id silently ends up pointing at the
+	// soon-to-be-dropped categories_v1, corrupting the schema.
 	if _, err := db.Exec("PRAGMA foreign_keys=OFF"); err != nil {
 		return err
 	}
-	defer db.Exec("PRAGMA foreign_keys=ON") //nolint:errcheck
+	if _, err := db.Exec("PRAGMA legacy_alter_table=ON"); err != nil {
+		return err
+	}
+	defer db.Exec("PRAGMA legacy_alter_table=OFF") //nolint:errcheck
+	defer db.Exec("PRAGMA foreign_keys=ON")         //nolint:errcheck
 
 	tx, err := db.Begin()
 	if err != nil {
@@ -360,6 +391,48 @@ func toV3(db *sql.DB) error {
 	}
 
 	if _, err := tx.Exec(`PRAGMA user_version = 3`); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func toV4(db *sql.DB) error {
+	if _, err := db.Exec("PRAGMA foreign_keys=OFF"); err != nil {
+		return err
+	}
+	defer db.Exec("PRAGMA foreign_keys=ON") //nolint:errcheck
+
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	// Repairs installs that already ran the buggy toV2, where this table's
+	// stored schema ended up referencing the dropped categories_v1 table.
+	if _, err := tx.Exec(`ALTER TABLE category_default_tags RENAME TO category_default_tags_v3`); err != nil {
+		return fmt.Errorf("rename category_default_tags: %w", err)
+	}
+	if _, err := tx.Exec(`
+		CREATE TABLE category_default_tags (
+			id          TEXT    PRIMARY KEY,
+			category_id TEXT    NOT NULL REFERENCES categories(id) ON DELETE CASCADE,
+			label       TEXT    NOT NULL,
+			sort_order  INTEGER NOT NULL DEFAULT 0
+		)
+	`); err != nil {
+		return fmt.Errorf("recreate category_default_tags: %w", err)
+	}
+	if _, err := tx.Exec(`
+		INSERT INTO category_default_tags (id, category_id, label, sort_order)
+		SELECT id, category_id, label, sort_order FROM category_default_tags_v3
+	`); err != nil {
+		return fmt.Errorf("copy category_default_tags: %w", err)
+	}
+	if _, err := tx.Exec(`DROP TABLE category_default_tags_v3`); err != nil {
+		return fmt.Errorf("drop category_default_tags_v3: %w", err)
+	}
+	if _, err := tx.Exec(`PRAGMA user_version = 4`); err != nil {
 		return err
 	}
 	return tx.Commit()
