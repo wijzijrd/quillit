@@ -53,9 +53,24 @@ jobs:
           fi
           echo "Runner online — proceeding to deploy."
 
+  test:
+    name: Run Go tests (svc + auth)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+      - name: Test svc
+        working-directory: svc
+        run: go test ./...
+      - name: Test auth
+        working-directory: auth
+        run: go test ./...
+
   deploy:
     name: Build, deploy & smoke test
-    needs: preflight
+    needs: [preflight, test]
     runs-on: [self-hosted, quillit]
     timeout-minutes: 30
     env:

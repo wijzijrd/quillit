@@ -19,7 +19,25 @@ func Open(path string) (*sql.DB, error) {
 	if err = migrate(db); err != nil {
 		return nil, fmt.Errorf("migrate: %w", err)
 	}
+	if err := checkForeignKeys(db); err != nil {
+		return nil, fmt.Errorf("migrate: %w", err)
+	}
 	return db, nil
+}
+
+// checkForeignKeys fails fast with a clear error if a migration left the schema
+// with a dangling foreign key reference, instead of surfacing later as a
+// confusing runtime error from whatever query happens to hit it first.
+func checkForeignKeys(db *sql.DB) error {
+	rows, err := db.Query(`PRAGMA foreign_key_check`)
+	if err != nil {
+		return fmt.Errorf("foreign_key_check: %w", err)
+	}
+	defer rows.Close()
+	if rows.Next() {
+		return fmt.Errorf("post-migration integrity check failed: schema has a dangling foreign key (see PRAGMA foreign_key_check)")
+	}
+	return rows.Err()
 }
 
 func migrate(db *sql.DB) error {
