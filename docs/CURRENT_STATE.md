@@ -70,6 +70,12 @@ still open, on branch `fix/deploy-hardening-and-logging` (PR #3):
   ```
 - UFW: only 22 (SSH), 80/tcp, 443/tcp, 5353/udp (mDNS) open. MinIO (9001) and Grafana
   (3001) are loopback-only — not reachable from the LAN at all, only via SSH tunnel.
+- SSH itself is served by **Tailscale SSH**, not `openssh-server` (which was never
+  installed — port 22 answers nothing on the LAN despite the UFW rule). Connect from
+  any device on the tailnet with `ssh <user>@quillit` (MagicDNS name set via
+  `tailscale up --ssh --hostname=quillit`); tunnels to Grafana/MinIO work through it
+  from any network, not just the LAN. See SERVER_SETUP.md §6 "Remote access from
+  anywhere".
 
 ### Why the Caddyfile is env-var driven
 
@@ -122,9 +128,9 @@ anything, or run its own stack. `pop-os` is already running the full app.
   internally via `compose.sh exec`, the same pattern already used for `svc`/`auth`.
   The deploy's own rollback step worked correctly when the old smoke test failed,
   restoring the box to its prior commit with no manual intervention needed.
-- **Remote access beyond the LAN** (Tailscale, dynamic DNS) is mentioned in
-  SERVER_SETUP.md as "covered in prior planning notes" but not implemented — out of
-  scope for now since everything is LAN-only until a domain is purchased.
+- **Remote access beyond the LAN** — done for SSH/tunnels via Tailscale SSH (see
+  above). The app itself (`https://quillit.local`) is still LAN-only; a public domain
+  or `tailscale serve` for the app remains out of scope until needed.
 - **`CORS_ORIGIN` is a single exact-match value** — `svc` doesn't support multiple
   allowed origins. If a client ever needs to reach the API via an origin other than
   `https://pop-os.local` (e.g. the raw IP, or a future domain), this needs to change to
