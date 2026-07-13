@@ -1,5 +1,8 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
+import { api } from '../api/client'
+import { useAuthStore } from './useAuthStore'
+import type { UserSettings } from '../types'
 
 export const useUIStore = defineStore('ui', () => {
   const activeEntryId = ref<string | null>(null)
@@ -15,10 +18,31 @@ export const useUIStore = defineStore('ui', () => {
     document.documentElement.classList.toggle('dark', theme.value === 'dark')
   }
 
+  function applyTheme(t: 'light' | 'dark') {
+    theme.value = t
+    document.documentElement.classList.toggle('dark', t === 'dark')
+    localStorage.setItem('quillit-theme', t)
+  }
+
+  // Pull settings from the server after login; server wins over localStorage
+  // so a new device picks up the user's saved theme. If the server has no
+  // theme yet (first login after this feature shipped), seed it from local.
+  async function syncSettingsFromServer() {
+    try {
+      const settings = await api<UserSettings>('/me/settings')
+      if (settings.theme === 'light' || settings.theme === 'dark') {
+        applyTheme(settings.theme)
+      } else {
+        api('/me/settings', { method: 'PATCH', body: { theme: theme.value } }).catch(() => {})
+      }
+    } catch { /* offline or no session — local theme stands */ }
+  }
+
   function toggleTheme() {
-    theme.value = theme.value === 'light' ? 'dark' : 'light'
-    document.documentElement.classList.toggle('dark', theme.value === 'dark')
-    localStorage.setItem('quillit-theme', theme.value)
+    applyTheme(theme.value === 'light' ? 'dark' : 'light')
+    if (useAuthStore().isLoggedIn) {
+      api('/me/settings', { method: 'PATCH', body: { theme: theme.value } }).catch(() => {})
+    }
   }
 
   function setActiveEntry(id: string | null) {
@@ -47,6 +71,6 @@ export const useUIStore = defineStore('ui', () => {
     navigationHistory, canGoBack,
     theme,
     setActiveEntry, goBack, setCategory, toggleSearchOverlay, closeSearchOverlay,
-    initTheme, toggleTheme,
+    initTheme, toggleTheme, syncSettingsFromServer,
   }
 })

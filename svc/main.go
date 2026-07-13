@@ -65,6 +65,7 @@ func main() {
 	entryShares := handler.NewEntryShares(database, jwtSecret, authURL)
 	annotations := handler.NewAnnotations(database, jwtSecret)
 	member := handler.NewMember(database, jwtSecret)
+	settings := handler.NewSettings(database, jwtSecret)
 	quickview := handler.NewQuickView(database)
 	share := handler.NewShare(database)
 	migrate := handler.NewMigrate(database)
@@ -110,6 +111,9 @@ func main() {
 		r.Delete("/api/entries/{id}/shares/{userId}", entryShares.RemoveShare)
 
 		r.Get("/api/users/search", entryShares.SearchUsers)
+
+		r.Get("/api/me/settings", settings.Get)
+		r.Patch("/api/me/settings", settings.Update)
 
 		// Projects API (typed replacement for campaigns)
 		r.Get("/api/projects/types", projects.Types)
