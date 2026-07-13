@@ -1,5 +1,5 @@
 
-@import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=Crimson+Pro:ital,wght@0,300;0,400;0,600;1,300;1,400&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Instrument+Sans:ital,wght@0,400;0,500;0,600;1,400&display=swap');
 
 @import "tailwindcss";
 @import "tw-animate-css";
@@ -43,38 +43,43 @@
   --color-sidebar: var(--sidebar);
 }
 
-/* Parchment & Ink palette — unlayered so it wins over shadcn @layer base defaults */
+/*
+ * Seasonal palettes — unlayered so they win over shadcn @layer base defaults.
+ * :root = spring (default-light, anti-FOUC); .dark = autumn fallback;
+ * [data-season="…"] blocks below override both at equal specificity.
+ * Spring/summer are light seasons; autumn/winter are dark ([data-season] +
+ * .dark are set together by useUIStore.applySeason).
+ */
 :root {
-  --background: #F5F0E8;
-  --foreground: #1C1410;
-  --card: #EDE7D9;
-  --card-foreground: #1C1410;
-  --popover: #F9F5EE;
-  --popover-foreground: #1C1410;
-  --primary: #8B2E2E;
-  --primary-foreground: #F5F0E8;
-  --secondary: #D4C9B0;
-  --secondary-foreground: #1C1410;
-  --muted: #E0D9CB;
-  --muted-foreground: #6B5D4F;
-  --accent: #C4844A;
-  --accent-foreground: #F5F0E8;
-  --destructive: #B91C1C;
-  --destructive-foreground: #F5F0E8;
-  --border: #C8BDA8;
-  --input: #C8BDA8;
-  --ring: #8B2E2E;
-  --radius: 3px;
-  --radius-sm: 0px;
+  --background: #F2F5EC;
+  --foreground: #25301F;
+  --card: #E9EFDD;
+  --card-foreground: #25301F;
+  --popover: #F8FAF2;
+  --popover-foreground: #25301F;
+  --primary: #3F7D5A;
+  --primary-foreground: #F2F5EC;
+  --secondary: #D8E2C6;
+  --secondary-foreground: #25301F;
+  --muted: #E1E8D2;
+  --muted-foreground: #55604A;
+  --accent: #8E7CC3;
+  --accent-foreground: #241E38;
+  --destructive: #B3402E;
+  --destructive-foreground: #F7F3EC;
+  --border: #C9D3B9;
+  --input: #C9D3B9;
+  --ring: #3F7D5A;
+  --radius: 8px;
 
-  --sidebar: #EDE7D9;
-  --sidebar-foreground: #1C1410;
-  --sidebar-primary: #8B2E2E;
-  --sidebar-primary-foreground: #F5F0E8;
-  --sidebar-accent: #C4844A;
-  --sidebar-accent-foreground: #F5F0E8;
-  --sidebar-border: #C8BDA8;
-  --sidebar-ring: #8B2E2E;
+  --sidebar: #E9EFDD;
+  --sidebar-foreground: #25301F;
+  --sidebar-primary: #3F7D5A;
+  --sidebar-primary-foreground: #F2F5EC;
+  --sidebar-accent: #8E7CC3;
+  --sidebar-accent-foreground: #241E38;
+  --sidebar-border: #C9D3B9;
+  --sidebar-ring: #3F7D5A;
 
   --cat-npc: #1E4D8C;
   --cat-location: #1A5C35;
@@ -83,46 +88,48 @@
   --cat-item: #8B1A1A;
   --cat-lore: #2C2E8C;
 
-  --space-xs: 4px;   --space-sm: 8px;   --space-md: 12px;  --space-lg: 16px;
-  --space-xl: 24px;  --space-2xl: 32px; --space-3xl: 48px;
+  --backdrop-gradient: linear-gradient(160deg, #EEF4E0 0%, #D6E6C4 45%, #A8C89A 100%);
 
-  --h-xs: 22px; --h-sm: 28px; --h-md: 34px; --h-lg: 40px; --h-xl: 48px;
+  --space-xs: 6px;   --space-sm: 10px;  --space-md: 16px;  --space-lg: 22px;
+  --space-xl: 32px;  --space-2xl: 44px; --space-3xl: 64px;
 
-  --font-display: 'Cinzel', serif;
-  --font-body:    'Crimson Pro', serif;
+  --h-xs: 26px; --h-sm: 32px; --h-md: 38px; --h-lg: 44px; --h-xl: 52px;
+
+  --font-display: 'Fraunces', serif;
+  --font-body:    'Instrument Sans', sans-serif;
 
   --transition: 200ms ease-in-out;
 }
 
 .dark {
-  --background: #14141F;
-  --foreground: #E8E0D0;
-  --card: #1E1E2E;
-  --card-foreground: #E8E0D0;
-  --popover: #1A1A2C;
-  --popover-foreground: #E8E0D0;
-  --primary: #C4956A;
-  --primary-foreground: #14141F;
-  --secondary: #2A2A3E;
-  --secondary-foreground: #E8E0D0;
-  --muted: #252535;
-  --muted-foreground: #9A9AB0;
-  --accent: #7B4F3A;
-  --accent-foreground: #E8E0D0;
-  --destructive: #EF4444;
-  --destructive-foreground: #14141F;
-  --border: #2E2E42;
-  --input: #2E2E42;
-  --ring: #C4956A;
+  --background: #221A14;
+  --foreground: #EDE3D0;
+  --card: #2C2219;
+  --card-foreground: #EDE3D0;
+  --popover: #342820;
+  --popover-foreground: #EDE3D0;
+  --primary: #C96F32;
+  --primary-foreground: #221A14;
+  --secondary: #3E3024;
+  --secondary-foreground: #EDE3D0;
+  --muted: #372B20;
+  --muted-foreground: #B2A28B;
+  --accent: #A04848;
+  --accent-foreground: #EDE3D0;
+  --destructive: #E05B4A;
+  --destructive-foreground: #221A14;
+  --border: #453626;
+  --input: #453626;
+  --ring: #C96F32;
 
-  --sidebar: #1E1E2E;
-  --sidebar-foreground: #E8E0D0;
-  --sidebar-primary: #C4956A;
-  --sidebar-primary-foreground: #14141F;
-  --sidebar-accent: #7B4F3A;
-  --sidebar-accent-foreground: #E8E0D0;
-  --sidebar-border: #2E2E42;
-  --sidebar-ring: #C4956A;
+  --sidebar: #2C2219;
+  --sidebar-foreground: #EDE3D0;
+  --sidebar-primary: #C96F32;
+  --sidebar-primary-foreground: #221A14;
+  --sidebar-accent: #A04848;
+  --sidebar-accent-foreground: #EDE3D0;
+  --sidebar-border: #453626;
+  --sidebar-ring: #C96F32;
 
   --cat-npc: #6B9ED4;
   --cat-location: #52A874;
@@ -130,21 +137,116 @@
   --cat-event: #D4A44C;
   --cat-item: #D46464;
   --cat-lore: #7070D4;
+
+  --backdrop-gradient: linear-gradient(160deg, #2A1E13 0%, #462C18 55%, #6B4020 100%);
+}
+
+[data-season='summer'] {
+  --background: #FBF6EA;
+  --foreground: #2A2418;
+  --card: #F4ECD7;
+  --card-foreground: #2A2418;
+  --popover: #FEFBF2;
+  --popover-foreground: #2A2418;
+  --primary: #1F6E8C;
+  --primary-foreground: #FBF6EA;
+  --secondary: #EBDFC0;
+  --secondary-foreground: #2A2418;
+  --muted: #F0E7D0;
+  --muted-foreground: #6E6350;
+  --accent: #E8A13D;
+  --accent-foreground: #2A2418;
+  --destructive: #B3402E;
+  --destructive-foreground: #FBF6EA;
+  --border: #DCCDA9;
+  --input: #DCCDA9;
+  --ring: #1F6E8C;
+
+  --sidebar: #F4ECD7;
+  --sidebar-foreground: #2A2418;
+  --sidebar-primary: #1F6E8C;
+  --sidebar-primary-foreground: #FBF6EA;
+  --sidebar-accent: #E8A13D;
+  --sidebar-accent-foreground: #2A2418;
+  --sidebar-border: #DCCDA9;
+  --sidebar-ring: #1F6E8C;
+
+  --backdrop-gradient: linear-gradient(165deg, #FDF3DA 0%, #F4DFAC 55%, #CFE3E8 100%);
+}
+
+[data-season='winter'] {
+  --background: #131722;
+  --foreground: #E4E9F0;
+  --card: #1B212F;
+  --card-foreground: #E4E9F0;
+  --popover: #212836;
+  --popover-foreground: #E4E9F0;
+  --primary: #7FA6C9;
+  --primary-foreground: #131722;
+  --secondary: #273047;
+  --secondary-foreground: #E4E9F0;
+  --muted: #232B3C;
+  --muted-foreground: #97A3B8;
+  --accent: #5FB3A1;
+  --accent-foreground: #131722;
+  --destructive: #E05B5B;
+  --destructive-foreground: #131722;
+  --border: #2E3850;
+  --input: #2E3850;
+  --ring: #7FA6C9;
+
+  --sidebar: #1B212F;
+  --sidebar-foreground: #E4E9F0;
+  --sidebar-primary: #7FA6C9;
+  --sidebar-primary-foreground: #131722;
+  --sidebar-accent: #5FB3A1;
+  --sidebar-accent-foreground: #131722;
+  --sidebar-border: #2E3850;
+  --sidebar-ring: #7FA6C9;
+
+  --cat-npc: #6B9ED4;
+  --cat-location: #52A874;
+  --cat-faction: #A66DD4;
+  --cat-event: #D4A44C;
+  --cat-item: #D46464;
+  --cat-lore: #7070D4;
+
+  --backdrop-gradient: linear-gradient(165deg, #0F1420 0%, #1A2438 55%, #29405C 100%);
 }
 
 @theme {
-  --color-cat-npc: #1E4D8C;
-  --color-cat-location: #1A5C35;
-  --color-cat-faction: #5B1F8A;
-  --color-cat-event: #8C5A0A;
-  --color-cat-item: #8B1A1A;
-  --color-cat-lore: #2C2E8C;
-  --color-parchment: #F5F0E8;
-  --color-midnight: #14141F;
-  --color-burgundy: #8B2E2E;
-  --color-amber: #C4956A;
-  --font-display: 'Cinzel', serif;
-  --font-body: 'Crimson Pro', serif;
+  --font-display: 'Fraunces', serif;
+  --font-body: 'Instrument Sans', sans-serif;
+}
+
+/*
+ * SURFACE LAYERING CONTRACT
+ *
+ * Depth 0: .season-backdrop — always opaque. The only thing glass ever blurs.
+ * Depth 1: .surface — sits directly on the backdrop (sidebar, main panel,
+ *          cards). Glass-capable: translucent + backdrop-blur when html.glass.
+ * Depth 2: floating overlays (Dialog/Popover/Dropdown/Sheet/Command) use
+ *          bg-popover. --popover is ALWAYS an opaque hex in every season.
+ *          Never put .surface on overlay content; never make --popover
+ *          translucent.
+ * Depth 3: components inside an opaque overlay may use .surface again
+ *          (blurring the opaque overlay beneath is allowed).
+ *
+ * Rule: glass is only legal when the layer directly beneath is opaque.
+ * Glass-off collapses .surface to opaque via --surface-alpha; no component
+ * logic needed.
+ */
+:root { --surface-alpha: 100%; --glass-blur: 14px; }
+html.glass { --surface-alpha: 66%; }
+html.glass.dark { --surface-alpha: 58%; }
+
+.season-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  overflow: hidden;
+  background-color: var(--background);
+  background-image: var(--backdrop-gradient);
 }
 
 @layer base {
@@ -156,10 +258,13 @@
     background: var(--background);
     color: var(--foreground);
     font-family: var(--font-body);
-    font-size: 18px;
-    line-height: 1.7;
+    font-size: 16px;
+    line-height: 1.6;
     -webkit-font-smoothing: antialiased;
   }
+
+  /* Let the depth-0 season backdrop show through the app root. */
+  #app { background: transparent; }
 
   ::-webkit-scrollbar { width: 6px; }
   ::-webkit-scrollbar-track { background: transparent; }
@@ -167,6 +272,29 @@
 }
 
 @layer components {
+  /* Depth-1 glass-capable surface — see SURFACE LAYERING CONTRACT above. */
+  .surface {
+    background: color-mix(in srgb, var(--card) var(--surface-alpha), transparent);
+    border: 1px solid color-mix(in srgb, var(--border) 85%, transparent);
+  }
+  html.glass .surface {
+    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(1.15);
+    backdrop-filter: blur(var(--glass-blur)) saturate(1.15);
+  }
+  /* Opaque surface for elements that must never go glass. */
+  .surface-solid {
+    background: var(--popover);
+    border: 1px solid var(--border);
+  }
+
+  /* Shared auth form label (LoginView / SetupView). */
+  .auth-label {
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--muted-foreground);
+  }
+
   /* Tiptap editor content — do NOT convert to Tailwind utilities */
   .tiptap { outline: none; min-height: 320px; }
   .tiptap p { margin-bottom: 0.85em; }
@@ -255,6 +383,7 @@
 @media print {
   @page { margin: 2cm; }
   .app-shell-sidebar,
+  .season-backdrop,
   .right-panel,
   .editor-header .toolbar,
   .tags-row,

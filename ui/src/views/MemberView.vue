@@ -241,7 +241,6 @@ async function togglePin() {
 <style scoped>
 .member-shell {
   display: flex; height: 100%; overflow: hidden;
-  background: var(--background);
 }
 
 .member-sidebar {
@@ -348,7 +347,7 @@ async function togglePin() {
 .empty-msg { padding: var(--space-xl); color: var(--muted-foreground); font-size: var(--text-sm); }
 
 .entry-detail {
-  position: absolute; inset: 0; background: var(--background);
+  position: absolute; inset: 0; background: var(--card);
   overflow-y: auto; padding: var(--space-2xl) var(--space-3xl);
   z-index: 10;
 }

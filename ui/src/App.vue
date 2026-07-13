@@ -12,11 +12,12 @@ const ui = useUIStore()
 const auth = useAuthStore()
 
 // Sync server-side settings once per session transition (login, register,
-// cold load with existing session).
-watch(() => auth.isLoggedIn, (v) => { if (v) ui.syncSettingsFromServer() })
+// cold load with existing session). immediate: on cold load the router guard
+// resolves fetchMe() before this component mounts, so isLoggedIn may already
+// be true when the watcher is registered.
+watch(() => auth.isLoggedIn, (v) => { if (v) ui.syncSettingsFromServer() }, { immediate: true })
 
 onMounted(() => {
-  ui.initTheme()
   window.addEventListener('keydown', onKeydown)
 })
 onUnmounted(() => window.removeEventListener('keydown', onKeydown))
