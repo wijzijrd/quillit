@@ -5,8 +5,29 @@ definitions:
       name:
         type: string
     type: object
+  handler.AdminProject:
+    properties:
+      createdAt:
+        type: integer
+      createdBy:
+        type: string
+      id:
+        type: string
+      memberCount:
+        type: integer
+      name:
+        type: string
+      roleLabels:
+        items:
+          type: string
+        type: array
+      type:
+        type: string
+    type: object
   handler.Annotation:
     properties:
+      authorUserId:
+        type: string
       createdAt:
         type: integer
       entryId:
@@ -72,25 +93,6 @@ definitions:
       name:
         type: string
     type: object
-  handler.CreateEntryRequest:
-    properties:
-      body:
-        type: string
-      campaignIds:
-        type: string
-      category:
-        type: string
-      linkedEntries:
-        type: string
-      quickViewData:
-        type: string
-      tags:
-        type: string
-      title:
-        type: string
-      visibility:
-        type: string
-    type: object
   handler.CreateNoteRequest:
     properties:
       body:
@@ -107,7 +109,9 @@ definitions:
       body:
         type: string
       campaignIds:
-        type: string
+        items:
+          type: integer
+        type: array
       category:
         type: string
       createdAt:
@@ -115,16 +119,37 @@ definitions:
       id:
         type: string
       linkedEntries:
+        items:
+          type: integer
+        type: array
+      ownerUserId:
         type: string
       quickViewData:
-        type: string
+        items:
+          type: integer
+        type: array
       tags:
-        type: string
+        items:
+          type: integer
+        type: array
       title:
         type: string
       updatedAt:
         type: integer
       visibility:
+        type: string
+    type: object
+  handler.EntryShare:
+    properties:
+      entryId:
+        type: string
+      id:
+        type: string
+      sharedAt:
+        type: integer
+      sharedBy:
+        type: string
+      userId:
         type: string
     type: object
   handler.ErrorResponse:
@@ -155,11 +180,43 @@ definitions:
     type: object
   handler.MeResponse:
     properties:
+      active:
+        type: boolean
       email:
         type: string
       role:
         type: string
       sub:
+        type: string
+    type: object
+  handler.MemberEntryMeta:
+    properties:
+      entryId:
+        type: string
+      pinned:
+        type: boolean
+      sortOrder:
+        type: integer
+      tags:
+        type: string
+      userId:
+        type: string
+    type: object
+  handler.MemberFolder:
+    properties:
+      color:
+        type: string
+      createdAt:
+        type: integer
+      id:
+        type: string
+      name:
+        type: string
+      projectId:
+        type: string
+      sortOrder:
+        type: integer
+      userId:
         type: string
     type: object
   handler.OkResponse:
@@ -201,6 +258,73 @@ definitions:
       visibility:
         type: string
     type: object
+  handler.Project:
+    properties:
+      createdAt:
+        type: integer
+      createdBy:
+        type: string
+      id:
+        type: string
+      memberCount:
+        type: integer
+      members:
+        items:
+          $ref: '#/definitions/handler.ProjectMember'
+        type: array
+      myRole:
+        type: string
+      name:
+        type: string
+      roleLabels:
+        description: '[editorLabel, memberLabel]'
+        items:
+          type: string
+        type: array
+      type:
+        type: string
+    type: object
+  handler.ProjectInvite:
+    properties:
+      createdBy:
+        type: string
+      expiresAt:
+        type: integer
+      id:
+        type: string
+      projectId:
+        type: string
+      role:
+        type: string
+      token:
+        type: string
+    type: object
+  handler.ProjectMember:
+    properties:
+      id:
+        type: string
+      joinedAt:
+        type: integer
+      projectId:
+        type: string
+      role:
+        type: string
+      userId:
+        type: string
+      username:
+        type: string
+    type: object
+  handler.ProjectType:
+    properties:
+      label:
+        type: string
+      roleLabels:
+        items:
+          type: string
+        type: array
+      type:
+        type: string
+    type: object
   handler.QuickViewTemplate:
     properties:
       category:
@@ -219,6 +343,148 @@ info:
   title: Quillit BFF API
   version: "1.0"
 paths:
+  /api/admin/projects:
+    get:
+      description: Returns all projects with member counts. Supports ?q= name search.
+      parameters:
+      - description: Search by project name
+        in: query
+        name: q
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/handler.AdminProject'
+            type: array
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+      summary: List all projects (admin)
+      tags:
+      - admin
+  /api/admin/projects/{id}/members:
+    get:
+      description: Returns all members for the given project, regardless of admin's
+        own membership.
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/handler.ProjectMember'
+            type: array
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+      summary: List members of any project (admin)
+      tags:
+      - admin
+  /api/admin/users:
+    get:
+      description: Proxies to auth-svc. Supports ?q= search and ?active= filter.
+      parameters:
+      - description: Search by email or username
+        in: query
+        name: q
+        type: string
+      - description: 'Filter: true or false'
+        in: query
+        name: active
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              type: object
+            type: array
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+      summary: List users (admin)
+      tags:
+      - admin
+  /api/admin/users/{id}:
+    delete:
+      description: Proxies to auth-svc. Permanently removes the user account.
+      parameters:
+      - description: User ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No Content
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+      summary: Delete user (admin)
+      tags:
+      - admin
+    patch:
+      consumes:
+      - application/json
+      description: 'Proxies to auth-svc. Supports { active: bool } to enable/disable
+        an account.'
+      parameters:
+      - description: User ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: '{ active: bool }'
+        in: body
+        name: body
+        required: true
+        schema:
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+      summary: Update user (admin)
+      tags:
+      - admin
   /api/annotations:
     get:
       parameters:
@@ -574,13 +840,6 @@ paths:
     post:
       consumes:
       - application/json
-      parameters:
-      - description: Entry data
-        in: body
-        name: body
-        required: true
-        schema:
-          $ref: '#/definitions/handler.CreateEntryRequest'
       produces:
       - application/json
       responses:
@@ -644,12 +903,12 @@ paths:
         name: id
         required: true
         type: string
-      - description: Fields to update
+      - description: Fields to update (partial Entry)
         in: body
         name: body
         required: true
         schema:
-          $ref: '#/definitions/handler.CreateEntryRequest'
+          $ref: '#/definitions/handler.Entry'
       produces:
       - application/json
       responses:
@@ -664,6 +923,467 @@ paths:
       summary: Update entry
       tags:
       - entries
+  /api/entries/{id}/images:
+    post:
+      consumes:
+      - multipart/form-data
+      parameters:
+      - description: Entry ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Image file
+        in: formData
+        name: image
+        required: true
+        type: file
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+      summary: Upload image attachment for an entry
+      tags:
+      - entries
+  /api/entries/{id}/shares:
+    get:
+      description: Returns all users who have been granted access to an entry.
+      parameters:
+      - description: Entry ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/handler.EntryShare'
+            type: array
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+      summary: List entry shares
+      tags:
+      - shares
+    post:
+      consumes:
+      - application/json
+      description: Grants access to an entry for one or more user IDs. Caller must
+        be the entry owner.
+      parameters:
+      - description: Entry ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: '{ userIds: [\'
+        in: body
+        name: body
+        required: true
+        schema:
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handler.OkResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+      summary: Share entry with users
+      tags:
+      - shares
+  /api/entries/{id}/shares/{userId}:
+    delete:
+      description: Revokes a user's access to an entry. Caller must be the entry owner.
+      parameters:
+      - description: Entry ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: User ID to remove
+        in: path
+        name: userId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handler.OkResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+      summary: Remove entry share
+      tags:
+      - shares
+  /api/me/settings:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Get the caller's settings
+      tags:
+      - settings
+    patch:
+      consumes:
+      - application/json
+      description: 'Shallow merge: each top-level key in the body overwrites the stored
+        key; a null value deletes the key.'
+      parameters:
+      - description: Settings patch (JSON object)
+        in: body
+        name: body
+        required: true
+        schema:
+          additionalProperties: true
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Merge settings into the caller's stored settings
+      tags:
+      - settings
+  /api/member/entries/{id}/meta:
+    put:
+      consumes:
+      - application/json
+      description: Sets pinned status, sort order, and personal tags for an entry.
+      parameters:
+      - description: Entry ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: '{ pinned?, sortOrder?, tags? }'
+        in: body
+        name: body
+        required: true
+        schema:
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handler.MemberEntryMeta'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+      summary: Upsert personal entry metadata
+      tags:
+      - member
+  /api/member/folders:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/handler.MemberFolder'
+            type: array
+      summary: List my folders
+      tags:
+      - member
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: '{ name, color?, projectId? }'
+        in: body
+        name: body
+        required: true
+        schema:
+          type: object
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/handler.MemberFolder'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+      summary: Create a folder
+      tags:
+      - member
+  /api/member/folders/{id}:
+    delete:
+      parameters:
+      - description: Folder ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handler.OkResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+      summary: Delete a folder
+      tags:
+      - member
+    patch:
+      consumes:
+      - application/json
+      parameters:
+      - description: Folder ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: '{ name?, color?, sortOrder? }'
+        in: body
+        name: body
+        required: true
+        schema:
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handler.MemberFolder'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+      summary: Update a folder
+      tags:
+      - member
+  /api/member/folders/{id}/entries:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Folder ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: '{ entryId }'
+        in: body
+        name: body
+        required: true
+        schema:
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handler.OkResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+      summary: Add entry to folder
+      tags:
+      - member
+  /api/member/folders/{id}/entries/{entryId}:
+    delete:
+      parameters:
+      - description: Folder ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Entry ID
+        in: path
+        name: entryId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handler.OkResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+      summary: Remove entry from folder
+      tags:
+      - member
+  /api/member/session-notes:
+    get:
+      description: Returns personal entries (owned by caller, not attached to any
+        project/campaign).
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/handler.Entry'
+            type: array
+      summary: List my session notes
+      tags:
+      - member
+    post:
+      consumes:
+      - application/json
+      description: Creates a personal entry owned by the caller with no project/campaign
+        association.
+      parameters:
+      - description: '{ title?, category?, body? }'
+        in: body
+        name: body
+        required: true
+        schema:
+          type: object
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/handler.Entry'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+      summary: Create a session note
+      tags:
+      - member
+  /api/member/session-notes/{id}:
+    delete:
+      parameters:
+      - description: Note ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handler.OkResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+      summary: Delete a session note
+      tags:
+      - member
+    patch:
+      consumes:
+      - application/json
+      parameters:
+      - description: Note ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Fields to update
+        in: body
+        name: body
+        required: true
+        schema:
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handler.Entry'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+      summary: Update a session note
+      tags:
+      - member
+  /api/member/shared:
+    get:
+      description: Returns all entries shared with the authenticated user via entry_shares.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/handler.Entry'
+            type: array
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+      summary: List notes shared with me
+      tags:
+      - member
   /api/migrate/import:
     post:
       consumes:
@@ -691,6 +1411,274 @@ paths:
       summary: Bulk import
       tags:
       - migrate
+  /api/projects:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/handler.Project'
+            type: array
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+      summary: List projects for the current user
+      tags:
+      - projects
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Project name and type
+        in: body
+        name: body
+        required: true
+        schema:
+          type: object
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/handler.Project'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+      summary: Create a project
+      tags:
+      - projects
+  /api/projects/{id}:
+    delete:
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+      summary: Delete a project
+      tags:
+      - projects
+    patch:
+      consumes:
+      - application/json
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Fields to update
+        in: body
+        name: body
+        required: true
+        schema:
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handler.Project'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+      summary: Update a project
+      tags:
+      - projects
+  /api/projects/{id}/invite:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: role override (defaults to member role)
+        in: body
+        name: body
+        schema:
+          type: object
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/handler.ProjectInvite'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+      summary: Generate an invite link for a project
+      tags:
+      - projects
+  /api/projects/{id}/invite/{token}:
+    delete:
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Invite token
+        in: path
+        name: token
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+      summary: Revoke an invite token
+      tags:
+      - projects
+  /api/projects/{id}/members:
+    get:
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/handler.ProjectMember'
+            type: array
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+      summary: List project members
+      tags:
+      - projects
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: userId and role
+        in: body
+        name: body
+        required: true
+        schema:
+          type: object
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/handler.ProjectMember'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+      summary: Add a member to a project
+      tags:
+      - projects
+  /api/projects/{id}/members/{userId}:
+    delete:
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: User ID to remove
+        in: path
+        name: userId
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+      summary: Remove a member from a project
+      tags:
+      - projects
+  /api/projects/join:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: invite token
+        in: body
+        name: body
+        required: true
+        schema:
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handler.ProjectMember'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+        "410":
+          description: Gone
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+      summary: Join a project via invite token
+      tags:
+      - projects
+  /api/projects/types:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/handler.ProjectType'
+            type: array
+      summary: List project types
+      tags:
+      - projects
   /api/quickview:
     get:
       produces:
@@ -879,4 +1867,49 @@ paths:
       summary: Update player note
       tags:
       - share
+  /api/users/search:
+    get:
+      description: Proxies to auth-svc user search. Returns minimal user info for
+        the share panel.
+      parameters:
+      - description: Search term (email or username)
+        in: query
+        name: q
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              type: object
+            type: array
+        "502":
+          description: Bad Gateway
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+      summary: Search users
+      tags:
+      - shares
+  /healthz:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "503":
+          description: Service Unavailable
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Health check
+      tags:
+      - health
 swagger: "2.0"

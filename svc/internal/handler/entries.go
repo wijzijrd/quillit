@@ -208,7 +208,7 @@ func (h *EntriesHandler) Create(w http.ResponseWriter, r *http.Request) {
 // @Accept       json
 // @Produce      json
 // @Param        id    path      string              true  "Entry ID"
-// @Param        body  body      CreateEntryRequest  true  "Fields to update"
+// @Param        body  body      Entry  true  "Fields to update (partial Entry)"
 // @Success      200   {object}  Entry
 // @Failure      404   {object}  ErrorResponse
 // @Router       /api/entries/{id} [patch]
