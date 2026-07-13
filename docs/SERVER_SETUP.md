@@ -232,6 +232,35 @@ then open `http://localhost:3001`, log in with `GRAFANA_ADMIN_USER` /
 `GRAFANA_ADMIN_PASSWORD`. Loki is pre-provisioned as a datasource — use **Explore**
 with LogQL, e.g. `{service="svc"} |= "error"`.
 
+### Remote access from anywhere (Tailscale SSH, optional)
+
+The SSH-tunnel access model above assumes you can reach port 22 — which only works
+on the LAN, and only if `openssh-server` is actually installed (desktop distros like
+Pop!_OS ship without it). [Tailscale SSH](https://tailscale.com/kb/1193/tailscale-ssh)
+covers both: `tailscaled` answers SSH on the tailnet interface itself, so there's no
+`openssh-server` to install, no keys to manage, and it works from any network — not
+just the LAN. Nothing is exposed to the public internet and UFW needs no new rules.
+
+On the server:
+
+```sh
+curl -fsSL https://tailscale.com/install.sh | sh
+sudo tailscale up --ssh --hostname=quillit
+# prints a login URL — sign in with your Tailscale account
+```
+
+On each client, install Tailscale (macOS: `brew install --cask tailscale-app`), sign
+in with the **same account**, then the tunnels work exactly as documented above from
+anywhere, using the MagicDNS name:
+
+```sh
+ssh -L 3001:localhost:3001 -L 9001:localhost:9001 user@quillit
+```
+
+The default tailnet policy allows SSH between your own devices in "check" mode
+(periodic browser re-auth); adjust the `ssh` rule in the Tailscale admin console's
+ACLs if you want `accept` instead.
+
 ## 7. Always-on / reboot survival
 
 - `sudo systemctl enable docker` so the Docker daemon starts on boot (do this if you
@@ -241,10 +270,10 @@ with LogQL, e.g. `{service="svc"} |= "error"`.
 - For real power-loss resilience: in BIOS/UEFI, enable **"Restore on AC power loss"**
   so the box powers back on automatically after an outage; a small UPS lets it shut
   down cleanly instead of losing power mid-write.
-- Hardware, dynamic DNS, remote-access (Tailscale), and uptime-monitoring
-  recommendations for running this as a personal always-on box are covered in the
-  deploy-pipeline planning notes from the prior session — ask if you'd like those
-  folded into this doc as a dedicated section.
+- Remote access is covered by Tailscale SSH (§6 above). Hardware, dynamic DNS, and
+  uptime-monitoring recommendations for running this as a personal always-on box are
+  covered in the deploy-pipeline planning notes from the prior session — ask if you'd
+  like those folded into this doc as a dedicated section.
 
 ## 8. GitHub Actions self-hosted runner
 
