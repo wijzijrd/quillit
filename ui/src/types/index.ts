@@ -83,6 +83,11 @@ export interface User {
   active?: boolean
 }
 
+export interface UserSettings {
+  theme?: 'light' | 'dark'
+  [key: string]: unknown
+}
+
 export interface QuickViewField {
   key: string
   label: string

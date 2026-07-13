@@ -84,6 +84,11 @@ func migrate(db *sql.DB) error {
 			return fmt.Errorf("schema v4: %w", err)
 		}
 	}
+	if version < 5 {
+		if err := toV5(db); err != nil {
+			return fmt.Errorf("schema v5: %w", err)
+		}
+	}
 	return nil
 }
 
@@ -433,6 +438,31 @@ func toV4(db *sql.DB) error {
 		return fmt.Errorf("drop category_default_tags_v3: %w", err)
 	}
 	if _, err := tx.Exec(`PRAGMA user_version = 4`); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func toV5(db *sql.DB) error {
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	// Per-user app settings (theme, etc.) as a generic JSON object,
+	// keyed by the auth-service user ID (JWT sub) — no local users table.
+	if _, err := tx.Exec(`
+		CREATE TABLE IF NOT EXISTS user_settings (
+			user_id    TEXT    PRIMARY KEY,
+			settings   TEXT    NOT NULL DEFAULT '{}',
+			updated_at INTEGER NOT NULL
+		)
+	`); err != nil {
+		return fmt.Errorf("create user_settings: %w", err)
+	}
+
+	if _, err := tx.Exec(`PRAGMA user_version = 5`); err != nil {
 		return err
 	}
 	return tx.Commit()

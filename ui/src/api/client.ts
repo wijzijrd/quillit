@@ -6,9 +6,9 @@ export const api = ofetch.create({
   credentials: 'include',
   onResponseError({ response }) {
     if (response.status === 401) {
-      const path = window.location.pathname
-      if (!path.startsWith('/login') && !path.startsWith('/setup')) {
-        router.push({ path: '/login', query: { redirect: path } })
+      const current = router.currentRoute.value
+      if (!current.meta.public) {
+        router.push({ path: '/login', query: { redirect: current.fullPath } })
       }
     }
   },
