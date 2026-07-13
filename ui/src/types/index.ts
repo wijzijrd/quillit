@@ -83,7 +83,12 @@ export interface User {
   active?: boolean
 }
 
+export type Season = 'spring' | 'summer' | 'autumn' | 'winter'
+
 export interface UserSettings {
+  season?: Season
+  glass?: boolean
+  /** Legacy light/dark setting; read once to migrate to `season`. */
   theme?: 'light' | 'dark'
   [key: string]: unknown
 }

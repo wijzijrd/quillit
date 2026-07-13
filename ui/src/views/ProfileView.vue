@@ -17,17 +17,37 @@
     </section>
 
     <section class="profile-card settings-card">
+      <div class="settings-row settings-row-stack">
+        <div class="settings-label-group">
+          <span class="settings-label">Season</span>
+          <span class="settings-desc">Sets the palette and backdrop on all your devices.</span>
+        </div>
+        <div class="season-picker" role="radiogroup" aria-label="Season">
+          <button
+            v-for="s in seasons"
+            :key="s"
+            class="season-option"
+            :class="{ active: ui.season === s }"
+            role="radio"
+            :aria-checked="ui.season === s"
+            @click="ui.setSeason(s)"
+          >
+            <span class="season-chip" :data-chip="s" />
+            <span class="season-name">{{ s }}</span>
+          </button>
+        </div>
+      </div>
       <div class="settings-row">
         <div class="settings-label-group">
-          <span class="settings-label">Dark mode</span>
-          <span class="settings-desc">Switch between parchment and midnight.</span>
+          <span class="settings-label">Glass</span>
+          <span class="settings-desc">Frosted panels that let the backdrop shine through.</span>
         </div>
         <button
           class="theme-toggle"
-          :class="{ active: ui.theme === 'dark' }"
-          :aria-checked="ui.theme === 'dark'"
+          :class="{ active: ui.glass }"
+          :aria-checked="ui.glass"
           role="switch"
-          @click="ui.toggleTheme()"
+          @click="ui.setGlass(!ui.glass)"
         >
           <span class="theme-toggle-thumb" />
         </button>
@@ -42,7 +62,9 @@
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/useAuthStore'
 import { useUIStore } from '../stores/useUIStore'
+import type { Season } from '../types'
 
+const seasons: readonly Season[] = ['spring', 'summer', 'autumn', 'winter']
 const auth = useAuthStore()
 const ui = useUIStore()
 const router = useRouter()
@@ -83,6 +105,32 @@ async function logout() {
 .role-badge.gm { background: color-mix(in srgb, var(--cat-faction) 15%, transparent); color: var(--cat-faction); border-color: var(--cat-faction); }
 
 .settings-row { display: flex; align-items: center; justify-content: space-between; gap: 24px; }
+.settings-row-stack { flex-direction: column; align-items: flex-start; gap: 12px; }
+
+.season-picker { display: flex; gap: 8px; flex-wrap: wrap; }
+.season-option {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 14px 6px 8px;
+  background: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--foreground);
+  font-family: var(--font-body);
+  font-size: 0.85em;
+  text-transform: capitalize;
+  cursor: pointer;
+  transition: border-color var(--transition), background var(--transition);
+}
+.season-option:hover { border-color: var(--primary); }
+.season-option.active {
+  border-color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 12%, transparent);
+}
+.season-chip { width: 18px; height: 18px; border-radius: 50%; border: 1px solid var(--border); }
+.season-chip[data-chip='spring'] { background: linear-gradient(160deg, #EEF4E0, #A8C89A); }
+.season-chip[data-chip='summer'] { background: linear-gradient(165deg, #FDF3DA, #F4DFAC 55%, #CFE3E8); }
+.season-chip[data-chip='autumn'] { background: linear-gradient(160deg, #2A1E13, #6B4020); }
+.season-chip[data-chip='winter'] { background: linear-gradient(165deg, #0F1420, #29405C); }
 .settings-label-group { display: flex; flex-direction: column; gap: 2px; }
 .settings-label { font-size: 0.88em; font-weight: 600; color: var(--foreground); }
 .settings-desc { font-size: 0.8em; color: var(--muted-foreground); }

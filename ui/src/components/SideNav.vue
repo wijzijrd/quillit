@@ -1,5 +1,5 @@
 <template>
-  <nav class="flex flex-col overflow-hidden bg-[var(--card)] h-full">
+  <nav class="app-shell-sidebar flex flex-col overflow-hidden h-full">
     <div class="flex items-center justify-center border-b border-[var(--border)] mb-1" style="height: var(--h-xl)">
       <span style="font-size:1.3em; color: var(--primary)">᚛</span>
     </div>
