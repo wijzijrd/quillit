@@ -250,6 +250,64 @@ func TestGameSessionsStop_ConcurrentStopsOnlyOneSucceeds(t *testing.T) {
 	}
 }
 
+// TestGameSessionsStop_ReturnsOwnSessionNotAnotherStoppedOne guards against a
+// regression where the post-UPDATE re-fetch identified the stopped row by
+// project_id + stopped_by + stopped_at (all non-unique, and stopped_at has
+// only 1s resolution). Here two full start/stop cycles are run for the same
+// project by the same caller; if both stops happen to land in the same
+// wall-clock second, a re-fetch keyed on that combination could return the
+// FIRST session's data for the SECOND stop's response. Asserting the
+// response id matches the session that was actually just started (and,
+// separately, differs from the first session) catches that even when the
+// two stops don't collide on the same second, and is the core correctness
+// property regardless of timing.
+func TestGameSessionsStop_ReturnsOwnSessionNotAnotherStoppedOne(t *testing.T) {
+	db := setupGameSessionsDB(t)
+
+	// First session: start and stop as user1.
+	start1RR := gsRequest(t, db, "POST", "/projects/proj1/session/start", nil, "user1")
+	var started1 handler.GameSession
+	json.NewDecoder(start1RR.Body).Decode(&started1)
+
+	stop1RR := gsRequest(t, db, "POST", "/projects/proj1/session/stop", nil, "user1")
+	if stop1RR.Code != http.StatusOK {
+		t.Fatalf("expected first stop to return 200, got %d: %s", stop1RR.Code, stop1RR.Body.String())
+	}
+	var stopped1 handler.GameSession
+	json.NewDecoder(stop1RR.Body).Decode(&stopped1)
+	if stopped1.ID != started1.ID {
+		t.Fatalf("expected first stop to return session %q, got %q", started1.ID, stopped1.ID)
+	}
+
+	// Second session for the same project, stopped by the same caller. If
+	// stopped_at happens to land in the same second as the first stop, the
+	// old non-atomic re-fetch (project_id + stopped_by + stopped_at) could
+	// return either row arbitrarily.
+	start2RR := gsRequest(t, db, "POST", "/projects/proj1/session/start", nil, "user1")
+	var started2 handler.GameSession
+	json.NewDecoder(start2RR.Body).Decode(&started2)
+	if started2.ID == started1.ID {
+		t.Fatalf("expected second session to have a distinct id from the first")
+	}
+
+	stop2RR := gsRequest(t, db, "POST", "/projects/proj1/session/stop", nil, "user1")
+	if stop2RR.Code != http.StatusOK {
+		t.Fatalf("expected second stop to return 200, got %d: %s", stop2RR.Code, stop2RR.Body.String())
+	}
+	var stopped2 handler.GameSession
+	json.NewDecoder(stop2RR.Body).Decode(&stopped2)
+
+	if stopped2.ID != started2.ID {
+		t.Errorf("expected second stop to return session %q (the one just stopped), got %q", started2.ID, stopped2.ID)
+	}
+	if stopped2.ID == stopped1.ID {
+		t.Errorf("second stop returned the FIRST session's data (%q) instead of its own", stopped1.ID)
+	}
+	if stopped2.StartedAt != started2.StartedAt {
+		t.Errorf("expected stopped session startedAt=%d (its own), got %d", started2.StartedAt, stopped2.StartedAt)
+	}
+}
+
 func TestGameSessionsStop_NonMemberRejected(t *testing.T) {
 	db := setupGameSessionsDB(t)
 	gsRequest(t, db, "POST", "/projects/proj1/session/start", nil, "user1")

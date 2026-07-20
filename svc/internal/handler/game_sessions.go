@@ -116,18 +116,6 @@ func (h *GameSessionsHandler) fetchRunningSession(r *http.Request, projectID str
 	return scanSession(h.db.QueryRowContext(r.Context(), sessionSelect+` WHERE project_id = ? AND status = 'running'`, projectID))
 }
 
-// fetchStoppedSession fetches the session just transitioned to 'stopped' by
-// the given caller at the given timestamp. Since at most one session per
-// project can ever be 'running' (enforced by the partial unique index), and
-// the atomic UPDATE in Stop only touches that single row, this combination of
-// project_id + stopped_by + stopped_at uniquely identifies it.
-func (h *GameSessionsHandler) fetchStoppedSession(r *http.Request, projectID, callerID string, stoppedAt int64) (GameSession, error) {
-	return scanSession(h.db.QueryRowContext(r.Context(),
-		sessionSelect+` WHERE project_id = ? AND status = 'stopped' AND stopped_by = ? AND stopped_at = ?`,
-		projectID, callerID, stoppedAt,
-	))
-}
-
 // isUniqueConstraintErr reports whether err is a SQLite UNIQUE constraint violation.
 func isUniqueConstraintErr(err error) bool {
 	return err != nil && strings.Contains(err.Error(), "UNIQUE constraint failed")
@@ -203,26 +191,30 @@ func (h *GameSessionsHandler) Stop(w http.ResponseWriter, r *http.Request) {
 	}
 
 	now := nowUnix()
-	res, err := h.db.ExecContext(r.Context(),
-		`UPDATE game_sessions SET status = 'stopped', stopped_by = ?, stopped_at = ? WHERE project_id = ? AND status = 'running'`,
+	// Atomically transition the running session to stopped and hand back its
+	// own row in a single statement (SQLite RETURNING, supported by the
+	// pinned modernc.org/sqlite driver). This avoids re-identifying the
+	// stopped row afterward via project_id + stopped_by + stopped_at, which
+	// is ambiguous when nowUnix()'s 1s resolution lets two stops by the same
+	// caller land in the same second.
+	row := h.db.QueryRowContext(r.Context(),
+		`UPDATE game_sessions SET status = 'stopped', stopped_by = ?, stopped_at = ?
+		 WHERE project_id = ? AND status = 'running'
+		 RETURNING id, project_id, status, started_by, started_at, stopped_by, stopped_at`,
 		callerID, now, projectID,
 	)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "db error")
+	session, err := scanSession(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		writeError(w, http.StatusNotFound, "no active session")
 		return
 	}
-	if n, _ := res.RowsAffected(); n == 0 {
-		writeError(w, http.StatusNotFound, "no active session")
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "db error")
 		return
 	}
 
 	// TODO(task 3): notify hub.CloseRoom(projectId) here so connected clients get a clean session_ended event
 
-	session, err := h.fetchStoppedSession(r, projectID, callerID, now)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "db error")
-		return
-	}
 	writeJSON(w, http.StatusOK, session)
 }
 
