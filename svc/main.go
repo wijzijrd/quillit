@@ -71,6 +71,7 @@ func main() {
 	migrate := handler.NewMigrate(database)
 	categories := handler.NewCategories(database)
 	relations := handler.NewRelations(database)
+	gameSessions := handler.NewGameSessions(database, jwtSecret)
 	health := handler.NewHealth(database)
 
 	r := chi.NewRouter()
@@ -133,6 +134,12 @@ func main() {
 		r.Post("/api/projects/{projectId}/categories", projects.CreateProjectCategory)
 		r.Post("/api/projects/{projectId}/categories/global/{catId}", projects.OptInGlobalCategory)
 		r.Delete("/api/projects/{projectId}/categories/{catId}", projects.RemoveProjectCategory)
+
+		// Game Mode: live session control-plane + chat history
+		r.Post("/api/projects/{projectId}/session/start", gameSessions.Start)
+		r.Post("/api/projects/{projectId}/session/stop", gameSessions.Stop)
+		r.Get("/api/projects/{projectId}/session/status", gameSessions.Status)
+		r.Get("/api/projects/{projectId}/session/{sessionId}/messages", gameSessions.ListMessages)
 
 		// Legacy campaign routes (kept for backwards compat during transition)
 		r.Get("/api/campaigns", campaigns.List)
