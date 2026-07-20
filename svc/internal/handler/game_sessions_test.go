@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
 	"time"
 
@@ -192,6 +193,60 @@ func TestGameSessionsStop_NoRunningSessionReturns404(t *testing.T) {
 	rr := gsRequest(t, db, "POST", "/projects/proj1/session/stop", nil, "user1")
 	if rr.Code != http.StatusNotFound {
 		t.Fatalf("expected 404, got %d: %s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestGameSessionsStop_SecondSequentialStopReturns404(t *testing.T) {
+	db := setupGameSessionsDB(t)
+	gsRequest(t, db, "POST", "/projects/proj1/session/start", nil, "user1")
+
+	rr1 := gsRequest(t, db, "POST", "/projects/proj1/session/stop", nil, "user1")
+	if rr1.Code != http.StatusOK {
+		t.Fatalf("expected first stop to return 200, got %d: %s", rr1.Code, rr1.Body.String())
+	}
+
+	rr2 := gsRequest(t, db, "POST", "/projects/proj1/session/stop", nil, "user2")
+	if rr2.Code != http.StatusNotFound {
+		t.Fatalf("expected second stop to return 404, got %d: %s", rr2.Code, rr2.Body.String())
+	}
+}
+
+func TestGameSessionsStop_ConcurrentStopsOnlyOneSucceeds(t *testing.T) {
+	db := setupGameSessionsDB(t)
+	gsRequest(t, db, "POST", "/projects/proj1/session/start", nil, "user1")
+
+	var wg sync.WaitGroup
+	codes := make([]int, 2)
+	callers := []string{"user1", "user2"}
+	for i := 0; i < 2; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			rr := gsRequest(t, db, "POST", "/projects/proj1/session/stop", nil, callers[i])
+			codes[i] = rr.Code
+		}(i)
+	}
+	wg.Wait()
+
+	okCount, notFoundCount := 0, 0
+	for _, c := range codes {
+		switch c {
+		case http.StatusOK:
+			okCount++
+		case http.StatusNotFound:
+			notFoundCount++
+		default:
+			t.Errorf("unexpected status code %d", c)
+		}
+	}
+	if okCount != 1 || notFoundCount != 1 {
+		t.Fatalf("expected exactly one 200 and one 404 among concurrent stops, got codes=%v", codes)
+	}
+
+	var runningCount int
+	db.QueryRow(`SELECT COUNT(*) FROM game_sessions WHERE project_id = 'proj1' AND status = 'running'`).Scan(&runningCount)
+	if runningCount != 0 {
+		t.Errorf("expected no running sessions left, got %d", runningCount)
 	}
 }
 

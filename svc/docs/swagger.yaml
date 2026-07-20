@@ -77,6 +77,29 @@ definitions:
           $ref: '#/definitions/handler.Player'
         type: array
     type: object
+  handler.ChatMessage:
+    properties:
+      body:
+        type: string
+      cardBody:
+        type: string
+      cardTitle:
+        type: string
+      createdAt:
+        type: integer
+      entryId:
+        type: string
+      id:
+        type: string
+      projectId:
+        type: string
+      senderId:
+        type: string
+      sessionId:
+        type: string
+      type:
+        type: string
+    type: object
   handler.CreateAnnotationRequest:
     properties:
       entryId:
@@ -155,6 +178,23 @@ definitions:
   handler.ErrorResponse:
     properties:
       error:
+        type: string
+    type: object
+  handler.GameSession:
+    properties:
+      id:
+        type: string
+      projectId:
+        type: string
+      startedAt:
+        type: integer
+      startedBy:
+        type: string
+      status:
+        type: string
+      stoppedAt:
+        type: integer
+      stoppedBy:
         type: string
     type: object
   handler.ImportPayload:
@@ -1636,6 +1676,133 @@ paths:
       summary: Remove a member from a project
       tags:
       - projects
+  /api/projects/{projectId}/session/{sessionId}/messages:
+    get:
+      parameters:
+      - description: Project ID
+        in: path
+        name: projectId
+        required: true
+        type: string
+      - description: Session ID
+        in: path
+        name: sessionId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/handler.ChatMessage'
+            type: array
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+      summary: List chat history for a game session
+      tags:
+      - game-sessions
+  /api/projects/{projectId}/session/start:
+    post:
+      description: |-
+        Starts a live session for the project. Any project member may
+        start one. If a session is already running, returns it with 409.
+      parameters:
+      - description: Project ID
+        in: path
+        name: projectId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/handler.GameSession'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/handler.GameSession'
+      summary: Start a game session
+      tags:
+      - game-sessions
+  /api/projects/{projectId}/session/status:
+    get:
+      parameters:
+      - description: Project ID
+        in: path
+        name: projectId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handler.GameSession'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+      summary: Get the current session status for a project
+      tags:
+      - game-sessions
+  /api/projects/{projectId}/session/stop:
+    post:
+      description: Stops the currently running session for the project, if any.
+      parameters:
+      - description: Project ID
+        in: path
+        name: projectId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handler.GameSession'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+      summary: Stop the running game session
+      tags:
+      - game-sessions
   /api/projects/join:
     post:
       consumes:
