@@ -25,6 +25,7 @@ import (
 	"github.com/quillit/svc/internal/middleware"
 	"github.com/quillit/svc/internal/session"
 	"github.com/quillit/svc/internal/storage"
+	"github.com/quillit/svc/internal/ws"
 )
 
 func main() {
@@ -71,7 +72,10 @@ func main() {
 	migrate := handler.NewMigrate(database)
 	categories := handler.NewCategories(database)
 	relations := handler.NewRelations(database)
-	gameSessions := handler.NewGameSessions(database, jwtSecret)
+	// Shared in-process WebSocket hub for Game Mode chat (single-instance only).
+	hub := ws.NewHub()
+	gameSessions := handler.NewGameSessions(database, jwtSecret, hub)
+	chatWS := handler.NewChatWS(database, jwtSecret, hub, entries, corsOrigin)
 	health := handler.NewHealth(database)
 
 	r := chi.NewRouter()
@@ -140,6 +144,7 @@ func main() {
 		r.Post("/api/projects/{projectId}/session/stop", gameSessions.Stop)
 		r.Get("/api/projects/{projectId}/session/status", gameSessions.Status)
 		r.Get("/api/projects/{projectId}/session/{sessionId}/messages", gameSessions.ListMessages)
+		r.Get("/api/projects/{projectId}/session/socket", chatWS.Serve)
 
 		// Legacy campaign routes (kept for backwards compat during transition)
 		r.Get("/api/campaigns", campaigns.List)

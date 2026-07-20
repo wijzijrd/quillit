@@ -2038,6 +2038,50 @@
                 }
             }
         },
+        "/api/projects/{projectId}/session/socket": {
+            "get": {
+                "description": "Upgrades to a WebSocket carrying live chat for the project's\nrunning session. Requires a session cookie and project membership.",
+                "tags": [
+                    "game-sessions"
+                ],
+                "summary": "Open the Game Mode chat WebSocket for a project",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "projectId",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/handler.ErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/handler.ErrorResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/handler.ErrorResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/handler.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/projects/{projectId}/session/start": {
             "post": {
                 "description": "Starts a live session for the project. Any project member may\nstart one. If a session is already running, returns it with 409.",

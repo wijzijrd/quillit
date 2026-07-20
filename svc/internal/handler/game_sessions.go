@@ -8,6 +8,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/quillit/svc/internal/middleware"
+	"github.com/quillit/svc/internal/ws"
 )
 
 // GameSessionsHandler implements the Game Mode control-plane: starting/stopping
@@ -16,10 +17,11 @@ import (
 type GameSessionsHandler struct {
 	db        *sql.DB
 	jwtSecret []byte
+	hub       *ws.Hub
 }
 
-func NewGameSessions(db *sql.DB, jwtSecret string) *GameSessionsHandler {
-	return &GameSessionsHandler{db: db, jwtSecret: []byte(jwtSecret)}
+func NewGameSessions(db *sql.DB, jwtSecret string, hub *ws.Hub) *GameSessionsHandler {
+	return &GameSessionsHandler{db: db, jwtSecret: []byte(jwtSecret), hub: hub}
 }
 
 // NewGameSessionsForTest creates a handler that uses test context for caller ID.
@@ -213,7 +215,11 @@ func (h *GameSessionsHandler) Stop(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// TODO(task 3): notify hub.CloseRoom(projectId) here so connected clients get a clean session_ended event
+	// Notify any connected clients that the session ended, then tear down the
+	// room. Guarded because test handlers are constructed without a hub.
+	if h.hub != nil {
+		h.hub.CloseRoom(projectID)
+	}
 
 	writeJSON(w, http.StatusOK, session)
 }

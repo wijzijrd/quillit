@@ -1713,6 +1713,37 @@ paths:
       summary: List chat history for a game session
       tags:
       - game-sessions
+  /api/projects/{projectId}/session/socket:
+    get:
+      description: |-
+        Upgrades to a WebSocket carrying live chat for the project's
+        running session. Requires a session cookie and project membership.
+      parameters:
+      - description: Project ID
+        in: path
+        name: projectId
+        required: true
+        type: string
+      responses:
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+      summary: Open the Game Mode chat WebSocket for a project
+      tags:
+      - game-sessions
   /api/projects/{projectId}/session/start:
     post:
       description: |-
