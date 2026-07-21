@@ -19,6 +19,13 @@ func RawJWTFromContext(ctx context.Context) (string, bool) {
 	return raw, ok && raw != ""
 }
 
+// WithRawJWT stores a raw JWT string in ctx under the same key RequireSession
+// uses, so ClaimsFromContext/RawJWTFromContext resolve it. Exported so tests in
+// other packages can exercise the real claims path instead of a test shortcut.
+func WithRawJWT(ctx context.Context, raw string) context.Context {
+	return context.WithValue(ctx, jwtKey, raw)
+}
+
 // ClaimsFromContext extracts and parses the JWT stored in context by RequireSession.
 // Expiry is not validated — use this only for identity extraction, not auth decisions.
 func ClaimsFromContext(ctx context.Context, jwtSecret []byte) (jwt.MapClaims, error) {

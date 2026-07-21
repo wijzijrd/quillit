@@ -50,19 +50,45 @@ func setupChatWSDB(t *testing.T) *sql.DB {
 		card_body TEXT NOT NULL DEFAULT '',
 		created_at INTEGER NOT NULL
 	);
+	CREATE TABLE entry_shares (
+		id TEXT PRIMARY KEY,
+		entry_id TEXT NOT NULL,
+		user_id TEXT NOT NULL,
+		shared_by TEXT NOT NULL,
+		shared_at INTEGER NOT NULL,
+		UNIQUE(entry_id, user_id)
+	);
+	CREATE TABLE project_members (
+		id TEXT PRIMARY KEY,
+		project_id TEXT NOT NULL,
+		user_id TEXT NOT NULL,
+		role TEXT NOT NULL,
+		joined_at INTEGER NOT NULL,
+		username TEXT NOT NULL DEFAULT '',
+		UNIQUE(project_id, user_id)
+	);
 	`
 	if _, err := db.Exec(schema); err != nil {
 		t.Fatal(err)
 	}
-	// entryHere belongs to proj1 (the session's project); entryElsewhere belongs
-	// to proj2 and must never be shareable into proj1's room.
+	// The sender (user1) is a member of proj1, satisfying fetchResolved's new read
+	// predicate for any entry filed under proj1.
+	if _, err := db.Exec(
+		`INSERT INTO project_members (id,project_id,user_id,role,joined_at) VALUES ('pm1','proj1','user1','gm',0)`,
+	); err != nil {
+		t.Fatal(err)
+	}
+	// entryHere belongs to proj1 (the session's project) and is readable by user1
+	// via project membership. entryElsewhere belongs to proj2 and must never be
+	// shareable into proj1's room; it is owned by user1 so it is readable (the
+	// rejection is the entryInProject project-scoping check, not a read-auth miss).
 	if _, err := db.Exec(
 		`INSERT INTO entries (id,title,body,campaign_ids) VALUES ('entryHere','Local Lore','local body','["proj1"]')`,
 	); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(
-		`INSERT INTO entries (id,title,body,campaign_ids) VALUES ('entryElsewhere','Foreign Secret','secret body','["proj2"]')`,
+		`INSERT INTO entries (id,title,body,campaign_ids,owner_user_id) VALUES ('entryElsewhere','Foreign Secret','secret body','["proj2"]','user1')`,
 	); err != nil {
 		t.Fatal(err)
 	}

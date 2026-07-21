@@ -94,6 +94,11 @@ func migrate(db *sql.DB) error {
 			return fmt.Errorf("schema v6: %w", err)
 		}
 	}
+	if version < 7 {
+		if err := toV7(db); err != nil {
+			return fmt.Errorf("schema v7: %w", err)
+		}
+	}
 	return nil
 }
 
@@ -533,6 +538,27 @@ func toV6(db *sql.DB) error {
 	}
 
 	if _, err := tx.Exec(`PRAGMA user_version = 6`); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// toV7 indexes entries.owner_user_id, the column the entry read-authorization
+// predicate and owner-only write checks filter on most heavily.
+func toV7(db *sql.DB) error {
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.Exec(`
+		CREATE INDEX IF NOT EXISTS idx_entries_owner ON entries(owner_user_id)
+	`); err != nil {
+		return fmt.Errorf("create idx_entries_owner: %w", err)
+	}
+
+	if _, err := tx.Exec(`PRAGMA user_version = 7`); err != nil {
 		return err
 	}
 	return tx.Commit()

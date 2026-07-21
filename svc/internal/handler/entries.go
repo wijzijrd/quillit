@@ -37,6 +37,27 @@ func NewEntriesWithBlobs(db *sql.DB, jwtSecret string, blobs *storage.MinioStore
 	return &EntriesHandler{db: db, jwtSecret: []byte(jwtSecret), blobs: blobs}
 }
 
+// NewEntriesForTest creates a handler that resolves the caller ID from the test
+// context (WithTestCallerID) rather than a real JWT.
+func NewEntriesForTest(db *sql.DB) *EntriesHandler {
+	return &EntriesHandler{db: db, jwtSecret: nil}
+}
+
+// callerID extracts the user ID (sub) from the JWT stored in request context.
+// In tests, a caller ID can be injected directly via WithTestCallerID.
+func (h *EntriesHandler) callerID(r *http.Request) (string, bool) {
+	// Test helper: allow injecting caller ID without JWT.
+	if id, ok := r.Context().Value(testCallerKey{}).(string); ok && id != "" {
+		return id, true
+	}
+	mc, err := middleware.ClaimsFromContext(r.Context(), h.jwtSecret)
+	if err != nil {
+		return "", false
+	}
+	sub, _ := mc["sub"].(string)
+	return sub, sub != ""
+}
+
 type Entry struct {
 	ID            string          `json:"id"`
 	Title         string          `json:"title"`
@@ -53,6 +74,26 @@ type Entry struct {
 }
 
 const entrySelect = `SELECT id, title, category, body, COALESCE(body_key,''), visibility, campaign_ids, linked_entries, tags, quick_view_data, created_at, updated_at, COALESCE(owner_user_id,'') FROM entries`
+
+// entryReadablePredicate is the authorization filter for reading an entry: the
+// caller must own it, hold an explicit entry_shares grant, or be a member of a
+// project the entry is filed under (campaign_ids is the live entry↔project link).
+//
+// It is a parenthesized boolean expression, NOT a full WHERE clause, so callers
+// can safely append ` AND id = ?`. SQLite's AND binds tighter than OR, so without
+// the outer parens `... OR C AND id = ?` would parse as `A OR B OR (C AND id=?)`
+// and leak other rows the caller owns/shares. The three `?` bind the caller id.
+//
+// visibility = 'public' is deliberately NOT part of this predicate: public entries
+// are reachable only through the token-scoped share.go flow, never the generic
+// authenticated /api/entries endpoints.
+const entryReadablePredicate = `(owner_user_id = ?
+	OR EXISTS (SELECT 1 FROM entry_shares es WHERE es.entry_id = entries.id AND es.user_id = ?)
+	OR EXISTS (
+		SELECT 1 FROM json_each(entries.campaign_ids) je
+		JOIN project_members pm ON pm.project_id = je.value
+		WHERE pm.user_id = ?
+	))`
 
 // scanEntry is used by handlers that don't need the body_key (member, share).
 func scanEntry(row interface{ Scan(...any) error }) (Entry, error) {
@@ -95,7 +136,15 @@ func (h *EntriesHandler) resolveBody(ctx context.Context, e *Entry, bodyKey stri
 // @Success      200  {array}   Entry
 // @Router       /api/entries [get]
 func (h *EntriesHandler) List(w http.ResponseWriter, r *http.Request) {
-	rows, err := h.db.QueryContext(r.Context(), entrySelect+" ORDER BY created_at ASC")
+	callerID, ok := h.callerID(r)
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	rows, err := h.db.QueryContext(r.Context(),
+		entrySelect+" WHERE "+entryReadablePredicate+" ORDER BY created_at ASC",
+		callerID, callerID, callerID,
+	)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "db error")
 		return
@@ -126,18 +175,29 @@ func (h *EntriesHandler) List(w http.ResponseWriter, r *http.Request) {
 // @Router       /api/entries/{id} [get]
 func (h *EntriesHandler) Get(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
-	e, err := h.fetchResolved(r.Context(), id)
+	callerID, ok := h.callerID(r)
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	e, err := h.fetchResolved(r.Context(), id, callerID)
 	if err != nil {
+		// 404 for both "doesn't exist" and "exists but caller can't see it" so we
+		// don't leak the existence of entries to callers with no access to them.
 		writeError(w, http.StatusNotFound, "not found")
 		return
 	}
 	writeJSON(w, http.StatusOK, e)
 }
 
-// fetchResolved loads an entry by id with its body resolved from blob storage.
+// fetchResolved loads an entry by id with its body resolved from blob storage,
+// scoped to what callerID is authorized to read (see entryReadablePredicate).
 // Shared by the Get handler and the Game Mode chat share_card path.
-func (h *EntriesHandler) fetchResolved(ctx context.Context, id string) (Entry, error) {
-	e, bodyKey, err := scanEntryRaw(h.db.QueryRowContext(ctx, entrySelect+" WHERE id = ?", id))
+func (h *EntriesHandler) fetchResolved(ctx context.Context, id, callerID string) (Entry, error) {
+	e, bodyKey, err := scanEntryRaw(h.db.QueryRowContext(ctx,
+		entrySelect+" WHERE "+entryReadablePredicate+" AND id = ?",
+		callerID, callerID, callerID, id,
+	))
 	if err != nil {
 		return Entry{}, err
 	}
@@ -224,6 +284,23 @@ func (h *EntriesHandler) Create(w http.ResponseWriter, r *http.Request) {
 // @Router       /api/entries/{id} [patch]
 func (h *EntriesHandler) Update(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
+	callerID, ok := h.callerID(r)
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	// Writes are owner-only: read access via sharing or project membership must
+	// NOT imply write access.
+	owner, err := isEntryOwner(h.db, r, id, callerID)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "not found")
+		return
+	}
+	if !owner {
+		writeError(w, http.StatusForbidden, "forbidden")
+		return
+	}
+
 	var patch map[string]any
 	if err := json.NewDecoder(r.Body).Decode(&patch); err != nil {
 		writeError(w, http.StatusBadRequest, "bad request")
@@ -259,8 +336,7 @@ func (h *EntriesHandler) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	args = append(args, id)
-	_, err := h.db.ExecContext(r.Context(), "UPDATE entries SET "+setClauses+" WHERE id = ?", args...)
-	if err != nil {
+	if _, err := h.db.ExecContext(r.Context(), "UPDATE entries SET "+setClauses+" WHERE id = ?", args...); err != nil {
 		writeError(w, http.StatusInternalServerError, "db error")
 		return
 	}
@@ -282,6 +358,22 @@ func (h *EntriesHandler) Update(w http.ResponseWriter, r *http.Request) {
 // @Router       /api/entries/{id} [delete]
 func (h *EntriesHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
+	callerID, ok := h.callerID(r)
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	// Writes are owner-only: read access via sharing or project membership must
+	// NOT imply write access.
+	owner, err := isEntryOwner(h.db, r, id, callerID)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "not found")
+		return
+	}
+	if !owner {
+		writeError(w, http.StatusForbidden, "forbidden")
+		return
+	}
 
 	// Clean up blob storage objects for this entry before deleting the row.
 	if h.blobs != nil {

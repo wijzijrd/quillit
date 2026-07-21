@@ -33,19 +33,14 @@ func (h *ShareHandler) GetEntries(w http.ResponseWriter, r *http.Request) {
 	}
 
 	rows, err := h.db.QueryContext(r.Context(),
-		entrySelect+` WHERE visibility = 'public' AND json_each.value = ? FROM entries, json_each(campaign_ids) WHERE visibility = 'public' AND json_each.value = ?`,
-		campaignID, campaignID,
+		entrySelect+` WHERE visibility = 'public' AND EXISTS (
+			SELECT 1 FROM json_each(entries.campaign_ids) je WHERE je.value = ?
+		)`,
+		campaignID,
 	)
 	if err != nil {
-		// fallback: simple LIKE query if JSON functions unavailable
-		rows, err = h.db.QueryContext(r.Context(),
-			entrySelect+` WHERE visibility = 'public' AND campaign_ids LIKE ?`,
-			"%"+campaignID+"%",
-		)
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, "db error")
-			return
-		}
+		writeError(w, http.StatusInternalServerError, "db error")
+		return
 	}
 	defer rows.Close()
 

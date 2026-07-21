@@ -170,7 +170,7 @@ func (h *ChatWSHandler) handleInbound(ctx context.Context, projectID, sessionID,
 		if in.EntryID == "" {
 			return
 		}
-		entry, err := h.entries.fetchResolved(ctx, in.EntryID)
+		entry, err := h.entries.fetchResolved(ctx, in.EntryID, senderID)
 		if err != nil {
 			return
 		}
