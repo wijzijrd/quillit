@@ -33,6 +33,10 @@
           class="ls-message"
           :class="{ 'ls-message--card': m.type === 'note_card' }"
         >
+          <div class="ls-message-meta">
+            <span class="ls-message-sender">{{ senderName(m.senderId) }}</span>
+            <span class="ls-message-time">{{ formatTime(m.createdAt) }}</span>
+          </div>
           <div v-if="m.type === 'note_card'" class="ls-card">
             <p class="ls-card-title">{{ m.cardTitle }}</p>
             <p class="ls-card-body">{{ preview(m.cardBody) }}</p>
@@ -73,6 +77,7 @@ import { ref, watch, onMounted, nextTick } from 'vue'
 import { useLiveSessionStore } from '../stores/useLiveSessionStore'
 import { useMemberStore } from '../stores/useMemberStore'
 import { useEntriesStore } from '../stores/useEntriesStore'
+import { useProjectStore } from '../stores/useProjectStore'
 import type { ChatMessage, Entry } from '../types'
 
 const props = defineProps<{ projectId: string }>()
@@ -80,6 +85,7 @@ const props = defineProps<{ projectId: string }>()
 const liveSession = useLiveSessionStore()
 const member = useMemberStore()
 const entries = useEntriesStore()
+const projectStore = useProjectStore()
 
 const loadError = ref('')
 const starting = ref(false)
@@ -92,8 +98,18 @@ const saving = ref(false)
 
 onMounted(async () => {
   member.fetchFolders().catch(() => {})
+  projectStore.fetchMembers(props.projectId).catch(() => {})
   await refreshSession()
 })
+
+function senderName(senderId: string): string {
+  const members = projectStore.membersCache[props.projectId]
+  return members?.find(m => m.userId === senderId)?.username || senderId
+}
+
+function formatTime(unixSeconds: number): string {
+  return new Date(unixSeconds * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+}
 
 // Deliberately no onUnmounted disconnect here: the live session socket is
 // app-global (one Pinia store instance), and other views — e.g. the notes
@@ -234,9 +250,13 @@ async function saveCard(m: ChatMessage) {
 }
 
 .ls-message { padding: var(--space-xs) var(--space-sm); }
+.ls-message-meta { display: flex; align-items: baseline; gap: var(--space-xs); margin-bottom: 2px; }
+.ls-message-sender { font-size: var(--text-xs); font-weight: 500; color: var(--foreground); }
+.ls-message-time { font-size: var(--text-xs); color: var(--muted-foreground); }
 .ls-message-body { font-size: var(--text-md); color: var(--foreground); white-space: pre-wrap; }
 
 .ls-message--card { padding: 0; }
+.ls-message--card .ls-message-meta { padding: var(--space-xs) var(--space-sm) 0; margin-bottom: var(--space-xs); }
 .ls-card {
   display: flex; flex-direction: column; gap: 4px;
   background: var(--card); border: 1px solid var(--secondary); border-radius: var(--radius);
