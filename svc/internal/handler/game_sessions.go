@@ -29,6 +29,13 @@ func NewGameSessionsForTest(db *sql.DB) *GameSessionsHandler {
 	return &GameSessionsHandler{db: db, jwtSecret: nil}
 }
 
+// NewGameSessionsWithHubForTest is like NewGameSessionsForTest but wires a real
+// hub, so a test can exercise the Stop → hub.CloseRoom → client-disconnect path
+// end-to-end (the nil-hub test constructor disables that side effect entirely).
+func NewGameSessionsWithHubForTest(db *sql.DB, hub *ws.Hub) *GameSessionsHandler {
+	return &GameSessionsHandler{db: db, jwtSecret: nil, hub: hub}
+}
+
 func (h *GameSessionsHandler) callerID(r *http.Request) (string, bool) {
 	// Test helper: allow injecting caller ID without JWT.
 	if id, ok := r.Context().Value(testCallerKey{}).(string); ok && id != "" {

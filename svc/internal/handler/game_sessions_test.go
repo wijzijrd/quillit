@@ -15,6 +15,7 @@ import (
 	_ "modernc.org/sqlite"
 
 	"github.com/quillit/svc/internal/handler"
+	"github.com/quillit/svc/internal/ws"
 )
 
 func setupGameSessionsDB(t *testing.T) *sql.DB {
@@ -314,6 +315,79 @@ func TestGameSessionsStop_NonMemberRejected(t *testing.T) {
 	rr := gsRequest(t, db, "POST", "/projects/proj1/session/stop", nil, "intruder")
 	if rr.Code != http.StatusForbidden && rr.Code != http.StatusUnauthorized {
 		t.Fatalf("expected 403 or 401, got %d: %s", rr.Code, rr.Body.String())
+	}
+}
+
+// TestGameSessionsStop_ClosesRoomAndDisconnectsClients wires a REAL ws.Hub into
+// the handler (unlike the nil-hub gsRequest path, where Stop's CloseRoom side
+// effect is disabled by the `if h.hub != nil` guard) and proves the integration
+// point end-to-end: stopping a session over the REST API actually tears down the
+// live WebSocket clients in that project's room. hub_test.go covers CloseRoom's
+// internals in isolation; this asserts the SAME behavior is reachable through the
+// Stop handler — the two pieces working together, which nothing else exercised.
+func TestGameSessionsStop_ClosesRoomAndDisconnectsClients(t *testing.T) {
+	db := setupGameSessionsDB(t)
+	hub := ws.NewHub()
+	h := handler.NewGameSessionsWithHubForTest(db, hub)
+
+	r := chi.NewRouter()
+	r.Post("/projects/{projectId}/session/start", h.Start)
+	r.Post("/projects/{projectId}/session/stop", h.Stop)
+
+	callAs := func(method, path, userID string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(method, path, nil)
+		req = req.WithContext(handler.WithTestCallerID(req.Context(), userID))
+		rr := httptest.NewRecorder()
+		r.ServeHTTP(rr, req)
+		return rr
+	}
+
+	// Start a session so Stop has a running row to transition.
+	startRR := callAs("POST", "/projects/proj1/session/start", "user1")
+	if startRR.Code != http.StatusCreated {
+		t.Fatalf("expected 201 from start, got %d: %s", startRR.Code, startRR.Body.String())
+	}
+	var started handler.GameSession
+	if err := json.NewDecoder(startRR.Body).Decode(&started); err != nil {
+		t.Fatal(err)
+	}
+
+	// Register a fake client into the room exactly as chat_ws.go's Serve does,
+	// but with a nil conn so no real network I/O is needed (the hub's
+	// close/eviction paths only touch the send channel). This is the same
+	// technique hub_test.go's newTestClient uses.
+	client := ws.NewClient(hub, "proj1", "user1", nil, nil)
+	hub.OpenRoomAndRegister("proj1", started.ID, client)
+	if n := hub.RoomSize("proj1"); n != 1 {
+		t.Fatalf("expected room size 1 before stop, got %d", n)
+	}
+
+	// Stop the session via the REST handler.
+	stopRR := callAs("POST", "/projects/proj1/session/stop", "user1")
+	if stopRR.Code != http.StatusOK {
+		t.Fatalf("expected 200 from stop, got %d: %s", stopRR.Code, stopRR.Body.String())
+	}
+
+	// (a) the connected client received the session_ended frame.
+	raw, ok := client.TryRecv()
+	if !ok {
+		t.Fatal("expected a session_ended frame after Stop, got none")
+	}
+	var frame map[string]any
+	if err := json.Unmarshal(raw, &frame); err != nil {
+		t.Fatalf("session_ended frame is not JSON: %v", err)
+	}
+	if frame["type"] != "system" || frame["event"] != "session_ended" {
+		t.Fatalf("expected {type:system,event:session_ended}, got %s", raw)
+	}
+
+	// (b) the room was torn down and the client removed — the same end state
+	// CloseRoom's own unit test asserts, now reached through the Stop handler.
+	if n := hub.RoomSize("proj1"); n != 0 {
+		t.Fatalf("expected room torn down after Stop, got size %d", n)
+	}
+	if n := hub.TotalConns(); n != 0 {
+		t.Fatalf("expected 0 total conns after Stop, got %d", n)
 	}
 }
 
