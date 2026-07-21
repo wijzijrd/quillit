@@ -14,6 +14,15 @@ export interface ConnectOptions {
    * Left undefined means "always retry" until the caller calls close().
    */
   shouldReconnect?: () => Promise<boolean>
+  /**
+   * Called once when the client gives up reconnecting for good — i.e. after an
+   * unexpected close, `shouldReconnect()` returned false. This is the terminal
+   * "connection is dead and won't be retried" signal, letting the caller reset
+   * its own bookkeeping (e.g. a store holding this handle) so a later reconnect
+   * isn't blocked by a stale reference. NOT invoked when the caller itself calls
+   * close() — that path is caller-initiated, not a give-up.
+   */
+  onGiveUp?: () => void
 }
 
 const RECONNECT_BASE_MS = 1000
@@ -65,7 +74,14 @@ export function connect(path: string, options: ConnectOptions = {}): WSConnectio
   async function scheduleReconnect() {
     if (options.shouldReconnect) {
       const ok = await options.shouldReconnect()
-      if (!ok) return
+      if (!ok) {
+        // Terminal give-up: an unexpected close happened and we're told not to
+        // retry. The caller can no longer rely on this handle, so notify it —
+        // but only if it hasn't since torn us down itself (caller-initiated
+        // close is not a give-up).
+        if (!closedByCaller) options.onGiveUp?.()
+        return
+      }
     }
     if (closedByCaller) return
 

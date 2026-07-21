@@ -82,7 +82,7 @@ export const useLiveSessionStore = defineStore('liveSession', () => {
     if (socket) disconnect()
 
     connectedProjectId = projectId
-    socket = connect(`/api/projects/${projectId}/session/socket`, {
+    const conn = connect(`/api/projects/${projectId}/session/socket`, {
       // Only reconnect if the session is still running server-side — an
       // ended session shouldn't keep retrying forever.
       shouldReconnect: async () => {
@@ -93,10 +93,20 @@ export const useLiveSessionStore = defineStore('liveSession', () => {
         }
         return status.value === 'running'
       },
+      // The reconnect loop gave up for good (session no longer running). Reset
+      // our own bookkeeping so a later connectSocket() for this project isn't
+      // blocked by the stale `socket`/`connectedProjectId` refs — otherwise the
+      // early-return guard would skip opening a fresh connection and leave the
+      // store pointing at a dead socket. Guard on identity so we never tear
+      // down a newer connection opened in the meantime.
+      onGiveUp: () => {
+        if (socket === conn) disconnect()
+      },
     })
+    socket = conn
     connected.value = true
 
-    socket.onMessage((data: unknown) => {
+    conn.onMessage((data: unknown) => {
       if (!data || typeof data !== 'object' || !('type' in data)) return
       handleFrame(data as WSInboundFrame)
     })
