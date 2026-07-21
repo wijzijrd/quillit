@@ -64,6 +64,7 @@ func main() {
 	projects := handler.NewProjects(database, jwtSecret)
 	entries := handler.NewEntriesWithBlobs(database, jwtSecret, blobs)
 	entryShares := handler.NewEntryShares(database, jwtSecret, authURL)
+	friends := handler.NewFriends(database, jwtSecret)
 	annotations := handler.NewAnnotations(database, jwtSecret)
 	member := handler.NewMember(database, jwtSecret)
 	settings := handler.NewSettings(database, jwtSecret)
@@ -116,6 +117,14 @@ func main() {
 		r.Delete("/api/entries/{id}/shares/{userId}", entryShares.RemoveShare)
 
 		r.Get("/api/users/search", entryShares.SearchUsers)
+
+		// Friends
+		r.Post("/api/friends/requests", friends.SendRequest)
+		r.Get("/api/friends/requests/incoming", friends.ListIncoming)
+		r.Get("/api/friends/requests/outgoing", friends.ListOutgoing)
+		r.Post("/api/friends/requests/{id}/accept", friends.AcceptRequest)
+		r.Delete("/api/friends/requests/{id}", friends.DeleteRequest)
+		r.Get("/api/friends", friends.ListFriends)
 
 		r.Get("/api/me/settings", settings.Get)
 		r.Patch("/api/me/settings", settings.Update)

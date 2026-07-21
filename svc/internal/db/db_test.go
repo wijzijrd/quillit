@@ -81,8 +81,8 @@ func TestOpen_UpgradeFromV1(t *testing.T) {
 	if err := database.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if version != 7 {
-		t.Errorf("expected user_version=7 after full migration, got %d", version)
+	if version != 8 {
+		t.Errorf("expected user_version=8 after full migration, got %d", version)
 	}
 
 	var count int

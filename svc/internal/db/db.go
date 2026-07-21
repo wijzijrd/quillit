@@ -99,6 +99,11 @@ func migrate(db *sql.DB) error {
 			return fmt.Errorf("schema v7: %w", err)
 		}
 	}
+	if version < 8 {
+		if err := toV8(db); err != nil {
+			return fmt.Errorf("schema v8: %w", err)
+		}
+	}
 	return nil
 }
 
@@ -559,6 +564,44 @@ func toV7(db *sql.DB) error {
 	}
 
 	if _, err := tx.Exec(`PRAGMA user_version = 7`); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// toV8 adds the friend_requests table backing the friends system: one row per
+// unordered user pair, covering both the pending request and accepted-friend
+// states (accepting flips status on the existing row rather than inserting a
+// new one). The pair-normalized unique index prevents duplicate/reciprocal
+// pending requests and a second request once a pair is already accepted.
+func toV8(db *sql.DB) error {
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.Exec(`
+		CREATE TABLE IF NOT EXISTS friend_requests (
+		    id                  TEXT    PRIMARY KEY,
+		    requester_id        TEXT    NOT NULL,
+		    requester_username  TEXT    NOT NULL DEFAULT '',
+		    addressee_id        TEXT    NOT NULL,
+		    addressee_username  TEXT    NOT NULL DEFAULT '',
+		    status              TEXT    NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','accepted')),
+		    created_at          INTEGER NOT NULL,
+		    accepted_at         INTEGER,
+		    CHECK (requester_id != addressee_id)
+		);
+		CREATE UNIQUE INDEX IF NOT EXISTS idx_friend_requests_pair
+		    ON friend_requests (MIN(requester_id, addressee_id), MAX(requester_id, addressee_id));
+		CREATE INDEX IF NOT EXISTS idx_friend_requests_addressee ON friend_requests(addressee_id, status);
+		CREATE INDEX IF NOT EXISTS idx_friend_requests_requester ON friend_requests(requester_id, status);
+	`); err != nil {
+		return fmt.Errorf("create friend_requests: %w", err)
+	}
+
+	if _, err := tx.Exec(`PRAGMA user_version = 8`); err != nil {
 		return err
 	}
 	return tx.Commit()
