@@ -37,15 +37,49 @@
       </div>
       <p class="empty-hint" v-else>Not shared with anyone yet.</p>
     </div>
+
+    <div class="share-section" v-if="props.projectId">
+      <p class="share-label">Session Chat</p>
+      <button
+        class="push-btn"
+        :disabled="!sessionRunning"
+        @click="pushToChat"
+      >Push to session chat</button>
+      <p class="empty-hint" v-if="!sessionRunning">No live session running for this project.</p>
+      <p class="empty-hint push-confirm" v-else-if="pushed">Shared to the session chat.</p>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, watch, onMounted } from 'vue'
+import { ref, watch, onMounted, computed } from 'vue'
 import { useMemberStore } from '../stores/useMemberStore'
+import { useLiveSessionStore } from '../stores/useLiveSessionStore'
 
-const props = defineProps<{ entryId?: string }>()
+const props = defineProps<{ entryId?: string; projectId?: string }>()
 const member = useMemberStore()
+const liveSession = useLiveSessionStore()
+
+const pushed = ref(false)
+const sessionRunning = computed(() => liveSession.status === 'running')
+
+watch(() => props.projectId, async (id) => {
+  if (!id) return
+  try {
+    await liveSession.fetchStatus(id)
+    // Ensure the chat socket is open so a push works even if the user never
+    // visited the project's Live Session panel this session (e.g. they came
+    // straight to the notes editor).
+    if (liveSession.status === 'running') liveSession.connect(id)
+  } catch { /* status check failed — push stays disabled */ }
+}, { immediate: true })
+
+function pushToChat() {
+  if (!props.entryId || !sessionRunning.value) return
+  liveSession.shareEntry(props.entryId)
+  pushed.value = true
+  setTimeout(() => { pushed.value = false }, 2000)
+}
 
 const query = ref('')
 const results = ref<any[]>([])
@@ -147,4 +181,14 @@ async function removeUser(userId: string) {
 .remove-btn:hover { color: var(--destructive); }
 
 .empty-hint { font-size: var(--text-xs); color: var(--muted-foreground); margin: 0; }
+
+.push-btn {
+  align-self: flex-start; height: var(--h-sm); padding: 0 var(--space-sm);
+  background: var(--secondary); border: none; border-radius: var(--radius);
+  color: var(--primary); font-family: var(--font-body); font-size: var(--text-sm);
+  cursor: pointer; transition: background var(--transition);
+}
+.push-btn:hover:not(:disabled) { background: var(--primary); color: var(--background); }
+.push-btn:disabled { opacity: 0.5; cursor: default; }
+.push-confirm { color: var(--primary); }
 </style>

@@ -128,3 +128,44 @@ export interface SharedNote {
   entryId: string
   title: string
 }
+
+export type GameSessionStatus = 'running' | 'stopped'
+
+export interface GameSession {
+  id: string
+  projectId: string
+  status: GameSessionStatus
+  startedBy: string
+  startedAt: number
+  stoppedBy?: string
+  stoppedAt?: number
+}
+
+export type ChatMessageType = 'text' | 'note_card'
+
+export interface ChatMessage {
+  id: string
+  sessionId: string
+  projectId: string
+  senderId: string
+  type: ChatMessageType
+  body: string
+  entryId?: string
+  cardTitle: string
+  cardBody: string
+  createdAt: number
+}
+
+/** Server→client `{"type":"system","event":"session_ended"}` frame. */
+export interface SessionEndedFrame {
+  type: 'system'
+  event: 'session_ended'
+}
+
+/** Per-sender `{"type":"error","message":"..."}` frame (never broadcast). */
+export interface WSErrorFrame {
+  type: 'error'
+  message: string
+}
+
+export type WSInboundFrame = ChatMessage | SessionEndedFrame | WSErrorFrame
