@@ -26,6 +26,16 @@ export const useLiveSessionStore = defineStore('liveSession', () => {
 
   async function fetchStatus(projectId: string) {
     const res = await api<StatusResponse>(`/projects/${projectId}/session/status`)
+    // A socket may still be open for a different project (e.g. the user
+    // navigated away from a running session's project without stopping it).
+    // Status is scoped per-project, so once we know which project this
+    // refresh is for, don't leave a stale cross-project connection silently
+    // receiving messages into the shared state. Same-project refreshes
+    // (including the socket's own shouldReconnect check, and NoteSharePanel/
+    // LiveSessionPanel both polling the same project) are a no-op here.
+    if (connectedProjectId && connectedProjectId !== projectId) {
+      disconnect()
+    }
     if ('id' in res) {
       applySession(res)
     } else {

@@ -73,7 +73,7 @@ import { ref, watch, onMounted, nextTick } from 'vue'
 import { useLiveSessionStore } from '../stores/useLiveSessionStore'
 import { useMemberStore } from '../stores/useMemberStore'
 import { useEntriesStore } from '../stores/useEntriesStore'
-import type { ChatMessage } from '../types'
+import type { ChatMessage, Entry } from '../types'
 
 const props = defineProps<{ projectId: string }>()
 
@@ -168,15 +168,27 @@ async function saveCard(m: ChatMessage) {
   if (!selectedFolderId.value) return
   saving.value = true
   loadError.value = ''
+
+  // Copy-on-save: a fresh entry seeded from the card snapshot, not a live
+  // link back to the shared entry.
+  let entry: Entry | null = null
   try {
-    // Copy-on-save: a fresh entry seeded from the card snapshot, not a live
-    // link back to the shared entry.
-    const entry = await entries.createEntry()
+    entry = await entries.createEntry()
     await entries.updateEntry(entry.id, { title: m.cardTitle, body: m.cardBody })
     await member.addToFolder(selectedFolderId.value, entry.id)
     folderPickerFor.value = null
   } catch (e: any) {
     loadError.value = e?.data?.error ?? 'Could not save note to folder'
+    // createEntry already succeeded but a later step failed — roll back the
+    // orphaned blank/partial entry so it doesn't silently persist. Failure
+    // to roll back shouldn't mask the original error above.
+    if (entry) {
+      try {
+        await entries.deleteEntry(entry.id)
+      } catch (rollbackErr) {
+        console.error('Failed to roll back orphaned entry after save-to-folder failure', rollbackErr)
+      }
+    }
   } finally {
     saving.value = false
   }
