@@ -58,6 +58,19 @@ func NewClient(hub *Hub, projectID, userID string, conn *websocket.Conn, onMessa
 	}
 }
 
+// TryRecv returns the next queued outbound payload without blocking, reporting
+// whether one was present (ok=false when the queue is empty or closed). It lets
+// tests and diagnostics observe what the hub enqueued for a client without
+// running the write pump or a real connection.
+func (c *Client) TryRecv() ([]byte, bool) {
+	select {
+	case msg, ok := <-c.send:
+		return msg, ok
+	default:
+		return nil, false
+	}
+}
+
 // Start launches the read and write pumps. Each runs in its own goroutine and
 // both exit (without leaking) when the connection closes or errors.
 func (c *Client) Start() {

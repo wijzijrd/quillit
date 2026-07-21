@@ -126,18 +126,28 @@ func (h *ChatWSHandler) Serve(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 6. Register and start pumps. The connection outlives this request, so the
-	//    inbound handler must not use r.Context().
-	h.hub.OpenRoom(projectID, sessionID)
-	client := ws.NewClient(h.hub, projectID, callerID, conn, func(data []byte) {
-		h.handleInbound(context.Background(), projectID, sessionID, callerID, data)
+	//    inbound handler must not use r.Context(). The onMessage closure captures
+	//    client (declared first) so a share_card rejection can be sent to just
+	//    this connection. Open-room-and-register is a single atomic hub call so a
+	//    racing CloseRoom can't orphan this client in a phantom room.
+	var client *ws.Client
+	client = ws.NewClient(h.hub, projectID, callerID, conn, func(data []byte) {
+		h.handleInbound(context.Background(), projectID, sessionID, callerID, client, data)
 	})
-	h.hub.Register(projectID, client)
+	h.hub.OpenRoomAndRegister(projectID, sessionID, client)
 	client.Start()
 }
 
+// shareCardRejectedPayload is sent to the requesting client alone (never the
+// room) when a share_card names an entry that isn't part of this session's
+// project. The frontend surfaces {"type":"error","message":...} to the sender.
+var shareCardRejectedPayload = []byte(`{"type":"error","message":"entry not found in this project"}`)
+
 // handleInbound parses one client frame and, for the two supported types,
 // persists a chat_messages row and broadcasts the stored message to the room.
-func (h *ChatWSHandler) handleInbound(ctx context.Context, projectID, sessionID, senderID string, data []byte) {
+// client is the connection the frame arrived on, used to deliver per-sender
+// rejections without leaking to the whole room.
+func (h *ChatWSHandler) handleInbound(ctx context.Context, projectID, sessionID, senderID string, client *ws.Client, data []byte) {
 	var in inbound
 	if err := json.Unmarshal(data, &in); err != nil {
 		return
@@ -164,6 +174,16 @@ func (h *ChatWSHandler) handleInbound(ctx context.Context, projectID, sessionID,
 		if err != nil {
 			return
 		}
+		// fetchResolved (shared with GET /api/entries/{id}) has no project
+		// filter and returns any entry by id. Broadcasting fans a single-reader
+		// gap out to the whole room, so scope it here: only share entries that
+		// belong to this session's project (linkage lives in campaign_ids, the
+		// JSON array of project ids an entry is filed under — see share.go).
+		// A miss is rejected to the sender alone, not broadcast.
+		if !entryInProject(entry, projectID) {
+			h.hub.SendTo(client, shareCardRejectedPayload)
+			return
+		}
 		entryID := in.EntryID
 		h.persistAndBroadcast(ctx, ChatMessage{
 			SessionID: sessionID,
@@ -176,6 +196,23 @@ func (h *ChatWSHandler) handleInbound(ctx context.Context, projectID, sessionID,
 			CardBody:  entry.Body,
 		})
 	}
+}
+
+// entryInProject reports whether entry is filed under projectID. An entry's
+// project membership is its campaign_ids JSON array (projects replaced the old
+// campaigns; the column name is unchanged). A malformed/empty array means the
+// entry belongs to no project and is never shareable into a room.
+func entryInProject(entry Entry, projectID string) bool {
+	var ids []string
+	if err := json.Unmarshal(entry.CampaignIDs, &ids); err != nil {
+		return false
+	}
+	for _, id := range ids {
+		if id == projectID {
+			return true
+		}
+	}
+	return false
 }
 
 // persistAndBroadcast inserts msg (filling in id/createdAt), then broadcasts the

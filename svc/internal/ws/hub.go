@@ -42,6 +42,11 @@ func NewHub() *Hub {
 func (h *Hub) OpenRoom(projectID, sessionID string) *Room {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	return h.openRoomLocked(projectID, sessionID)
+}
+
+// openRoomLocked is OpenRoom's body. Caller must hold h.mu.
+func (h *Hub) openRoomLocked(projectID, sessionID string) *Room {
 	room := h.rooms[projectID]
 	if room == nil {
 		room = &Room{SessionID: sessionID, clients: make(map[*Client]bool)}
@@ -61,8 +66,45 @@ func (h *Hub) Register(projectID string, c *Client) {
 		room = &Room{clients: make(map[*Client]bool)}
 		h.rooms[projectID] = room
 	}
+	h.registerLocked(room, c)
+}
+
+// registerLocked adds c to room and bumps the process-wide count. Caller must
+// hold h.mu.
+func (h *Hub) registerLocked(room *Room, c *Client) {
 	room.clients[c] = true
 	h.total++
+}
+
+// OpenRoomAndRegister opens (or refreshes) the project's room and registers c
+// into it under a single lock acquisition, then returns the room. Doing both
+// atomically closes a race where a CloseRoom slipping between a separate
+// OpenRoom and Register would delete the room and leave the just-registered
+// client orphaned in a phantom room that never receives session_ended.
+func (h *Hub) OpenRoomAndRegister(projectID, sessionID string, c *Client) *Room {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	room := h.openRoomLocked(projectID, sessionID)
+	h.registerLocked(room, c)
+	return room
+}
+
+// SendTo delivers payload to a single client if it is still registered in its
+// room, taking h.mu so the send races safely against concurrent eviction/close
+// (which own closing c.send under the same lock). A full buffer evicts the
+// client, matching Broadcast's slow-consumer policy.
+func (h *Hub) SendTo(c *Client, payload []byte) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	room := h.rooms[c.projectID]
+	if room == nil || !room.clients[c] {
+		return
+	}
+	select {
+	case c.send <- payload:
+	default:
+		h.removeLocked(room, c)
+	}
 }
 
 // Unregister removes a client from its room and closes its send channel. Safe to
