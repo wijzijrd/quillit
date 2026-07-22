@@ -162,6 +162,7 @@
         <NoteSharePanel
           v-if="activePanel === 'share'"
           :entryId="entry.id"
+          :projectId="currentProjectId"
         />
       </div>
     </div>
@@ -203,6 +204,13 @@ const annotations = useAnnotationsStore()
 const ui = useUIStore()
 const route = useRoute()
 const inProject = computed(() => !!route.params.projectId)
+// The entry's own campaignIds may list multiple projects; "push to session
+// chat" cares about the project currently in context (this route), not the
+// entry's full membership list.
+const currentProjectId = computed(() => {
+  const p = route.params.projectId
+  return typeof p === 'string' ? p : undefined
+})
 
 const entry = ref(null)
 const localTitle = ref('')

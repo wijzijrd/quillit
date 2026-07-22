@@ -65,6 +65,9 @@
       </div>
     </section>
 
+    <!-- Live Session -->
+    <LiveSessionPanel :project-id="String(projectId)" />
+
     <p class="pv-error" v-if="error">{{ error }}</p>
   </div>
 </template>
@@ -75,6 +78,7 @@ import { useRoute, RouterLink } from 'vue-router'
 import { useProjectStore } from '../stores/useProjectStore'
 import { useMemberStore } from '../stores/useMemberStore'
 import { useAuthStore } from '../stores/useAuthStore'
+import LiveSessionPanel from '../components/LiveSessionPanel.vue'
 
 const route = useRoute()
 const projectStore = useProjectStore()

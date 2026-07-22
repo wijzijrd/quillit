@@ -89,6 +89,11 @@ func migrate(db *sql.DB) error {
 			return fmt.Errorf("schema v5: %w", err)
 		}
 	}
+	if version < 6 {
+		if err := toV6(db); err != nil {
+			return fmt.Errorf("schema v6: %w", err)
+		}
+	}
 	return nil
 }
 
@@ -463,6 +468,71 @@ func toV5(db *sql.DB) error {
 	}
 
 	if _, err := tx.Exec(`PRAGMA user_version = 5`); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// toV6 adds Game Mode: a live session scoped to a project, and the chat
+// message history attached to each session.
+func toV6(db *sql.DB) error {
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	// A live session scoped to a project. Only one may be 'running' per project at a time.
+	if _, err := tx.Exec(`
+		CREATE TABLE IF NOT EXISTS game_sessions (
+			id          TEXT    PRIMARY KEY,
+			project_id  TEXT    NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+			status      TEXT    NOT NULL DEFAULT 'running', -- 'running' | 'stopped'
+			started_by  TEXT    NOT NULL,
+			started_at  INTEGER NOT NULL,
+			stopped_by  TEXT,
+			stopped_at  INTEGER
+		)
+	`); err != nil {
+		return fmt.Errorf("create game_sessions: %w", err)
+	}
+	if _, err := tx.Exec(`
+		CREATE INDEX IF NOT EXISTS idx_game_sessions_project ON game_sessions(project_id, status)
+	`); err != nil {
+		return fmt.Errorf("create idx_game_sessions_project: %w", err)
+	}
+	if _, err := tx.Exec(`
+		CREATE UNIQUE INDEX IF NOT EXISTS idx_game_sessions_one_active
+			ON game_sessions(project_id) WHERE status = 'running'
+	`); err != nil {
+		return fmt.Errorf("create idx_game_sessions_one_active: %w", err)
+	}
+
+	// Chat history for a game_session. 'note_card' rows snapshot the shared entry
+	// at share-time so history stays meaningful even if the source entry changes later.
+	if _, err := tx.Exec(`
+		CREATE TABLE IF NOT EXISTS chat_messages (
+			id         TEXT    PRIMARY KEY,
+			session_id TEXT    NOT NULL REFERENCES game_sessions(id) ON DELETE CASCADE,
+			project_id TEXT    NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+			sender_id  TEXT    NOT NULL,
+			type       TEXT    NOT NULL DEFAULT 'text', -- 'text' | 'note_card' | 'system'
+			body       TEXT    NOT NULL DEFAULT '',
+			entry_id   TEXT    REFERENCES entries(id) ON DELETE SET NULL,
+			card_title TEXT    NOT NULL DEFAULT '',
+			card_body  TEXT    NOT NULL DEFAULT '',
+			created_at INTEGER NOT NULL
+		)
+	`); err != nil {
+		return fmt.Errorf("create chat_messages: %w", err)
+	}
+	if _, err := tx.Exec(`
+		CREATE INDEX IF NOT EXISTS idx_chat_messages_session ON chat_messages(session_id, created_at)
+	`); err != nil {
+		return fmt.Errorf("create idx_chat_messages_session: %w", err)
+	}
+
+	if _, err := tx.Exec(`PRAGMA user_version = 6`); err != nil {
 		return err
 	}
 	return tx.Commit()

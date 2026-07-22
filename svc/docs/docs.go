@@ -2044,6 +2044,240 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/projects/{projectId}/session/socket": {
+            "get": {
+                "description": "Upgrades to a WebSocket carrying live chat for the project's\nrunning session. Requires a session cookie and project membership.",
+                "tags": [
+                    "game-sessions"
+                ],
+                "summary": "Open the Game Mode chat WebSocket for a project",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "projectId",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/handler.ErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/handler.ErrorResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/handler.ErrorResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/handler.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/projects/{projectId}/session/start": {
+            "post": {
+                "description": "Starts a live session for the project. Any project member may\nstart one. If a session is already running, returns it with 409.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "game-sessions"
+                ],
+                "summary": "Start a game session",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "projectId",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/handler.GameSession"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/handler.ErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/handler.ErrorResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/handler.GameSession"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/projects/{projectId}/session/status": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "game-sessions"
+                ],
+                "summary": "Get the current session status for a project",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "projectId",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/handler.GameSession"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/handler.ErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/handler.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/projects/{projectId}/session/stop": {
+            "post": {
+                "description": "Stops the currently running session for the project, if any.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "game-sessions"
+                ],
+                "summary": "Stop the running game session",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "projectId",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/handler.GameSession"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/handler.ErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/handler.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/handler.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/projects/{projectId}/session/{sessionId}/messages": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "game-sessions"
+                ],
+                "summary": "List chat history for a game session",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "projectId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "sessionId",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/handler.ChatMessage"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/handler.ErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/handler.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/handler.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/quickview": {
             "get": {
                 "produces": [
@@ -2520,6 +2754,41 @@ const docTemplate = `{
                 }
             }
         },
+        "handler.ChatMessage": {
+            "type": "object",
+            "properties": {
+                "body": {
+                    "type": "string"
+                },
+                "cardBody": {
+                    "type": "string"
+                },
+                "cardTitle": {
+                    "type": "string"
+                },
+                "createdAt": {
+                    "type": "integer"
+                },
+                "entryId": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "projectId": {
+                    "type": "string"
+                },
+                "senderId": {
+                    "type": "string"
+                },
+                "sessionId": {
+                    "type": "string"
+                },
+                "type": {
+                    "type": "string"
+                }
+            }
+        },
         "handler.CreateAnnotationRequest": {
             "type": "object",
             "properties": {
@@ -2639,6 +2908,32 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "error": {
+                    "type": "string"
+                }
+            }
+        },
+        "handler.GameSession": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "string"
+                },
+                "projectId": {
+                    "type": "string"
+                },
+                "startedAt": {
+                    "type": "integer"
+                },
+                "startedBy": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "stoppedAt": {
+                    "type": "integer"
+                },
+                "stoppedBy": {
                     "type": "string"
                 }
             }

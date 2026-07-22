@@ -49,8 +49,9 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { Pencil, ChevronLeft, ChevronRight, X } from 'lucide-vue-next'
+import { api } from '../api/client'
 import { Dialog, DialogContent } from './ui/dialog'
 import LinkedEntriesPanel from './LinkedEntriesPanel.vue'
 import { useEntriesStore } from '../stores/useEntriesStore'
@@ -71,7 +72,31 @@ const entry = computed(() => entries.getById(props.entryId ?? ''))
 const catColor = computed(() => cats.categoryFor(entry.value?.category ?? '')?.color ?? null)
 const tagColor = catColor
 
-const renderedBody = computed(() => entry.value?.body ?? '')
+const hydratedBody = ref('')
+
+// Hydrate body content when entry changes (list response omits body field)
+watch(() => props.entryId, async (id) => {
+  if (!id) {
+    hydratedBody.value = ''
+    return
+  }
+  const found = entries.getById(id)
+  if (!found) {
+    hydratedBody.value = ''
+    return
+  }
+  hydratedBody.value = found.body
+  // Body may be empty when stored in MinIO (list response omits it).
+  // Fetch the full entry to hydrate body content.
+  if (!found.body) {
+    try {
+      const full = await api(`/entries/${id}`)
+      hydratedBody.value = full.body ?? ''
+    } catch { /* non-critical — view stays empty */ }
+  }
+}, { immediate: true })
+
+const renderedBody = computed(() => hydratedBody.value ?? '')
 
 function handleBodyClick(e: MouseEvent) {
   const mention = (e.target as HTMLElement).closest('.entry-mention') as HTMLElement | null

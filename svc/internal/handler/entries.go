@@ -126,13 +126,23 @@ func (h *EntriesHandler) List(w http.ResponseWriter, r *http.Request) {
 // @Router       /api/entries/{id} [get]
 func (h *EntriesHandler) Get(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
-	e, bodyKey, err := scanEntryRaw(h.db.QueryRowContext(r.Context(), entrySelect+" WHERE id = ?", id))
+	e, err := h.fetchResolved(r.Context(), id)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "not found")
 		return
 	}
-	h.resolveBody(r.Context(), &e, bodyKey)
 	writeJSON(w, http.StatusOK, e)
+}
+
+// fetchResolved loads an entry by id with its body resolved from blob storage.
+// Shared by the Get handler and the Game Mode chat share_card path.
+func (h *EntriesHandler) fetchResolved(ctx context.Context, id string) (Entry, error) {
+	e, bodyKey, err := scanEntryRaw(h.db.QueryRowContext(ctx, entrySelect+" WHERE id = ?", id))
+	if err != nil {
+		return Entry{}, err
+	}
+	h.resolveBody(ctx, &e, bodyKey)
+	return e, nil
 }
 
 // Create godoc
