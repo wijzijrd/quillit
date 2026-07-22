@@ -104,11 +104,13 @@
         <div class="project-card" v-for="p in projectStore.projects" :key="p.id" @click="router.push('/projects/' + p.id + '/notes')">
           <div class="pc-top">
             <span class="pc-type-badge">{{ p.type }}</span>
+            <span class="pc-live-badge" v-if="p.live"><span class="pc-live-dot" />Live</span>
             <span class="pc-role-badge" v-if="p.myRole">{{ displayRole(p.myRole, p.roleLabels) }}</span>
           </div>
           <h3 class="pc-name">{{ p.name }}</h3>
           <p class="pc-meta">{{ p.memberCount }} {{ p.memberCount === 1 ? 'member' : 'members' }}</p>
           <div class="pc-actions">
+            <button class="btn-ghost btn-xs" @click.stop="router.push('/projects/' + p.id + '/game')">Game Mode</button>
             <button class="btn-ghost btn-xs" @click.stop="openProjectInvite(p)">Invite</button>
             <button class="btn-danger-xs" @click.stop="confirmDeleteProject(p)" v-if="isEditorOf(p)">Delete</button>
           </div>
@@ -369,6 +371,20 @@ async function handleImport(e) {
   font-size: 0.65em; text-transform: uppercase; letter-spacing: 0.08em;
   background: var(--secondary); color: var(--primary);
   border-radius: 4px; padding: 2px 6px;
+}
+.pc-live-badge {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 0.65em; text-transform: uppercase; letter-spacing: 0.1em;
+  color: var(--primary); border: 1px solid var(--primary);
+  border-radius: 4px; padding: 2px 6px;
+}
+.pc-live-dot {
+  width: 6px; height: 6px; border-radius: 50%; background: var(--primary);
+  animation: pc-live-pulse 1.6s ease-in-out infinite;
+}
+@keyframes pc-live-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
 }
 .pc-name { font-family: var(--font-display); font-size: 1em; color: var(--foreground); margin: 0; font-weight: 400; }
 .pc-meta { font-size: 0.78em; color: var(--muted-foreground); margin: 0; }

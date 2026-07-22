@@ -144,6 +144,7 @@ func main() {
 		r.Post("/api/projects/{projectId}/session/stop", gameSessions.Stop)
 		r.Get("/api/projects/{projectId}/session/status", gameSessions.Status)
 		r.Get("/api/projects/{projectId}/session/{sessionId}/messages", gameSessions.ListMessages)
+		r.Get("/api/projects/{projectId}/sessions", gameSessions.ListSessions)
 		r.Get("/api/projects/{projectId}/session/socket", chatWS.Serve)
 
 		// Legacy campaign routes (kept for backwards compat during transition)

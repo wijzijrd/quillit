@@ -12,6 +12,7 @@ const router = createRouter({
     { path: '/quillit', redirect: '/notes' },
     { path: '/quillit/:id', redirect: (to) => `/notes/${to.params.id}` },
     { path: '/projects/:projectId', component: () => import('../views/ProjectView.vue') },
+    { path: '/projects/:projectId/game', component: () => import('../views/GameView.vue') },
     { path: '/projects/:projectId/notes', component: QuillitView },
     { path: '/campaigns', component: () => import('../views/CampaignsView.vue') },
     { path: '/players', redirect: '/campaigns' },

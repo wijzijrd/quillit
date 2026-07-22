@@ -15,6 +15,9 @@ export const useLiveSessionStore = defineStore('liveSession', () => {
   const messages = ref<ChatMessage[]>([])
   const connected = ref(false)
   const error = ref<string | null>(null)
+  // User IDs currently connected to the live session's room, from the server's
+  // presence roster snapshots. Empty whenever we're not connected.
+  const onlineUserIds = ref<string[]>([])
 
   let socket: WSConnection | null = null
   let connectedProjectId: string | null = null
@@ -59,6 +62,12 @@ export const useLiveSessionStore = defineStore('liveSession', () => {
     messages.value = await api<ChatMessage[]>(`/projects/${projectId}/session/${sid}/messages`)
   }
 
+  // Past + current sessions, newest first. Returned rather than stored: this is
+  // view-local browsing state, unlike the live message stream.
+  function fetchSessions(projectId: string): Promise<GameSession[]> {
+    return api<GameSession[]>(`/projects/${projectId}/sessions`)
+  }
+
   function handleFrame(data: WSInboundFrame) {
     if (data.type === 'system' && data.event === 'session_ended') {
       status.value = 'stopped'
@@ -67,6 +76,10 @@ export const useLiveSessionStore = defineStore('liveSession', () => {
     }
     if (data.type === 'error') {
       error.value = data.message
+      return
+    }
+    if (data.type === 'presence') {
+      onlineUserIds.value = data.users
       return
     }
     if (data.type === 'text' || data.type === 'note_card') {
@@ -117,6 +130,7 @@ export const useLiveSessionStore = defineStore('liveSession', () => {
     socket = null
     connectedProjectId = null
     connected.value = false
+    onlineUserIds.value = []
   }
 
   function sendText(body: string) {
@@ -132,8 +146,8 @@ export const useLiveSessionStore = defineStore('liveSession', () => {
   }
 
   return {
-    status, sessionId, messages, connected, error,
-    fetchStatus, start, stop, fetchHistory,
+    status, sessionId, messages, connected, error, onlineUserIds,
+    fetchStatus, start, stop, fetchHistory, fetchSessions,
     connect: connectSocket, disconnect, sendText, shareEntry, clearError,
   }
 })

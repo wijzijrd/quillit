@@ -81,6 +81,25 @@ func newChatWSFixture(t *testing.T, db *sql.DB) (*handler.ChatWSHandler, *ws.Cli
 	return h, client
 }
 
+// tryRecvSkippingPresence is client.TryRecv but discards the presence roster
+// frames the hub queues on registration and membership changes, which are not
+// what these tests assert on.
+func tryRecvSkippingPresence(client *ws.Client) ([]byte, bool) {
+	for {
+		raw, ok := client.TryRecv()
+		if !ok {
+			return nil, false
+		}
+		var f struct {
+			Type string `json:"type"`
+		}
+		if json.Unmarshal(raw, &f) == nil && f.Type == "presence" {
+			continue
+		}
+		return raw, true
+	}
+}
+
 func countMessages(t *testing.T, db *sql.DB, entryID string) int {
 	t.Helper()
 	var n int
@@ -107,7 +126,7 @@ func TestShareCard_ForeignProjectEntryRejected(t *testing.T) {
 	}
 
 	// Rejected: the sender receives an error frame addressed to it alone.
-	raw, ok := client.TryRecv()
+	raw, ok := tryRecvSkippingPresence(client)
 	if !ok {
 		t.Fatal("expected a rejection frame to the sender, got none")
 	}
@@ -120,7 +139,7 @@ func TestShareCard_ForeignProjectEntryRejected(t *testing.T) {
 	}
 
 	// And no note_card leaked to the room.
-	if extra, ok := client.TryRecv(); ok {
+	if extra, ok := tryRecvSkippingPresence(client); ok {
 		t.Fatalf("unexpected extra frame after rejection: %s", extra)
 	}
 }
@@ -139,7 +158,7 @@ func TestShareCard_SameProjectEntryBroadcast(t *testing.T) {
 		t.Fatalf("expected the shared entry to be persisted once, got %d rows", n)
 	}
 
-	raw, ok := client.TryRecv()
+	raw, ok := tryRecvSkippingPresence(client)
 	if !ok {
 		t.Fatal("expected a note_card broadcast, got none")
 	}

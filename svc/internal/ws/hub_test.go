@@ -1,6 +1,7 @@
 package ws
 
 import (
+	"encoding/json"
 	"sync"
 	"testing"
 )
@@ -9,7 +10,65 @@ import (
 // broadcast/eviction/close paths only touch the send channel (never the
 // connection), so a nil conn is safe as long as the pumps are not started.
 func newTestClient(h *Hub, projectID string) *Client {
-	return NewClient(h, projectID, "user", nil, nil)
+	return newTestClientUser(h, projectID, "user")
+}
+
+// newTestClientUser is newTestClient with an explicit user ID, for presence
+// tests that need distinct (or deliberately shared) users.
+func newTestClientUser(h *Hub, projectID, userID string) *Client {
+	return NewClient(h, projectID, userID, nil, nil)
+}
+
+// recvSkippingPresence pops the next non-presence frame queued for c, skipping
+// any presence roster snapshots ahead of it. Fails the test if nothing else is
+// queued.
+func recvSkippingPresence(t *testing.T, c *Client) []byte {
+	t.Helper()
+	for {
+		select {
+		case got, ok := <-c.send:
+			if !ok {
+				t.Fatal("send channel closed while waiting for a frame")
+			}
+			if isPresenceFrame(got) {
+				continue
+			}
+			return got
+		default:
+			t.Fatal("expected a queued frame, got none")
+		}
+	}
+}
+
+func isPresenceFrame(payload []byte) bool {
+	return jsonType(payload) == "presence"
+}
+
+// jsonType extracts the "type" field of a frame payload.
+func jsonType(payload []byte) string {
+	var f struct {
+		Type string `json:"type"`
+	}
+	_ = json.Unmarshal(payload, &f)
+	return f.Type
+}
+
+// drainPresence discards any presence frames currently queued for c.
+func drainPresence(t *testing.T, c *Client) {
+	t.Helper()
+	for {
+		select {
+		case got, ok := <-c.send:
+			if !ok {
+				t.Fatal("send channel unexpectedly closed while draining presence")
+			}
+			if !isPresenceFrame(got) {
+				t.Fatalf("expected only presence frames while draining, got %q", got)
+			}
+		default:
+			return
+		}
+	}
 }
 
 // TestBroadcastReachesAllClients confirms a broadcast is delivered to every
@@ -28,13 +87,9 @@ func TestBroadcastReachesAllClients(t *testing.T) {
 	h.Broadcast(project, payload)
 
 	for i, c := range []*Client{c1, c2} {
-		select {
-		case got := <-c.send:
-			if string(got) != string(payload) {
-				t.Fatalf("client %d: got %q, want %q", i, got, payload)
-			}
-		default:
-			t.Fatalf("client %d: expected a broadcast message, got none", i)
+		got := recvSkippingPresence(t, c)
+		if string(got) != string(payload) {
+			t.Fatalf("client %d: got %q, want %q", i, got, payload)
 		}
 	}
 }
@@ -53,7 +108,8 @@ func TestBroadcastEvictsSlowConsumer(t *testing.T) {
 	h.Register(project, fast)
 
 	// Saturate the slow client's send buffer so the next send would block.
-	for i := 0; i < sendBufferSize; i++ {
+	// Registration queued presence frames; fill whatever capacity remains.
+	for len(slow.send) < cap(slow.send) {
 		slow.send <- []byte("backlog")
 	}
 
@@ -61,13 +117,9 @@ func TestBroadcastEvictsSlowConsumer(t *testing.T) {
 	h.Broadcast(project, payload)
 
 	// The healthy client still receives the broadcast.
-	select {
-	case got := <-fast.send:
-		if string(got) != string(payload) {
-			t.Fatalf("fast client: got %q, want %q", got, payload)
-		}
-	default:
-		t.Fatal("fast client: expected the broadcast, got none")
+	got := recvSkippingPresence(t, fast)
+	if string(got) != string(payload) {
+		t.Fatalf("fast client: got %q, want %q", got, payload)
 	}
 
 	// The slow client was evicted: room now holds only the fast client.
@@ -100,14 +152,9 @@ func TestCloseRoomNotifiesAndRemoves(t *testing.T) {
 
 	h.CloseRoom(project)
 
-	// First the session_ended event is queued...
-	select {
-	case got := <-c.send:
-		if string(got) != string(sessionEndedPayload) {
-			t.Fatalf("got %q, want %q", got, sessionEndedPayload)
-		}
-	default:
-		t.Fatal("expected session_ended event before close")
+	// First the session_ended event is queued (after registration's presence)...
+	if got := recvSkippingPresence(t, c); string(got) != string(sessionEndedPayload) {
+		t.Fatalf("got %q, want %q", got, sessionEndedPayload)
 	}
 	// ...then the channel is closed.
 	if _, ok := <-c.send; ok {
@@ -185,16 +232,8 @@ func TestOpenRoomAndRegisterThenCloseRoomReachesClient(t *testing.T) {
 	h.OpenRoomAndRegister(project, "s1", c)
 	h.CloseRoom(project)
 
-	select {
-	case got, ok := <-c.send:
-		if !ok {
-			t.Fatal("expected session_ended before close, got a closed channel")
-		}
-		if string(got) != string(sessionEndedPayload) {
-			t.Fatalf("got %q, want %q", got, sessionEndedPayload)
-		}
-	default:
-		t.Fatal("expected session_ended event, got none (client orphaned)")
+	if got := recvSkippingPresence(t, c); string(got) != string(sessionEndedPayload) {
+		t.Fatalf("got %q, want %q", got, sessionEndedPayload)
 	}
 	if _, ok := <-c.send; ok {
 		t.Fatal("send channel should be closed after CloseRoom")
@@ -276,5 +315,118 @@ func TestUnregisterIsIdempotent(t *testing.T) {
 
 	if n := h.TotalConns(); n != 0 {
 		t.Fatalf("total conns: got %d, want 0", n)
+	}
+}
+
+// recvPresence pops the next queued frame for c and asserts it is a presence
+// roster with exactly the given users.
+func recvPresence(t *testing.T, c *Client, wantUsers []string) {
+	t.Helper()
+	select {
+	case got, ok := <-c.send:
+		if !ok {
+			t.Fatal("send channel closed while expecting a presence frame")
+		}
+		var f struct {
+			Type  string   `json:"type"`
+			Users []string `json:"users"`
+		}
+		if err := json.Unmarshal(got, &f); err != nil {
+			t.Fatalf("unmarshal presence frame: %v", err)
+		}
+		if f.Type != "presence" {
+			t.Fatalf("frame type: got %q, want %q (payload %q)", f.Type, "presence", got)
+		}
+		if len(f.Users) != len(wantUsers) {
+			t.Fatalf("presence users: got %v, want %v", f.Users, wantUsers)
+		}
+		for i := range wantUsers {
+			if f.Users[i] != wantUsers[i] {
+				t.Fatalf("presence users: got %v, want %v", f.Users, wantUsers)
+			}
+		}
+	default:
+		t.Fatal("expected a presence frame, got none")
+	}
+}
+
+// TestPresenceRosterOnRegisterAndUnregister confirms every membership change
+// broadcasts a full sorted roster snapshot: the joining client receives the
+// roster as its first frame, existing clients see the join, and remaining
+// clients see the leave.
+func TestPresenceRosterOnRegisterAndUnregister(t *testing.T) {
+	h := NewHub()
+	const project = "p1"
+
+	alice := newTestClientUser(h, project, "alice")
+	h.OpenRoomAndRegister(project, "s1", alice)
+	recvPresence(t, alice, []string{"alice"})
+
+	bob := newTestClientUser(h, project, "bob")
+	h.OpenRoomAndRegister(project, "s1", bob)
+	recvPresence(t, alice, []string{"alice", "bob"})
+	recvPresence(t, bob, []string{"alice", "bob"})
+
+	h.Unregister(project, bob)
+	recvPresence(t, alice, []string{"alice"})
+}
+
+// TestPresenceDeduplicatesUsers confirms one user with several connections
+// (tabs) appears once in the roster, and remains present until the last of
+// their connections leaves.
+func TestPresenceDeduplicatesUsers(t *testing.T) {
+	h := NewHub()
+	const project = "p1"
+
+	tab1 := newTestClientUser(h, project, "alice")
+	tab2 := newTestClientUser(h, project, "alice")
+	h.OpenRoomAndRegister(project, "s1", tab1)
+	h.OpenRoomAndRegister(project, "s1", tab2)
+	drainPresence(t, tab1)
+	drainPresence(t, tab2)
+
+	bob := newTestClientUser(h, project, "bob")
+	h.OpenRoomAndRegister(project, "s1", bob)
+	recvPresence(t, tab1, []string{"alice", "bob"})
+
+	// One of alice's tabs closes: she is still present via the other.
+	h.Unregister(project, tab2)
+	drainPresence(t, tab1) // join+leave snapshots
+	drainPresence(t, bob)
+
+	h.Unregister(project, tab1)
+	recvPresence(t, bob, []string{"bob"})
+}
+
+// TestCloseRoomSendsNoPresence confirms a closing room does not emit roster
+// updates as its clients are torn down — they receive session_ended only.
+func TestCloseRoomSendsNoPresence(t *testing.T) {
+	h := NewHub()
+	const project = "p1"
+
+	alice := newTestClientUser(h, project, "alice")
+	bob := newTestClientUser(h, project, "bob")
+	h.OpenRoomAndRegister(project, "s1", alice)
+	h.OpenRoomAndRegister(project, "s1", bob)
+	drainPresence(t, alice)
+	drainPresence(t, bob)
+
+	h.CloseRoom(project)
+
+	for _, c := range []*Client{alice, bob} {
+		select {
+		case got, ok := <-c.send:
+			if !ok {
+				t.Fatal("expected session_ended before close")
+			}
+			if string(got) != string(sessionEndedPayload) {
+				t.Fatalf("got %q, want session_ended only (no presence)", got)
+			}
+		default:
+			t.Fatal("expected session_ended event, got none")
+		}
+		if _, ok := <-c.send; ok {
+			t.Fatal("send channel should be closed after CloseRoom")
+		}
 	}
 }

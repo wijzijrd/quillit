@@ -1,6 +1,10 @@
 package ws
 
-import "sync"
+import (
+	"encoding/json"
+	"sort"
+	"sync"
+)
 
 // Connection caps. Enforced by the HTTP handler before upgrading.
 const (
@@ -14,6 +18,44 @@ const (
 // stopped, just before their connections are closed. Kept as a fixed constant so
 // the ws package stays free of the handler's response types.
 var sessionEndedPayload = []byte(`{"type":"system","event":"session_ended"}`)
+
+// presencePayloadLocked builds the {"type":"presence","users":[...]} frame
+// listing room's distinct connected user IDs (a user with several tabs appears
+// once), sorted for stable output. Caller must hold h.mu.
+func presencePayloadLocked(room *Room) []byte {
+	seen := make(map[string]bool, len(room.clients))
+	users := make([]string, 0, len(room.clients))
+	for c := range room.clients {
+		if !seen[c.UserID] {
+			seen[c.UserID] = true
+			users = append(users, c.UserID)
+		}
+	}
+	sort.Strings(users)
+	payload, _ := json.Marshal(struct {
+		Type  string   `json:"type"`
+		Users []string `json:"users"`
+	}{Type: "presence", Users: users})
+	return payload
+}
+
+// broadcastPresenceLocked sends the current roster snapshot to every client in
+// room. Best-effort: a full send buffer skips that client rather than evicting
+// it — eviction would mutate room.clients mid-iteration via removeLocked, and
+// the next presence change re-syncs anyone who missed one. Caller must hold
+// h.mu.
+func (h *Hub) broadcastPresenceLocked(room *Room) {
+	if len(room.clients) == 0 {
+		return
+	}
+	payload := presencePayloadLocked(room)
+	for c := range room.clients {
+		select {
+		case c.send <- payload:
+		default:
+		}
+	}
+}
 
 // Room holds the live clients for one project's game session.
 type Room struct {
@@ -67,6 +109,7 @@ func (h *Hub) Register(projectID string, c *Client) {
 		h.rooms[projectID] = room
 	}
 	h.registerLocked(room, c)
+	h.broadcastPresenceLocked(room)
 }
 
 // registerLocked adds c to room and bumps the process-wide count. Caller must
@@ -86,6 +129,9 @@ func (h *Hub) OpenRoomAndRegister(projectID, sessionID string, c *Client) *Room 
 	defer h.mu.Unlock()
 	room := h.openRoomLocked(projectID, sessionID)
 	h.registerLocked(room, c)
+	// The just-registered client receives the roster as its first queued frame
+	// (delivered once its writePump starts); everyone else sees the join.
+	h.broadcastPresenceLocked(room)
 	return room
 }
 
@@ -104,6 +150,7 @@ func (h *Hub) SendTo(c *Client, payload []byte) {
 	case c.send <- payload:
 	default:
 		h.removeLocked(room, c)
+		h.broadcastPresenceLocked(room)
 	}
 }
 
@@ -116,6 +163,7 @@ func (h *Hub) Unregister(projectID string, c *Client) {
 	defer h.mu.Unlock()
 	if room := h.rooms[projectID]; room != nil {
 		h.removeLocked(room, c)
+		h.broadcastPresenceLocked(room)
 	}
 }
 
@@ -140,13 +188,18 @@ func (h *Hub) Broadcast(projectID string, payload []byte) {
 	if room == nil {
 		return
 	}
+	evicted := false
 	for c := range room.clients {
 		select {
 		case c.send <- payload:
 		default:
 			// Full buffer: evict this one client, keep broadcasting to the rest.
 			h.removeLocked(room, c)
+			evicted = true
 		}
+	}
+	if evicted {
+		h.broadcastPresenceLocked(room)
 	}
 }
 

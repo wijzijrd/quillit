@@ -117,6 +117,23 @@ func scanSession(row *sql.Row) (GameSession, error) {
 	return s, nil
 }
 
+// scanSessionRows is scanSession's *sql.Rows counterpart, for list queries.
+func scanSessionRows(rows *sql.Rows) (GameSession, error) {
+	var s GameSession
+	var stoppedBy sql.NullString
+	var stoppedAt sql.NullInt64
+	if err := rows.Scan(&s.ID, &s.ProjectID, &s.Status, &s.StartedBy, &s.StartedAt, &stoppedBy, &stoppedAt); err != nil {
+		return GameSession{}, err
+	}
+	if stoppedBy.Valid {
+		s.StoppedBy = &stoppedBy.String
+	}
+	if stoppedAt.Valid {
+		s.StoppedAt = &stoppedAt.Int64
+	}
+	return s, nil
+}
+
 func (h *GameSessionsHandler) fetchSessionByID(r *http.Request, id string) (GameSession, error) {
 	return scanSession(h.db.QueryRowContext(r.Context(), sessionSelect+` WHERE id = ?`, id))
 }
@@ -317,4 +334,47 @@ func (h *GameSessionsHandler) ListMessages(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	writeJSON(w, http.StatusOK, messages)
+}
+
+// ── ListSessions ──────────────────────────────────────────────────────────────
+
+// ListSessions godoc
+// @Summary      List past and current game sessions for a project
+// @Description  Returns the project's sessions, newest first (max 100).
+// @Tags         game-sessions
+// @Produce      json
+// @Param        projectId  path  string  true  "Project ID"
+// @Success      200  {array}   GameSession
+// @Failure      401  {object}  ErrorResponse
+// @Failure      403  {object}  ErrorResponse
+// @Router       /api/projects/{projectId}/sessions [get]
+func (h *GameSessionsHandler) ListSessions(w http.ResponseWriter, r *http.Request) {
+	projectID := chi.URLParam(r, "projectId")
+	if _, ok := h.requireMember(w, r, projectID); !ok {
+		return
+	}
+
+	rows, err := h.db.QueryContext(r.Context(),
+		sessionSelect+` WHERE project_id = ? ORDER BY started_at DESC LIMIT 100`, projectID,
+	)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "db error")
+		return
+	}
+	defer rows.Close()
+
+	sessions := []GameSession{}
+	for rows.Next() {
+		s, err := scanSessionRows(rows)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "db error")
+			return
+		}
+		sessions = append(sessions, s)
+	}
+	if err := rows.Err(); err != nil {
+		writeError(w, http.StatusInternalServerError, "db error")
+		return
+	}
+	writeJSON(w, http.StatusOK, sessions)
 }

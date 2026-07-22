@@ -76,6 +76,7 @@ type Project struct {
 	MemberCount int             `json:"memberCount"`
 	MyRole      string          `json:"myRole"`
 	RoleLabels  [2]string       `json:"roleLabels"` // [editorLabel, memberLabel]
+	Live        bool            `json:"live"`
 	Members     []ProjectMember `json:"members,omitempty"`
 }
 
@@ -138,7 +139,8 @@ func (h *ProjectsHandler) List(w http.ResponseWriter, r *http.Request) {
 	rows, err := h.db.QueryContext(r.Context(), `
 		SELECT p.id, p.name, p.type, p.created_by, p.created_at,
 		       pm.role,
-		       (SELECT COUNT(*) FROM project_members WHERE project_id = p.id) AS member_count
+		       (SELECT COUNT(*) FROM project_members WHERE project_id = p.id) AS member_count,
+		       EXISTS(SELECT 1 FROM game_sessions gs WHERE gs.project_id = p.id AND gs.status = 'running') AS live
 		FROM projects p
 		JOIN project_members pm ON pm.project_id = p.id AND pm.user_id = ?
 		WHERE p.type != 'global'
@@ -153,7 +155,7 @@ func (h *ProjectsHandler) List(w http.ResponseWriter, r *http.Request) {
 	projects := []Project{}
 	for rows.Next() {
 		var p Project
-		if err := rows.Scan(&p.ID, &p.Name, &p.Type, &p.CreatedBy, &p.CreatedAt, &p.MyRole, &p.MemberCount); err != nil {
+		if err := rows.Scan(&p.ID, &p.Name, &p.Type, &p.CreatedBy, &p.CreatedAt, &p.MyRole, &p.MemberCount, &p.Live); err != nil {
 			writeError(w, http.StatusInternalServerError, "db error")
 			return
 		}

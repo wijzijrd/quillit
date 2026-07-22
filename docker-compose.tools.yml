@@ -1,0 +1,35 @@
+# On-demand DB admin overlay. NOT part of the normal stack — start it only when
+# you want to browse/manage the SQLite databases, and stop it afterwards:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.tools.yml up -d sqlite-web-svc sqlite-web-auth
+#   ...browse http://127.0.0.1:8081 (svc) and http://127.0.0.1:8082 (auth)...
+#   docker compose -f docker-compose.yml -f docker-compose.tools.yml stop sqlite-web-svc sqlite-web-auth
+#
+# Ports are bound to 127.0.0.1 only (sqlite-web has no auth). On the home
+# server, reach them through an SSH tunnel over Tailscale:
+#
+#   ssh -L 8081:127.0.0.1:8081 -L 8082:127.0.0.1:8082 quillit
+#
+# WAL-mode caveats: the apps run SQLite in WAL mode, which allows many readers
+# alongside the single writer — browsing while the stack runs is safe. Writes
+# from sqlite-web can briefly hit SQLITE_BUSY against the app; keep admin write
+# transactions short, and stop the svc/auth container for anything structural
+# (schema changes, bulk rewrites).
+services:
+  sqlite-web-svc:
+    image: coleifer/sqlite-web
+    command: sqlite_web -H 0.0.0.0 -p 8080 /data/quillit.db
+    volumes:
+      - svc-data:/data
+    ports:
+      - "127.0.0.1:8081:8080"
+    restart: "no"
+
+  sqlite-web-auth:
+    image: coleifer/sqlite-web
+    command: sqlite_web -H 0.0.0.0 -p 8080 /data/quillit-auth.db
+    volumes:
+      - auth-data:/data
+    ports:
+      - "127.0.0.1:8082:8080"
+    restart: "no"
