@@ -2,17 +2,48 @@ package handler_test
 
 import (
 	"bytes"
+	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/golang-jwt/jwt/v5"
 	_ "modernc.org/sqlite"
 
 	"github.com/quillit/svc/internal/handler"
+	"github.com/quillit/svc/internal/middleware"
 )
+
+// friendsTestSecret is the JWT signing secret used across friends_test.go so
+// resolveOwnUsername's real-claims path (middleware.ClaimsFromContext) can be
+// exercised with a real, signed JWT instead of the WithTestCallerID shortcut.
+func friendsTestSecret() []byte { return []byte("friends-test-secret") }
+
+// makeFriendsJWT signs a minimal claims set (sub, email, active) matching the
+// shape entries_test.go's makeTestJWT uses for its real-JWT admin-bypass case.
+func makeFriendsJWT(t *testing.T, sub, email string) string {
+	t.Helper()
+	claims := jwt.MapClaims{"sub": sub, "email": email, "role": "user", "active": true}
+	signed, err := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString(friendsTestSecret())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return signed
+}
+
+// stubSearchUsers is a test double for FriendsHandler.SearchUsersFn standing
+// in for a live auth-svc call. It mirrors the "<id>@test.com" / "<id>name"
+// convention makeFriendsJWT/sendRequest use, so resolveOwnUsername can look up
+// the caller's own username without any network call.
+func stubSearchUsers(_ context.Context, _ string, query string) ([]handler.UserSearchResult, error) {
+	id := strings.TrimSuffix(query, "@test.com")
+	return []handler.UserSearchResult{{ID: id, Email: query, Username: id + "name"}}, nil
+}
 
 // setupFriendsDB builds an in-memory DB with the exact friend_requests schema
 // from db.toV8, including the pair-normalized unique index, so tests exercise
@@ -48,7 +79,8 @@ func setupFriendsDB(t *testing.T) *sql.DB {
 }
 
 func frRouter(db *sql.DB) chi.Router {
-	h := handler.NewFriendsForTest(db)
+	h := handler.NewFriendsForTest(db, friendsTestSecret())
+	h.SearchUsersFn = stubSearchUsers
 	r := chi.NewRouter()
 	r.Post("/friends/requests", h.SendRequest)
 	r.Get("/friends/requests/incoming", h.ListIncoming)
@@ -70,7 +102,13 @@ func frRequest(t *testing.T, db *sql.DB, method, path string, body any, userID s
 	req := httptest.NewRequest(method, path, bytes.NewReader(bodyBytes))
 	req.Header.Set("Content-Type", "application/json")
 	if userID != "" {
-		req = req.WithContext(handler.WithTestCallerID(req.Context(), userID))
+		ctx := handler.WithTestCallerID(req.Context(), userID)
+		// Also attach a real signed JWT (sub=userID, email=userID+"@test.com")
+		// so resolveOwnUsername's claims + auth-proxy lookup path — exercised
+		// by SendRequest — works even though other endpoints still resolve the
+		// caller via the WithTestCallerID shortcut above.
+		ctx = middleware.WithRawJWT(ctx, makeFriendsJWT(t, userID, userID+"@test.com"))
+		req = req.WithContext(ctx)
 	}
 
 	rr := httptest.NewRecorder()
@@ -108,9 +146,8 @@ func decodeFriends(t *testing.T, rr *httptest.ResponseRecorder) []handler.Friend
 func sendRequest(t *testing.T, db *sql.DB, from, toUserID, toUsername string) *httptest.ResponseRecorder {
 	t.Helper()
 	return frRequest(t, db, http.MethodPost, "/friends/requests", map[string]string{
-		"userId":            toUserID,
-		"username":          toUsername,
-		"requesterUsername": from + "name",
+		"userId":   toUserID,
+		"username": toUsername,
 	}, from)
 }
 
@@ -140,6 +177,111 @@ func TestSendRequest_AppearsInOutgoingAndIncoming(t *testing.T) {
 	if len(in) != 1 || in[0].ID != fr.ID {
 		t.Errorf("expected request in user2's incoming list, got %+v", in)
 	}
+}
+
+// ── Identity-spoofing fix ────────────────────────────────────────────────────────
+
+// TestSendRequest_IgnoresClientSuppliedRequesterUsername proves the fix for the
+// identity-spoofing finding: a caller cannot claim to be anyone else by
+// smuggling a "requesterUsername" field into the request body. The server
+// resolves the caller's real username itself (via resolveOwnUsername) and the
+// stored/returned value must reflect that, never the attacker-supplied string.
+func TestSendRequest_IgnoresClientSuppliedRequesterUsername(t *testing.T) {
+	db := setupFriendsDB(t)
+
+	rr := frRequest(t, db, http.MethodPost, "/friends/requests", map[string]string{
+		"userId":            "user2",
+		"username":          "user2name",
+		"requesterUsername": "Admin", // attacker-controlled, must be ignored entirely
+	}, "user1")
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", rr.Code, rr.Body.String())
+	}
+	fr := decodeFR(t, rr)
+	if fr.RequesterUsername != "user1name" {
+		t.Errorf("expected server-resolved requesterUsername %q, got %q (spoofing not blocked)", "user1name", fr.RequesterUsername)
+	}
+
+	// The spoofed name must not leak into the addressee's incoming list either.
+	in := decodeFRList(t, frRequest(t, db, http.MethodGet, "/friends/requests/incoming", nil, "user2"))
+	if len(in) != 1 || in[0].RequesterUsername != "user1name" {
+		t.Errorf("expected incoming list to show resolved requesterUsername %q, got %+v", "user1name", in)
+	}
+}
+
+// TestSendRequest_ResolveOwnUsername_FiltersToExactCallerID proves the auth
+// search's LIKE/substring semantics don't let resolveOwnUsername grab the
+// wrong row: when the stubbed search returns several candidates for the same
+// query, only the one whose id matches the caller exactly is used.
+func TestSendRequest_ResolveOwnUsername_FiltersToExactCallerID(t *testing.T) {
+	db := setupFriendsDB(t)
+	h := handler.NewFriendsForTest(db, friendsTestSecret())
+	h.SearchUsersFn = func(_ context.Context, _ string, query string) ([]handler.UserSearchResult, error) {
+		// Simulate a substring match returning multiple users for one query.
+		return []handler.UserSearchResult{
+			{ID: "user1-decoy", Email: query, Username: "decoyname"},
+			{ID: "user1", Email: query, Username: "user1name"},
+		}, nil
+	}
+	r := chi.NewRouter()
+	r.Post("/friends/requests", h.SendRequest)
+
+	req := httptest.NewRequest(http.MethodPost, "/friends/requests", bytes.NewReader(mustJSON(t, map[string]string{
+		"userId":   "user2",
+		"username": "user2name",
+	})))
+	req.Header.Set("Content-Type", "application/json")
+	ctx := handler.WithTestCallerID(req.Context(), "user1")
+	ctx = middleware.WithRawJWT(ctx, makeFriendsJWT(t, "user1", "user1@test.com"))
+	req = req.WithContext(ctx)
+
+	rr := httptest.NewRecorder()
+	r.ServeHTTP(rr, req)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", rr.Code, rr.Body.String())
+	}
+	fr := decodeFR(t, rr)
+	if fr.RequesterUsername != "user1name" {
+		t.Errorf("expected exact-id match %q, got %q", "user1name", fr.RequesterUsername)
+	}
+}
+
+// TestSendRequest_ResolveOwnUsernameFailure_Returns502 proves that when the
+// caller's identity cannot be resolved (auth service unreachable, or no
+// matching user found), SendRequest fails closed with a 5xx rather than
+// falling back to trusting any client-supplied value.
+func TestSendRequest_ResolveOwnUsernameFailure_Returns502(t *testing.T) {
+	db := setupFriendsDB(t)
+	h := handler.NewFriendsForTest(db, friendsTestSecret())
+	h.SearchUsersFn = func(_ context.Context, _ string, _ string) ([]handler.UserSearchResult, error) {
+		return nil, errors.New("auth service unreachable")
+	}
+	r := chi.NewRouter()
+	r.Post("/friends/requests", h.SendRequest)
+
+	req := httptest.NewRequest(http.MethodPost, "/friends/requests", bytes.NewReader(mustJSON(t, map[string]string{
+		"userId":   "user2",
+		"username": "user2name",
+	})))
+	req.Header.Set("Content-Type", "application/json")
+	ctx := handler.WithTestCallerID(req.Context(), "user1")
+	ctx = middleware.WithRawJWT(ctx, makeFriendsJWT(t, "user1", "user1@test.com"))
+	req = req.WithContext(ctx)
+
+	rr := httptest.NewRecorder()
+	r.ServeHTTP(rr, req)
+	if rr.Code != http.StatusBadGateway {
+		t.Errorf("expected 502 when identity resolution fails, got %d: %s", rr.Code, rr.Body.String())
+	}
+}
+
+func mustJSON(t *testing.T, v any) []byte {
+	t.Helper()
+	b, err := json.Marshal(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b
 }
 
 func TestSendRequest_SelfRejected(t *testing.T) {

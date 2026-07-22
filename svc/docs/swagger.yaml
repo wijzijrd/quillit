@@ -180,6 +180,36 @@ definitions:
       error:
         type: string
     type: object
+  handler.Friend:
+    properties:
+      friendedAt:
+        type: integer
+      id:
+        type: string
+      userId:
+        type: string
+      username:
+        type: string
+    type: object
+  handler.FriendRequest:
+    properties:
+      acceptedAt:
+        type: integer
+      addresseeId:
+        type: string
+      addresseeUsername:
+        type: string
+      createdAt:
+        type: integer
+      id:
+        type: string
+      requesterId:
+        type: string
+      requesterUsername:
+        type: string
+      status:
+        type: string
+    type: object
   handler.GameSession:
     properties:
       id:
@@ -1086,6 +1116,139 @@ paths:
       summary: Remove entry share
       tags:
       - shares
+  /api/friends:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/handler.Friend'
+            type: array
+      summary: List friends
+      tags:
+      - friends
+  /api/friends/requests:
+    post:
+      consumes:
+      - application/json
+      description: Creates a pending friend request between the caller and another
+        user.
+      parameters:
+      - description: '{ userId, username }'
+        in: body
+        name: body
+        required: true
+        schema:
+          type: object
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/handler.FriendRequest'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+        "502":
+          description: Bad Gateway
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+      summary: Send a friend request
+      tags:
+      - friends
+  /api/friends/requests/{id}:
+    delete:
+      description: |-
+        Deletes a friend_requests row. Covers declining an incoming pending
+        request, cancelling an outgoing pending request, and unfriending an
+        accepted relationship — all are a hard delete by either party.
+      parameters:
+      - description: Friend request ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+      summary: Decline, cancel, or unfriend
+      tags:
+      - friends
+  /api/friends/requests/{id}/accept:
+    post:
+      parameters:
+      - description: Friend request ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handler.FriendRequest'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+      summary: Accept a friend request
+      tags:
+      - friends
+  /api/friends/requests/incoming:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/handler.FriendRequest'
+            type: array
+      summary: List incoming friend requests
+      tags:
+      - friends
+  /api/friends/requests/outgoing:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/handler.FriendRequest'
+            type: array
+      summary: List outgoing friend requests
+      tags:
+      - friends
   /api/me/settings:
     get:
       produces:

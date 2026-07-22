@@ -64,7 +64,7 @@ func main() {
 	projects := handler.NewProjects(database, jwtSecret)
 	entries := handler.NewEntriesWithBlobs(database, jwtSecret, blobs)
 	entryShares := handler.NewEntryShares(database, jwtSecret, authURL)
-	friends := handler.NewFriends(database, jwtSecret)
+	friends := handler.NewFriends(database, jwtSecret, authURL)
 	annotations := handler.NewAnnotations(database, jwtSecret)
 	member := handler.NewMember(database, jwtSecret)
 	settings := handler.NewSettings(database, jwtSecret)

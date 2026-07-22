@@ -1081,6 +1081,205 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/friends": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "friends"
+                ],
+                "summary": "List friends",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/handler.Friend"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/friends/requests": {
+            "post": {
+                "description": "Creates a pending friend request between the caller and another user.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "friends"
+                ],
+                "summary": "Send a friend request",
+                "parameters": [
+                    {
+                        "description": "{ userId, username }",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "object"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/handler.FriendRequest"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/handler.ErrorResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/handler.ErrorResponse"
+                        }
+                    },
+                    "502": {
+                        "description": "Bad Gateway",
+                        "schema": {
+                            "$ref": "#/definitions/handler.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/friends/requests/incoming": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "friends"
+                ],
+                "summary": "List incoming friend requests",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/handler.FriendRequest"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/friends/requests/outgoing": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "friends"
+                ],
+                "summary": "List outgoing friend requests",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/handler.FriendRequest"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/friends/requests/{id}": {
+            "delete": {
+                "description": "Deletes a friend_requests row. Covers declining an incoming pending\nrequest, cancelling an outgoing pending request, and unfriending an\naccepted relationship — all are a hard delete by either party.",
+                "tags": [
+                    "friends"
+                ],
+                "summary": "Decline, cancel, or unfriend",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Friend request ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/handler.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/handler.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/friends/requests/{id}/accept": {
+            "post": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "friends"
+                ],
+                "summary": "Accept a friend request",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Friend request ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/handler.FriendRequest"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/handler.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/handler.ErrorResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/handler.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/me/settings": {
             "get": {
                 "produces": [
@@ -2908,6 +3107,52 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "error": {
+                    "type": "string"
+                }
+            }
+        },
+        "handler.Friend": {
+            "type": "object",
+            "properties": {
+                "friendedAt": {
+                    "type": "integer"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "userId": {
+                    "type": "string"
+                },
+                "username": {
+                    "type": "string"
+                }
+            }
+        },
+        "handler.FriendRequest": {
+            "type": "object",
+            "properties": {
+                "acceptedAt": {
+                    "type": "integer"
+                },
+                "addresseeId": {
+                    "type": "string"
+                },
+                "addresseeUsername": {
+                    "type": "string"
+                },
+                "createdAt": {
+                    "type": "integer"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "requesterId": {
+                    "type": "string"
+                },
+                "requesterUsername": {
+                    "type": "string"
+                },
+                "status": {
                     "type": "string"
                 }
             }
