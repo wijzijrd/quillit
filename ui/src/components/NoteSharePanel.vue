@@ -1,30 +1,31 @@
 <template>
   <div class="share-panel">
     <div class="share-section">
-      <p class="share-hint">Search users by name or email to share this note.</p>
+      <p class="share-hint">Share with a friend.</p>
       <div class="search-row">
         <input
           class="share-input"
           v-model="query"
-          placeholder="Search users…"
-          @input="onSearch"
+          placeholder="Search friends…"
           autocomplete="off"
         />
       </div>
-      <div class="search-results" v-if="results.length > 0">
+      <div class="search-results" v-if="filteredFriends.length > 0">
         <button
-          v-for="u in results"
-          :key="u.id"
+          v-for="u in filteredFriends"
+          :key="u.userId"
           class="result-row"
-          :disabled="alreadyShared(u.id)"
+          :disabled="alreadyShared(u.userId)"
           @click="addUser(u)"
         >
           <span class="result-name">{{ u.username }}</span>
-          <span class="result-email">{{ u.email }}</span>
-          <span class="result-added" v-if="alreadyShared(u.id)">Shared</span>
+          <span class="result-added" v-if="alreadyShared(u.userId)">Shared</span>
         </button>
       </div>
-      <p class="empty-hint" v-else-if="searched && query.length >= 2">No users found.</p>
+      <p class="empty-hint" v-else-if="friendsStore.friends.length === 0">
+        You have no friends yet. Add some from the <RouterLink to="/friends">Friends</RouterLink> page.
+      </p>
+      <p class="empty-hint" v-else-if="filteredFriends.length === 0">No matching friends.</p>
     </div>
 
     <div class="share-section">
@@ -53,12 +54,15 @@
 
 <script setup lang="ts">
 import { ref, watch, onMounted, computed } from 'vue'
+import { RouterLink } from 'vue-router'
 import { useMemberStore } from '../stores/useMemberStore'
 import { useLiveSessionStore } from '../stores/useLiveSessionStore'
+import { useFriendsStore } from '../stores/useFriendsStore'
 
 const props = defineProps<{ entryId?: string; projectId?: string }>()
 const member = useMemberStore()
 const liveSession = useLiveSessionStore()
+const friendsStore = useFriendsStore()
 
 const pushed = ref(false)
 const sessionRunning = computed(() => liveSession.status === 'running')
@@ -82,17 +86,19 @@ function pushToChat() {
 }
 
 const query = ref('')
-const results = ref<any[]>([])
 const shares = ref<any[]>([])
-const searched = ref(false)
-let searchTimer: ReturnType<typeof setTimeout> | null = null
 
-onMounted(loadShares)
+const filteredFriends = computed(() =>
+  friendsStore.friends.filter(f => f.username.toLowerCase().includes(query.value.toLowerCase()))
+)
+
+onMounted(() => {
+  loadShares()
+  friendsStore.init()
+})
 
 watch(() => props.entryId, () => {
   query.value = ''
-  results.value = []
-  searched.value = false
   loadShares()
 })
 
@@ -101,23 +107,12 @@ async function loadShares() {
   shares.value = await member.fetchEntryShares(props.entryId)
 }
 
-function onSearch() {
-  if (searchTimer) clearTimeout(searchTimer)
-  if (query.value.length < 2) { results.value = []; searched.value = false; return }
-  searchTimer = setTimeout(runSearch, 280)
-}
-
-async function runSearch() {
-  results.value = await member.searchUsers(query.value)
-  searched.value = true
-}
-
 function alreadyShared(userId: string) {
   return shares.value.some(s => s.userId === userId)
 }
 
-async function addUser(u: { id: string }) {
-  await member.addShares(props.entryId, [u.id])
+async function addUser(u: { userId: string }) {
+  await member.addShares(props.entryId, [u.userId])
   shares.value = await member.fetchEntryShares(props.entryId)
 }
 
@@ -163,7 +158,6 @@ async function removeUser(userId: string) {
 .result-row:hover:not(:disabled) { background: var(--muted); }
 .result-row:disabled { opacity: 0.5; cursor: default; }
 .result-name { font-size: var(--text-sm); color: var(--foreground); flex: 1; }
-.result-email { font-size: var(--text-xs); color: var(--muted-foreground); }
 .result-added { font-size: var(--text-xs); color: var(--primary); }
 
 .share-list { display: flex; flex-direction: column; gap: 2px; }

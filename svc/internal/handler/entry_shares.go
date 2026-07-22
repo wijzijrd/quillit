@@ -23,6 +23,10 @@ func NewEntryShares(db *sql.DB, jwtSecret, authURL string) *EntrySharesHandler {
 }
 
 func (h *EntrySharesHandler) callerID(r *http.Request) (string, bool) {
+	// Test helper: allow injecting caller ID without JWT.
+	if id, ok := r.Context().Value(testCallerKey{}).(string); ok && id != "" {
+		return id, true
+	}
 	mc, err := middleware.ClaimsFromContext(r.Context(), h.jwtSecret)
 	if err != nil {
 		return "", false
@@ -122,6 +126,17 @@ func (h *EntrySharesHandler) AddShares(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || len(body.UserIDs) == 0 {
 		writeError(w, http.StatusBadRequest, "userIds required")
 		return
+	}
+
+	// Friends-only enforcement: reject the WHOLE batch (fail closed) if any
+	// target user is not an accepted friend of the caller. Checked entirely
+	// before the insert loop so a mixed friend/non-friend batch can never
+	// result in a partial share.
+	for _, uid := range body.UserIDs {
+		if !isFriend(r.Context(), h.db, callerID, uid) {
+			writeError(w, http.StatusForbidden, "can only share with friends")
+			return
+		}
 	}
 
 	now := nowUnix()
