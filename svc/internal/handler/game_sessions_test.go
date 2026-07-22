@@ -93,6 +93,7 @@ func gsRequest(t *testing.T, db *sql.DB, method, path string, body any, userID s
 	r.Post("/projects/{projectId}/session/stop", h.Stop)
 	r.Get("/projects/{projectId}/session/status", h.Status)
 	r.Get("/projects/{projectId}/session/{sessionId}/messages", h.ListMessages)
+	r.Get("/projects/{projectId}/sessions", h.ListSessions)
 
 	var bodyBytes []byte
 	if body != nil {
@@ -368,8 +369,9 @@ func TestGameSessionsStop_ClosesRoomAndDisconnectsClients(t *testing.T) {
 		t.Fatalf("expected 200 from stop, got %d: %s", stopRR.Code, stopRR.Body.String())
 	}
 
-	// (a) the connected client received the session_ended frame.
-	raw, ok := client.TryRecv()
+	// (a) the connected client received the session_ended frame (skipping the
+	// presence roster queued at registration).
+	raw, ok := tryRecvSkippingPresence(client)
 	if !ok {
 		t.Fatal("expected a session_ended frame after Stop, got none")
 	}
@@ -496,6 +498,78 @@ func TestGameSessionsListMessages_NonMemberRejected(t *testing.T) {
 	json.NewDecoder(startRR.Body).Decode(&started)
 
 	rr := gsRequest(t, db, "GET", fmt.Sprintf("/projects/proj1/session/%s/messages", started.ID), nil, "intruder")
+	if rr.Code != http.StatusForbidden && rr.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 403 or 401, got %d: %s", rr.Code, rr.Body.String())
+	}
+}
+
+// ── ListSessions ──────────────────────────────────────────────────────────────
+
+func TestGameSessionsListSessions_EmptyForNewProject(t *testing.T) {
+	db := setupGameSessionsDB(t)
+	rr := gsRequest(t, db, "GET", "/projects/proj1/sessions", nil, "user1")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	var sessions []handler.GameSession
+	if err := json.NewDecoder(rr.Body).Decode(&sessions); err != nil {
+		t.Fatal(err)
+	}
+	if len(sessions) != 0 {
+		t.Fatalf("expected 0 sessions, got %d", len(sessions))
+	}
+}
+
+func TestGameSessionsListSessions_NewestFirstMixedStatuses(t *testing.T) {
+	db := setupGameSessionsDB(t)
+	// Seed directly so started_at values are distinct and controlled: two
+	// stopped sessions and one running, inserted out of order.
+	seed := func(id string, startedAt int64, status string) {
+		t.Helper()
+		var stoppedBy any
+		var stoppedAt any
+		if status == "stopped" {
+			stoppedBy, stoppedAt = "user1", startedAt+10
+		}
+		if _, err := db.Exec(
+			`INSERT INTO game_sessions (id, project_id, status, started_by, started_at, stopped_by, stopped_at) VALUES (?,?,?,?,?,?,?)`,
+			id, "proj1", status, "user1", startedAt, stoppedBy, stoppedAt,
+		); err != nil {
+			t.Fatal(err)
+		}
+	}
+	seed("s-old", 100, "stopped")
+	seed("s-new", 300, "running")
+	seed("s-mid", 200, "stopped")
+
+	rr := gsRequest(t, db, "GET", "/projects/proj1/sessions", nil, "user2")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	var sessions []handler.GameSession
+	if err := json.NewDecoder(rr.Body).Decode(&sessions); err != nil {
+		t.Fatal(err)
+	}
+	if len(sessions) != 3 {
+		t.Fatalf("expected 3 sessions, got %d", len(sessions))
+	}
+	wantOrder := []string{"s-new", "s-mid", "s-old"}
+	for i, want := range wantOrder {
+		if sessions[i].ID != want {
+			t.Fatalf("expected order %v, got [%s %s %s]", wantOrder, sessions[0].ID, sessions[1].ID, sessions[2].ID)
+		}
+	}
+	if sessions[0].Status != "running" {
+		t.Errorf("expected newest session running, got %q", sessions[0].Status)
+	}
+	if sessions[1].StoppedBy == nil || sessions[1].StoppedAt == nil {
+		t.Error("expected stopped session to carry stoppedBy/stoppedAt")
+	}
+}
+
+func TestGameSessionsListSessions_NonMemberRejected(t *testing.T) {
+	db := setupGameSessionsDB(t)
+	rr := gsRequest(t, db, "GET", "/projects/proj1/sessions", nil, "intruder")
 	if rr.Code != http.StatusForbidden && rr.Code != http.StatusUnauthorized {
 		t.Fatalf("expected 403 or 401, got %d: %s", rr.Code, rr.Body.String())
 	}

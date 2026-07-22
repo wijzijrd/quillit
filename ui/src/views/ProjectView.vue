@@ -65,8 +65,13 @@
       </div>
     </section>
 
-    <!-- Live Session -->
-    <LiveSessionPanel :project-id="String(projectId)" />
+    <!-- Game Mode -->
+    <section class="pv-section">
+      <h2 class="pv-section-title">Game Mode</h2>
+      <RouterLink :to="`/projects/${projectId}/game`" class="pv-btn pv-game-link">
+        Open Game Mode
+      </RouterLink>
+    </section>
 
     <p class="pv-error" v-if="error">{{ error }}</p>
   </div>
@@ -78,7 +83,6 @@ import { useRoute, RouterLink } from 'vue-router'
 import { useProjectStore } from '../stores/useProjectStore'
 import { useMemberStore } from '../stores/useMemberStore'
 import { useAuthStore } from '../stores/useAuthStore'
-import LiveSessionPanel from '../components/LiveSessionPanel.vue'
 
 const route = useRoute()
 const projectStore = useProjectStore()
@@ -235,5 +239,9 @@ function copyLink() {
   cursor: pointer; transition: background var(--transition); white-space: nowrap;
 }
 .pv-btn:hover { background: var(--muted); }
+.pv-game-link {
+  display: inline-flex; align-items: center; align-self: flex-start;
+  text-decoration: none;
+}
 .pv-error { font-size: var(--text-sm); color: var(--destructive); margin: 0; }
 </style>

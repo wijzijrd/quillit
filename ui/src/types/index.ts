@@ -47,6 +47,8 @@ export interface Project {
   name: string
   typeId?: string
   ownerId?: string
+  /** True while the project has a running game session (as of last fetch). */
+  live?: boolean
 }
 
 export interface ProjectType {
@@ -168,4 +170,10 @@ export interface WSErrorFrame {
   message: string
 }
 
-export type WSInboundFrame = ChatMessage | SessionEndedFrame | WSErrorFrame
+/** Roster snapshot broadcast on every room membership change. */
+export interface PresenceFrame {
+  type: 'presence'
+  users: string[]
+}
+
+export type WSInboundFrame = ChatMessage | SessionEndedFrame | WSErrorFrame | PresenceFrame
