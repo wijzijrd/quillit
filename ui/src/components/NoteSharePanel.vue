@@ -125,8 +125,13 @@ async function addUser(u: { userId: string }) {
       showError(e?.data?.error ?? 'Could not share this entry.')
     }
     // Refresh in case the friend was removed or the share partially landed
-    // before failing, so the list reflects reality either way.
-    if (props.entryId) shares.value = await member.fetchEntryShares(props.entryId)
+    // before failing, so the list reflects reality either way. Best-effort:
+    // a failed refresh must not escape addUser as an unhandled rejection.
+    if (props.entryId) {
+      try {
+        shares.value = await member.fetchEntryShares(props.entryId)
+      } catch { /* keep the current list; the error banner is already shown */ }
+    }
   }
 }
 
