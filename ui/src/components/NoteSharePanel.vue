@@ -26,6 +26,7 @@
         You have no friends yet. Add some from the <RouterLink to="/friends">Friends</RouterLink> page.
       </p>
       <p class="empty-hint" v-else-if="filteredFriends.length === 0">No matching friends.</p>
+      <p class="share-error" v-if="errorMessage">{{ errorMessage }}</p>
     </div>
 
     <div class="share-section">
@@ -87,6 +88,8 @@ function pushToChat() {
 
 const query = ref('')
 const shares = ref<any[]>([])
+const errorMessage = ref('')
+let errorTimer: ReturnType<typeof setTimeout> | null = null
 
 const filteredFriends = computed(() =>
   friendsStore.friends.filter(f => f.username.toLowerCase().includes(query.value.toLowerCase()))
@@ -112,13 +115,30 @@ function alreadyShared(userId: string) {
 }
 
 async function addUser(u: { userId: string }) {
-  await member.addShares(props.entryId, [u.userId])
-  shares.value = await member.fetchEntryShares(props.entryId)
+  try {
+    await member.addShares(props.entryId, [u.userId])
+    shares.value = await member.fetchEntryShares(props.entryId)
+  } catch (e: any) {
+    if (e?.status === 403 || e?.response?.status === 403) {
+      showError('You can only share with friends. Your friends list may be out of date.')
+    } else {
+      showError(e?.data?.error ?? 'Could not share this entry.')
+    }
+    // Refresh in case the friend was removed or the share partially landed
+    // before failing, so the list reflects reality either way.
+    if (props.entryId) shares.value = await member.fetchEntryShares(props.entryId)
+  }
 }
 
 async function removeUser(userId: string) {
   await member.removeShare(props.entryId, userId)
   shares.value = shares.value.filter(s => s.userId !== userId)
+}
+
+function showError(message: string) {
+  errorMessage.value = message
+  if (errorTimer) clearTimeout(errorTimer)
+  errorTimer = setTimeout(() => { errorMessage.value = '' }, 3000)
 }
 </script>
 
@@ -175,6 +195,7 @@ async function removeUser(userId: string) {
 .remove-btn:hover { color: var(--destructive); }
 
 .empty-hint { font-size: var(--text-xs); color: var(--muted-foreground); margin: 0; }
+.share-error { font-size: var(--text-xs); color: var(--destructive); margin: 0; }
 
 .push-btn {
   align-self: flex-start; height: var(--h-sm); padding: 0 var(--space-sm);
