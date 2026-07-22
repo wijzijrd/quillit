@@ -19,6 +19,7 @@ const router = createRouter({
     { path: '/share/:token', component: () => import('../views/ShareView.vue'), meta: { public: true } },
     { path: '/tag/:tag', component: () => import('../views/TagView.vue') },
     { path: '/profile', component: () => import('../views/ProfileView.vue') },
+    { path: '/friends', component: () => import('../views/FriendsView.vue') },
     { path: '/login', component: () => import('../views/LoginView.vue'), meta: { public: true } },
     { path: '/register', component: () => import('../views/SetupView.vue'), meta: { public: true } },
     { path: '/admin', component: () => import('../views/AdminView.vue'), meta: { adminOnly: true } },

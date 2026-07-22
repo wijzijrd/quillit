@@ -39,6 +39,9 @@
       >
         <Settings :size="16" class="flex-shrink-0" />
       </RouterLink>
+      <RouterLink to="/friends" class="nav-item" active-class="nav-active" title="Friends">
+        <Users :size="16" class="flex-shrink-0" />
+      </RouterLink>
       <RouterLink to="/profile" class="nav-item" active-class="nav-active" title="Profile">
         <UserCircle :size="16" class="flex-shrink-0" />
       </RouterLink>
@@ -49,7 +52,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
-import { LayoutDashboard, BookOpen, BookMarked, UserCircle, Settings } from 'lucide-vue-next'
+import { LayoutDashboard, BookOpen, BookMarked, UserCircle, Users, Settings } from 'lucide-vue-next'
 import { useUIStore } from '../stores/useUIStore'
 import { useEntriesStore } from '../stores/useEntriesStore'
 import { useCategoriesStore } from '../stores/useCategoriesStore'

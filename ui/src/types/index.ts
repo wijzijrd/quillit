@@ -141,6 +141,26 @@ export interface GameSession {
   stoppedAt?: number
 }
 
+export type FriendRequestStatus = 'pending' | 'accepted'
+
+export interface FriendRequest {
+  id: string
+  requesterId: string
+  requesterUsername: string
+  addresseeId: string
+  addresseeUsername: string
+  status: FriendRequestStatus
+  createdAt: number
+  acceptedAt?: number
+}
+
+export interface Friend {
+  id: string
+  userId: string
+  username: string
+  friendedAt: number
+}
+
 export type ChatMessageType = 'text' | 'note_card'
 
 export interface ChatMessage {
