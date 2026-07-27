@@ -234,11 +234,28 @@ func (a *Auth) Verify(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	sub, _ := mc["sub"].(string)
+
+	// Re-check current active/role from the DB rather than trusting the
+	// claims baked in at token-issue time — otherwise a user deactivated
+	// after login keeps verifying as active until the token expires.
+	var role string
+	var active int
+	err = a.db.QueryRow("SELECT role, active FROM users WHERE id = ?", sub).Scan(&role, &active)
+	if errors.Is(err, sql.ErrNoRows) {
+		writeError(w, http.StatusUnauthorized, "user not found")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+
 	writeJSON(w, http.StatusOK, map[string]any{
-		"sub":    mc["sub"],
+		"sub":    sub,
 		"email":  mc["email"],
-		"role":   mc["role"],
-		"active": mc["active"],
+		"role":   role,
+		"active": active == 1,
 		"exp":    mc["exp"],
 	})
 }
