@@ -101,8 +101,9 @@ const error = ref('')
 let searchTimer = null
 
 const typeLabel = computed(() => {
-  if (!project.value) return ''
-  return project.value.type === 'campaign' ? 'Campaign' : 'Book'
+  const type = project.value?.type
+  if (!type) return ''
+  return type.charAt(0).toUpperCase() + type.slice(1)
 })
 
 const isEditor = computed(() => {
