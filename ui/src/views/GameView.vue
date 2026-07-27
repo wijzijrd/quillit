@@ -128,12 +128,15 @@ async function toggleSession(s: GameSession) {
   openMessages.value = []
   loadingMessages.value = true
   try {
-    openMessages.value = await api<ChatMessage[]>(`/projects/${projectId}/session/${s.id}/messages`)
+    const messages = await api<ChatMessage[]>(`/projects/${projectId}/session/${s.id}/messages`)
+    if (openSessionId.value !== s.id) return
+    openMessages.value = messages
   } catch (e: any) {
+    if (openSessionId.value !== s.id) return
     historyError.value = e?.data?.error ?? 'Could not load session chat'
     openSessionId.value = null
   } finally {
-    loadingMessages.value = false
+    if (openSessionId.value === s.id) loadingMessages.value = false
   }
 }
 

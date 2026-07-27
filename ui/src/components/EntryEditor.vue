@@ -276,16 +276,20 @@ function toggleVisibility() {
   save()
 }
 
-function save() {
+async function save() {
   if (!entry.value) return
-  entries.updateEntry(entry.value.id, {
-    title: localTitle.value,
-    category: localCategory.value,
-    body: localBody.value,
-    visibility: localVisibility.value,
-    tags: localTags.value,
-  })
-  saveStatus.value = 'Saved'
+  try {
+    await entries.updateEntry(entry.value.id, {
+      title: localTitle.value,
+      category: localCategory.value,
+      body: localBody.value,
+      visibility: localVisibility.value,
+      tags: localTags.value,
+    })
+    saveStatus.value = 'Saved'
+  } catch {
+    saveStatus.value = 'Save failed'
+  }
   setTimeout(() => saveStatus.value = '', 2000)
 }
 

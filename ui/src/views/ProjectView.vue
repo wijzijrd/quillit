@@ -119,7 +119,11 @@ function onSearch() {
   searchResults.value = []
   if (searchQuery.value.trim().length < 2) return
   searchTimer = setTimeout(async () => {
-    searchResults.value = await memberStore.searchUsers(searchQuery.value.trim())
+    try {
+      searchResults.value = await memberStore.searchUsers(searchQuery.value.trim())
+    } catch (e) {
+      error.value = e?.data?.error ?? 'Could not search users'
+    }
   }, 280)
 }
 
