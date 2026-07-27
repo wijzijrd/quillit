@@ -524,6 +524,10 @@ func (a *Auth) parseToken(raw string) (jwt.Claims, error) {
 
 func newID() string {
 	b := make([]byte, 12)
-	_, _ = rand.Read(b)
+	if _, err := rand.Read(b); err != nil {
+		// The OS CSPRNG failing is not a recoverable condition — returning a
+		// zero-derived ID would risk predictable/duplicate primary keys.
+		panic(err)
+	}
 	return hex.EncodeToString(b)
 }
