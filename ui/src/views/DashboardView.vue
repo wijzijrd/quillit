@@ -145,6 +145,7 @@ import { useProjectStore } from '../stores/useProjectStore'
 import { useAuthStore } from '../stores/useAuthStore'
 import { useUIStore } from '../stores/useUIStore'
 import { api } from '../api/client'
+import { inviteLink } from '../utils/links'
 
 const route = useRoute()
 const router = useRouter()
@@ -218,7 +219,7 @@ async function openProjectInvite(p) {
   activeInviteProject.value = p.id
   const memberRole = p.roleLabels?.[1]?.toLowerCase() ?? 'member'
   const inv = await projectStore.generateInvite(p.id, memberRole)
-  pendingInviteLink.value = `${window.location.origin}/register?invite=${inv.token}`
+  pendingInviteLink.value = inviteLink(inv.token)
 }
 
 function copyInvite() {

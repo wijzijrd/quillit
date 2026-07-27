@@ -84,6 +84,7 @@ import { useProjectStore } from '../stores/useProjectStore'
 import { useMemberStore } from '../stores/useMemberStore'
 import { useAuthStore } from '../stores/useAuthStore'
 import { apiErrorMessage } from '../api/client'
+import { inviteLink as buildInviteLink } from '../utils/links'
 
 const route = useRoute()
 const projectStore = useProjectStore()
@@ -156,7 +157,7 @@ async function generateLink() {
   try {
     const memberRole = project.value?.roleLabels?.[1]?.toLowerCase() ?? 'member'
     const inv = await projectStore.generateInvite(projectId.value, memberRole)
-    inviteLink.value = `${window.location.origin}/register?invite=${inv.token}`
+    inviteLink.value = buildInviteLink(inv.token)
   } catch (e: unknown) {
     error.value = apiErrorMessage(e, 'Could not generate invite link')
   }
