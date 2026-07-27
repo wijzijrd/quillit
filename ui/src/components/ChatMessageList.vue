@@ -36,6 +36,7 @@
 import { ref, watch, onMounted, nextTick } from 'vue'
 import { useMemberStore } from '../stores/useMemberStore'
 import { useEntriesStore } from '../stores/useEntriesStore'
+import { apiErrorMessage } from '../api/client'
 import type { ChatMessage, Entry } from '../types'
 
 const props = defineProps<{
@@ -91,8 +92,8 @@ async function saveCard(m: ChatMessage) {
     await entries.updateEntry(entry.id, { title: m.cardTitle, body: m.cardBody })
     await member.addToFolder(selectedFolderId.value, entry.id)
     folderPickerFor.value = null
-  } catch (e: any) {
-    emit('error', e?.data?.error ?? 'Could not save note to folder')
+  } catch (e: unknown) {
+    emit('error', apiErrorMessage(e, 'Could not save note to folder'))
     // createEntry already succeeded but a later step failed — roll back the
     // orphaned blank/partial entry so it doesn't silently persist. Failure
     // to roll back shouldn't mask the original error above.

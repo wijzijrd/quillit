@@ -15,22 +15,13 @@
 import { computed } from 'vue'
 import { Globe } from 'lucide-vue-next'
 import { useUIStore } from '../stores/useUIStore'
+import { timeAgo } from '../utils/date'
 import type { Entry } from '../types'
 
 const props = defineProps<{ entry: Entry }>()
 const emit = defineEmits<{ select: [] }>()
 const ui = useUIStore()
 const isActive = computed(() => ui.activeEntryId === props.entry.id)
-
-function timeAgo(ts: number): string {
-  const diff = Date.now() - ts
-  const m = Math.floor(diff / 60000)
-  if (m < 1) return 'just now'
-  if (m < 60) return `${m}m ago`
-  const h = Math.floor(m / 60)
-  if (h < 24) return `${h}h ago`
-  return new Date(ts).toLocaleDateString()
-}
 </script>
 
 <style scoped>

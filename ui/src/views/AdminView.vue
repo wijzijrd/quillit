@@ -81,7 +81,7 @@
                 <tr v-for="m in admin.projectMembers[p.id]" :key="m.id">
                   <td class="mono">{{ m.userId }}</td>
                   <td><span class="role-badge">{{ m.role }}</span></td>
-                  <td class="date-cell">{{ fmtDate(m.joinedAt) }}</td>
+                  <td class="date-cell">{{ formatDate(m.joinedAt) }}</td>
                 </tr>
               </tbody>
             </table>
@@ -168,6 +168,7 @@ import { ref, onMounted, nextTick } from 'vue'
 import { useAdminStore } from '../stores/useAdminStore'
 import { useCategoriesStore } from '../stores/useCategoriesStore'
 import { resolveIcon, AVAILABLE_ICONS } from '../utils/categoryIcons'
+import { formatDate } from '../utils/date'
 
 const admin = useAdminStore()
 const cats = useCategoriesStore()
@@ -231,9 +232,6 @@ async function toggleProjectMembers(id) {
   if (!admin.projectMembers[id]) await admin.fetchProjectMembers(id)
 }
 
-function fmtDate(unix) {
-  return new Date(unix * 1000).toLocaleDateString()
-}
 
 async function confirmDeleteUser(u) {
   if (!confirm(`Delete user "${u.username}" (${u.email})? This cannot be undone.`)) return

@@ -13,3 +13,9 @@ export const api = ofetch.create({
     }
   },
 })
+
+/** Extracts the API's { error } message from a caught ofetch rejection, falling back otherwise. */
+export function apiErrorMessage(e: unknown, fallback: string): string {
+  const data = (e as { data?: { error?: string } } | undefined)?.data
+  return data?.error ?? fallback
+}

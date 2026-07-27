@@ -117,6 +117,7 @@ import { useUIStore } from '../stores/useUIStore'
 import { useCategoriesStore } from '../stores/useCategoriesStore'
 import { useEntryRelationsStore } from '../stores/useEntryRelationsStore'
 import { resolveIcon } from '../utils/categoryIcons'
+import { apiErrorMessage } from '../api/client'
 
 const props = defineProps<{ entryId?: string }>()
 
@@ -136,8 +137,8 @@ onMounted(async () => {
   try {
     await relStore.fetchForEntry(props.entryId)
     await relStore.fetchLabels()
-  } catch (e: any) {
-    linkError.value = e?.data?.error ?? 'Could not load relations'
+  } catch (e: unknown) {
+    linkError.value = apiErrorMessage(e, 'Could not load relations')
   }
 })
 
@@ -194,16 +195,16 @@ async function confirmAdd(toId: string) {
     await relStore.create(props.entryId, toId, label)
     resetAdd()
     adding.value = false
-  } catch (e: any) {
-    linkError.value = e?.data?.error ?? 'Could not add relation'
+  } catch (e: unknown) {
+    linkError.value = apiErrorMessage(e, 'Could not add relation')
   }
 }
 
 async function removeRelation(relationId: string) {
   try {
     await relStore.remove(props.entryId, relationId)
-  } catch (e: any) {
-    linkError.value = e?.data?.error ?? 'Could not remove relation'
+  } catch (e: unknown) {
+    linkError.value = apiErrorMessage(e, 'Could not remove relation')
   }
 }
 

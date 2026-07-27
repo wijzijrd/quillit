@@ -57,6 +57,7 @@
 import { ref, watch, onMounted, computed } from 'vue'
 import { useMemberStore } from '../stores/useMemberStore'
 import { useLiveSessionStore } from '../stores/useLiveSessionStore'
+import { apiErrorMessage } from '../api/client'
 
 const props = defineProps<{ entryId?: string; projectId?: string }>()
 const member = useMemberStore()
@@ -106,9 +107,9 @@ async function loadShares() {
     const fetched = await member.fetchEntryShares(entryId)
     if (props.entryId !== entryId) return
     shares.value = fetched
-  } catch (e: any) {
+  } catch (e: unknown) {
     if (props.entryId !== entryId) return
-    shareError.value = e?.data?.error ?? 'Could not load shares'
+    shareError.value = apiErrorMessage(e, 'Could not load shares')
   }
 }
 
@@ -122,8 +123,8 @@ async function runSearch() {
   try {
     results.value = await member.searchUsers(query.value)
     searched.value = true
-  } catch (e: any) {
-    shareError.value = e?.data?.error ?? 'Could not search users'
+  } catch (e: unknown) {
+    shareError.value = apiErrorMessage(e, 'Could not search users')
   }
 }
 
@@ -135,8 +136,8 @@ async function addUser(u: { id: string }) {
   try {
     await member.addShares(props.entryId, [u.id])
     shares.value = await member.fetchEntryShares(props.entryId)
-  } catch (e: any) {
-    shareError.value = e?.data?.error ?? 'Could not add share'
+  } catch (e: unknown) {
+    shareError.value = apiErrorMessage(e, 'Could not add share')
   }
 }
 

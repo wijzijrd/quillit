@@ -24,7 +24,7 @@
                 :class="{ 'gv-session-row--open': openSessionId === s.id }"
                 @click="toggleSession(s)"
               >
-                <span class="gv-session-date">{{ formatDate(s.startedAt) }}</span>
+                <span class="gv-session-date">{{ formatDateTime(s.startedAt) }}</span>
                 <span class="gv-session-meta">started by {{ memberName(s.startedBy) }}</span>
               </button>
               <div v-if="openSessionId === s.id" class="gv-session-chat">
@@ -64,11 +64,12 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { RouterLink } from 'vue-router'
-import { api } from '../api/client'
+import { api, apiErrorMessage } from '../api/client'
 import { useLiveSessionStore } from '../stores/useLiveSessionStore'
 import { useProjectStore } from '../stores/useProjectStore'
 import LiveSessionPanel from '../components/LiveSessionPanel.vue'
 import ChatMessageList from '../components/ChatMessageList.vue'
+import { formatDateTime } from '../utils/date'
 import type { ChatMessage, GameSession, ProjectMember } from '../types'
 
 const route = useRoute()
@@ -113,8 +114,8 @@ async function loadSessions() {
   try {
     const all = await liveSession.fetchSessions(projectId)
     pastSessions.value = all.filter(s => s.status === 'stopped')
-  } catch (e: any) {
-    historyError.value = e?.data?.error ?? 'Could not load past sessions'
+  } catch (e: unknown) {
+    historyError.value = apiErrorMessage(e, 'Could not load past sessions')
   }
 }
 
@@ -131,9 +132,9 @@ async function toggleSession(s: GameSession) {
     const messages = await api<ChatMessage[]>(`/projects/${projectId}/session/${s.id}/messages`)
     if (openSessionId.value !== s.id) return
     openMessages.value = messages
-  } catch (e: any) {
+  } catch (e: unknown) {
     if (openSessionId.value !== s.id) return
-    historyError.value = e?.data?.error ?? 'Could not load session chat'
+    historyError.value = apiErrorMessage(e, 'Could not load session chat')
     openSessionId.value = null
   } finally {
     if (openSessionId.value === s.id) loadingMessages.value = false
@@ -148,11 +149,6 @@ function memberName(userId: string): string {
   return senderNames.value[userId] ?? 'unknown'
 }
 
-function formatDate(unixSeconds: number): string {
-  return new Date(unixSeconds * 1000).toLocaleString(undefined, {
-    dateStyle: 'medium', timeStyle: 'short',
-  })
-}
 </script>
 
 <style scoped>
