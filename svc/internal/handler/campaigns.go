@@ -3,7 +3,6 @@ package handler
 import (
 	"database/sql"
 	"encoding/json"
-	"errors"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
@@ -204,5 +203,3 @@ func (h *CampaignsHandler) playersFor(r *http.Request, campaignID string) []Play
 	}
 	return players
 }
-
-var _ = errors.New // keep import

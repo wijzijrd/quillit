@@ -50,13 +50,15 @@ func (h *GameSessionsHandler) callerID(r *http.Request) (string, bool) {
 }
 
 // isProjectMember reports whether userID is a member of projectID.
-func (h *GameSessionsHandler) isProjectMember(r *http.Request, projectID, userID string) bool {
+func (h *GameSessionsHandler) isProjectMember(r *http.Request, projectID, userID string) (bool, error) {
 	var count int
-	_ = h.db.QueryRowContext(r.Context(),
+	if err := h.db.QueryRowContext(r.Context(),
 		`SELECT COUNT(*) FROM project_members WHERE project_id = ? AND user_id = ?`,
 		projectID, userID,
-	).Scan(&count)
-	return count > 0
+	).Scan(&count); err != nil {
+		return false, err
+	}
+	return count > 0, nil
 }
 
 // requireMember writes the appropriate error response and returns false if the
@@ -67,7 +69,12 @@ func (h *GameSessionsHandler) requireMember(w http.ResponseWriter, r *http.Reque
 		writeError(w, http.StatusUnauthorized, "unauthorized")
 		return "", false
 	}
-	if !h.isProjectMember(r, projectID, callerID) {
+	member, err := h.isProjectMember(r, projectID, callerID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "db error")
+		return "", false
+	}
+	if !member {
 		writeError(w, http.StatusForbidden, "not a project member")
 		return "", false
 	}
@@ -298,9 +305,12 @@ func (h *GameSessionsHandler) ListMessages(w http.ResponseWriter, r *http.Reques
 	}
 
 	var count int
-	_ = h.db.QueryRowContext(r.Context(),
+	if err := h.db.QueryRowContext(r.Context(),
 		`SELECT COUNT(*) FROM game_sessions WHERE id = ? AND project_id = ?`, sessionID, projectID,
-	).Scan(&count)
+	).Scan(&count); err != nil {
+		writeError(w, http.StatusInternalServerError, "db error")
+		return
+	}
 	if count == 0 {
 		writeError(w, http.StatusNotFound, "session not found")
 		return

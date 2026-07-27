@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { api } from '../api/client'
 import { loadCampaigns, saveCampaigns } from '../composables/usePersistence'
+import { playerShareLink } from '../utils/links'
 import type { Campaign, Player } from '../types'
 
 export const useCampaignStore = defineStore('campaign', () => {
@@ -92,7 +93,7 @@ export const useCampaignStore = defineStore('campaign', () => {
   }
 
   function shareUrl(player: Player): string {
-    return `${window.location.origin}/share/${player.token}`
+    return playerShareLink(player.token)
   }
 
   const players = computed(() => campaigns.value.flatMap(c => c.players ?? []))

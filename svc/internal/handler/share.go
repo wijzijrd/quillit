@@ -31,6 +31,10 @@ func (h *ShareHandler) GetEntries(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "invalid token")
 		return
 	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "db error")
+		return
+	}
 
 	rows, err := h.db.QueryContext(r.Context(),
 		entrySelect+` WHERE visibility = 'public' AND json_each.value = ? FROM entries, json_each(campaign_ids) WHERE visibility = 'public' AND json_each.value = ?`,
@@ -68,8 +72,7 @@ func (h *ShareHandler) GetEntries(w http.ResponseWriter, r *http.Request) {
 // @Router       /api/share/{token}/notes [get]
 func (h *ShareHandler) ListNotes(w http.ResponseWriter, r *http.Request) {
 	token := chi.URLParam(r, "token")
-	if !h.tokenExists(r, token) {
-		writeError(w, http.StatusNotFound, "invalid token")
+	if !h.requireToken(w, r, token) {
 		return
 	}
 	rows, err := h.db.QueryContext(r.Context(),
@@ -110,8 +113,7 @@ type CreateNoteRequest struct {
 // @Router       /api/share/{token}/notes [post]
 func (h *ShareHandler) CreateNote(w http.ResponseWriter, r *http.Request) {
 	token := chi.URLParam(r, "token")
-	if !h.tokenExists(r, token) {
-		writeError(w, http.StatusNotFound, "invalid token")
+	if !h.requireToken(w, r, token) {
 		return
 	}
 	var body struct {
@@ -172,9 +174,17 @@ func (h *ShareHandler) UpdateNote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var n PlayerNote
-	_ = h.db.QueryRowContext(r.Context(),
+	err := h.db.QueryRowContext(r.Context(),
 		`SELECT id, token, title, body, category, visibility, tags, created_at, updated_at FROM player_notes WHERE id = ?`, noteID,
 	).Scan(&n.ID, &n.Token, &n.Title, &n.Body, &n.Category, &n.Visibility, &n.Tags, &n.CreatedAt, &n.UpdatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		writeError(w, http.StatusNotFound, "note not found")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "db error")
+		return
+	}
 	writeJSON(w, http.StatusOK, n)
 }
 
@@ -196,10 +206,20 @@ func (h *ShareHandler) DeleteNote(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
-func (h *ShareHandler) tokenExists(r *http.Request, token string) bool {
+// requireToken writes the appropriate error response and returns false if
+// token doesn't identify a player, or the existence check itself failed.
+func (h *ShareHandler) requireToken(w http.ResponseWriter, r *http.Request, token string) bool {
 	var count int
-	_ = h.db.QueryRowContext(r.Context(), "SELECT COUNT(*) FROM players WHERE token = ?", token).Scan(&count)
-	return count > 0
+	err := h.db.QueryRowContext(r.Context(), "SELECT COUNT(*) FROM players WHERE token = ?", token).Scan(&count)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "db error")
+		return false
+	}
+	if count == 0 {
+		writeError(w, http.StatusNotFound, "invalid token")
+		return false
+	}
+	return true
 }
 
 type PlayerNote struct {

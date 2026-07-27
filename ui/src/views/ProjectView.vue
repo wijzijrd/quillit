@@ -83,6 +83,8 @@ import { useRoute, RouterLink } from 'vue-router'
 import { useProjectStore } from '../stores/useProjectStore'
 import { useMemberStore } from '../stores/useMemberStore'
 import { useAuthStore } from '../stores/useAuthStore'
+import { apiErrorMessage } from '../api/client'
+import { inviteLink as buildInviteLink } from '../utils/links'
 
 const route = useRoute()
 const projectStore = useProjectStore()
@@ -99,8 +101,9 @@ const error = ref('')
 let searchTimer = null
 
 const typeLabel = computed(() => {
-  if (!project.value) return ''
-  return project.value.type === 'campaign' ? 'Campaign' : 'Book'
+  const type = project.value?.type
+  if (!type) return ''
+  return type.charAt(0).toUpperCase() + type.slice(1)
 })
 
 const isEditor = computed(() => {
@@ -119,11 +122,15 @@ function onSearch() {
   searchResults.value = []
   if (searchQuery.value.trim().length < 2) return
   searchTimer = setTimeout(async () => {
-    searchResults.value = await memberStore.searchUsers(searchQuery.value.trim())
+    try {
+      searchResults.value = await memberStore.searchUsers(searchQuery.value.trim())
+    } catch (e: unknown) {
+      error.value = apiErrorMessage(e, 'Could not search users')
+    }
   }, 280)
 }
 
-async function addUser(user) {
+async function addUser(user: { id: string; username: string }) {
   error.value = ''
   const memberRole = project.value?.roleLabels?.[1]?.toLowerCase() ?? 'member'
   try {
@@ -131,18 +138,18 @@ async function addUser(user) {
     members.value.push(m)
     searchQuery.value = ''
     searchResults.value = []
-  } catch (e) {
-    error.value = e?.data?.error ?? 'Could not add member'
+  } catch (e: unknown) {
+    error.value = apiErrorMessage(e, 'Could not add member')
   }
 }
 
-async function removeMember(userId) {
+async function removeMember(userId: string) {
   error.value = ''
   try {
     await projectStore.removeMember(projectId.value, userId)
     members.value = members.value.filter(m => m.userId !== userId)
-  } catch (e) {
-    error.value = e?.data?.error ?? 'Could not remove member'
+  } catch (e: unknown) {
+    error.value = apiErrorMessage(e, 'Could not remove member')
   }
 }
 
@@ -151,9 +158,9 @@ async function generateLink() {
   try {
     const memberRole = project.value?.roleLabels?.[1]?.toLowerCase() ?? 'member'
     const inv = await projectStore.generateInvite(projectId.value, memberRole)
-    inviteLink.value = `${window.location.origin}/register?invite=${inv.token}`
-  } catch (e) {
-    error.value = e?.data?.error ?? 'Could not generate invite link'
+    inviteLink.value = buildInviteLink(inv.token)
+  } catch (e: unknown) {
+    error.value = apiErrorMessage(e, 'Could not generate invite link')
   }
 }
 

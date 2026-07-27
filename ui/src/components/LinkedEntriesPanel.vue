@@ -3,6 +3,7 @@
 
     <div class="links-section">
       <p class="section-heading">Relations</p>
+      <p class="section-error" v-if="linkError">{{ linkError }}</p>
 
       <!-- Outgoing: from this entry -->
       <template v-if="outgoingGroups.length > 0">
@@ -116,6 +117,7 @@ import { useUIStore } from '../stores/useUIStore'
 import { useCategoriesStore } from '../stores/useCategoriesStore'
 import { useEntryRelationsStore } from '../stores/useEntryRelationsStore'
 import { resolveIcon } from '../utils/categoryIcons'
+import { apiErrorMessage } from '../api/client'
 
 const props = defineProps<{ entryId?: string }>()
 
@@ -129,10 +131,15 @@ const adding = ref(false)
 const newLabel = ref('')
 const searchQuery = ref('')
 const showDropdown = ref(false)
+const linkError = ref('')
 
 onMounted(async () => {
-  await relStore.fetchForEntry(props.entryId)
-  await relStore.fetchLabels()
+  try {
+    await relStore.fetchForEntry(props.entryId)
+    await relStore.fetchLabels()
+  } catch (e: unknown) {
+    linkError.value = apiErrorMessage(e, 'Could not load relations')
+  }
 })
 
 function groupByLabel(rels: any[]) {
@@ -184,13 +191,21 @@ function startAdding() {
 async function confirmAdd(toId: string) {
   const label = newLabel.value.trim()
   if (!label) return
-  await relStore.create(props.entryId, toId, label)
-  resetAdd()
-  adding.value = false
+  try {
+    await relStore.create(props.entryId, toId, label)
+    resetAdd()
+    adding.value = false
+  } catch (e: unknown) {
+    linkError.value = apiErrorMessage(e, 'Could not add relation')
+  }
 }
 
 async function removeRelation(relationId: string) {
-  await relStore.remove(props.entryId, relationId)
+  try {
+    await relStore.remove(props.entryId, relationId)
+  } catch (e: unknown) {
+    linkError.value = apiErrorMessage(e, 'Could not remove relation')
+  }
 }
 
 function resetAdd() {
@@ -235,6 +250,7 @@ function navigate(id: string) {
   color: var(--muted-foreground); margin: 4px 0 2px; font-style: italic;
 }
 .section-empty { font-size: 0.82em; color: var(--muted-foreground); padding: 2px 0; }
+.section-error { font-size: 0.82em; color: var(--destructive); padding: 2px 0; }
 .link-item { display: flex; align-items: center; gap: 6px; padding: 3px 0; }
 .link-cat { font-size: 0.9em; flex-shrink: 0; width: 18px; }
 .link-title {

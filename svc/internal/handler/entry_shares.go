@@ -33,17 +33,34 @@ func (h *EntrySharesHandler) callerID(r *http.Request) (string, bool) {
 
 // isOwnerOrEditor checks whether the caller owns the entry or holds an editor role
 // in any project the entry belongs to. For now we check ownership only.
-func (h *EntrySharesHandler) canManageShares(r *http.Request, entryID string) bool {
+func (h *EntrySharesHandler) canManageShares(r *http.Request, entryID string) (bool, error) {
 	callerID, ok := h.callerID(r)
 	if !ok {
-		return false
+		return false, nil
 	}
 	var count int
-	_ = h.db.QueryRowContext(r.Context(),
+	if err := h.db.QueryRowContext(r.Context(),
 		`SELECT COUNT(*) FROM entries WHERE id = ? AND owner_user_id = ?`,
 		entryID, callerID,
-	).Scan(&count)
-	return count > 0
+	).Scan(&count); err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
+// requireManageShares writes the appropriate error response and returns false
+// unless the caller may manage entryID's shares.
+func (h *EntrySharesHandler) requireManageShares(w http.ResponseWriter, r *http.Request, entryID string) bool {
+	can, err := h.canManageShares(r, entryID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "db error")
+		return false
+	}
+	if !can {
+		writeError(w, http.StatusForbidden, "forbidden")
+		return false
+	}
+	return true
 }
 
 // EntryShare represents a single share grant.
@@ -67,8 +84,7 @@ type EntryShare struct {
 // @Router       /api/entries/{id}/shares [get]
 func (h *EntrySharesHandler) ListShares(w http.ResponseWriter, r *http.Request) {
 	entryID := chi.URLParam(r, "id")
-	if !h.canManageShares(r, entryID) {
-		writeError(w, http.StatusForbidden, "forbidden")
+	if !h.requireManageShares(w, r, entryID) {
 		return
 	}
 
@@ -111,8 +127,7 @@ func (h *EntrySharesHandler) AddShares(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
-	if !h.canManageShares(r, entryID) {
-		writeError(w, http.StatusForbidden, "forbidden")
+	if !h.requireManageShares(w, r, entryID) {
 		return
 	}
 
@@ -147,8 +162,7 @@ func (h *EntrySharesHandler) AddShares(w http.ResponseWriter, r *http.Request) {
 func (h *EntrySharesHandler) RemoveShare(w http.ResponseWriter, r *http.Request) {
 	entryID := chi.URLParam(r, "id")
 	userID := chi.URLParam(r, "userId")
-	if !h.canManageShares(r, entryID) {
-		writeError(w, http.StatusForbidden, "forbidden")
+	if !h.requireManageShares(w, r, entryID) {
 		return
 	}
 

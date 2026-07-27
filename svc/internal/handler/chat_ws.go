@@ -75,10 +75,13 @@ func (h *ChatWSHandler) Serve(w http.ResponseWriter, r *http.Request) {
 
 	// 2. Membership.
 	var member int
-	_ = h.db.QueryRowContext(r.Context(),
+	if err := h.db.QueryRowContext(r.Context(),
 		`SELECT COUNT(*) FROM project_members WHERE project_id = ? AND user_id = ?`,
 		projectID, callerID,
-	).Scan(&member)
+	).Scan(&member); err != nil {
+		writeError(w, http.StatusInternalServerError, "db error")
+		return
+	}
 	if member == 0 {
 		writeError(w, http.StatusForbidden, "not a project member")
 		return

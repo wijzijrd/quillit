@@ -1,5 +1,7 @@
 <template>
   <div class="share-panel">
+    <p class="share-error" v-if="shareError">{{ shareError }}</p>
+
     <div class="share-section">
       <p class="share-hint">Search users by name or email to share this note.</p>
       <div class="search-row">
@@ -55,6 +57,7 @@
 import { ref, watch, onMounted, computed } from 'vue'
 import { useMemberStore } from '../stores/useMemberStore'
 import { useLiveSessionStore } from '../stores/useLiveSessionStore'
+import { apiErrorMessage } from '../api/client'
 
 const props = defineProps<{ entryId?: string; projectId?: string }>()
 const member = useMemberStore()
@@ -85,6 +88,7 @@ const query = ref('')
 const results = ref<any[]>([])
 const shares = ref<any[]>([])
 const searched = ref(false)
+const shareError = ref('')
 let searchTimer: ReturnType<typeof setTimeout> | null = null
 
 onMounted(loadShares)
@@ -97,8 +101,16 @@ watch(() => props.entryId, () => {
 })
 
 async function loadShares() {
-  if (!props.entryId) return
-  shares.value = await member.fetchEntryShares(props.entryId)
+  const entryId = props.entryId
+  if (!entryId) return
+  try {
+    const fetched = await member.fetchEntryShares(entryId)
+    if (props.entryId !== entryId) return
+    shares.value = fetched
+  } catch (e: unknown) {
+    if (props.entryId !== entryId) return
+    shareError.value = apiErrorMessage(e, 'Could not load shares')
+  }
 }
 
 function onSearch() {
@@ -108,8 +120,12 @@ function onSearch() {
 }
 
 async function runSearch() {
-  results.value = await member.searchUsers(query.value)
-  searched.value = true
+  try {
+    results.value = await member.searchUsers(query.value)
+    searched.value = true
+  } catch (e: unknown) {
+    shareError.value = apiErrorMessage(e, 'Could not search users')
+  }
 }
 
 function alreadyShared(userId: string) {
@@ -117,8 +133,12 @@ function alreadyShared(userId: string) {
 }
 
 async function addUser(u: { id: string }) {
-  await member.addShares(props.entryId, [u.id])
-  shares.value = await member.fetchEntryShares(props.entryId)
+  try {
+    await member.addShares(props.entryId, [u.id])
+    shares.value = await member.fetchEntryShares(props.entryId)
+  } catch (e: unknown) {
+    shareError.value = apiErrorMessage(e, 'Could not add share')
+  }
 }
 
 async function removeUser(userId: string) {
@@ -132,6 +152,8 @@ async function removeUser(userId: string) {
   display: flex; flex-direction: column; gap: var(--space-lg);
   padding: var(--space-md); overflow-y: auto; flex: 1;
 }
+
+.share-error { font-size: var(--text-sm); color: var(--destructive); margin: 0; }
 
 .share-section { display: flex; flex-direction: column; gap: var(--space-xs); }
 

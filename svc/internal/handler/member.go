@@ -27,13 +27,34 @@ func (h *MemberHandler) callerID(r *http.Request) (string, bool) {
 	return sub, sub != ""
 }
 
-func (h *MemberHandler) ownsFolder(r *http.Request, folderID, userID string) bool {
+func (h *MemberHandler) ownsFolder(r *http.Request, folderID, userID string) (bool, error) {
 	var count int
-	_ = h.db.QueryRowContext(r.Context(),
+	if err := h.db.QueryRowContext(r.Context(),
 		`SELECT COUNT(*) FROM member_folders WHERE id = ? AND user_id = ?`,
 		folderID, userID,
-	).Scan(&count)
-	return count > 0
+	).Scan(&count); err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
+// requireFolderOwner writes the appropriate error response and returns false
+// unless the caller is authenticated and owns folderID.
+func (h *MemberHandler) requireFolderOwner(w http.ResponseWriter, r *http.Request, folderID, userID string, authed bool) bool {
+	if !authed {
+		writeError(w, http.StatusForbidden, "forbidden")
+		return false
+	}
+	owns, err := h.ownsFolder(r, folderID, userID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "db error")
+		return false
+	}
+	if !owns {
+		writeError(w, http.StatusForbidden, "forbidden")
+		return false
+	}
+	return true
 }
 
 // ── Response types ────────────────────────────────────────────────────────────
@@ -194,8 +215,7 @@ func (h *MemberHandler) CreateFolder(w http.ResponseWriter, r *http.Request) {
 func (h *MemberHandler) UpdateFolder(w http.ResponseWriter, r *http.Request) {
 	folderID := chi.URLParam(r, "id")
 	userID, ok := h.callerID(r)
-	if !ok || !h.ownsFolder(r, folderID, userID) {
-		writeError(w, http.StatusForbidden, "forbidden")
+	if !h.requireFolderOwner(w, r, folderID, userID, ok) {
 		return
 	}
 
@@ -239,8 +259,7 @@ func (h *MemberHandler) UpdateFolder(w http.ResponseWriter, r *http.Request) {
 func (h *MemberHandler) DeleteFolder(w http.ResponseWriter, r *http.Request) {
 	folderID := chi.URLParam(r, "id")
 	userID, ok := h.callerID(r)
-	if !ok || !h.ownsFolder(r, folderID, userID) {
-		writeError(w, http.StatusForbidden, "forbidden")
+	if !h.requireFolderOwner(w, r, folderID, userID, ok) {
 		return
 	}
 	if _, err := h.db.ExecContext(r.Context(), `DELETE FROM member_folders WHERE id = ?`, folderID); err != nil {
@@ -264,8 +283,7 @@ func (h *MemberHandler) DeleteFolder(w http.ResponseWriter, r *http.Request) {
 func (h *MemberHandler) AddFolderEntry(w http.ResponseWriter, r *http.Request) {
 	folderID := chi.URLParam(r, "id")
 	userID, ok := h.callerID(r)
-	if !ok || !h.ownsFolder(r, folderID, userID) {
-		writeError(w, http.StatusForbidden, "forbidden")
+	if !h.requireFolderOwner(w, r, folderID, userID, ok) {
 		return
 	}
 
@@ -300,8 +318,7 @@ func (h *MemberHandler) RemoveFolderEntry(w http.ResponseWriter, r *http.Request
 	folderID := chi.URLParam(r, "id")
 	entryID := chi.URLParam(r, "entryId")
 	userID, ok := h.callerID(r)
-	if !ok || !h.ownsFolder(r, folderID, userID) {
-		writeError(w, http.StatusForbidden, "forbidden")
+	if !h.requireFolderOwner(w, r, folderID, userID, ok) {
 		return
 	}
 	if _, err := h.db.ExecContext(r.Context(),

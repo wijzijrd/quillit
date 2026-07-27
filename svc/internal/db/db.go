@@ -206,7 +206,7 @@ func toV1(db *sql.DB) error {
 
 	if _, err := tx.Exec(`
 		-- Typed project container (replaces campaigns over time).
-		-- type: 'campaign', 'book', ... determines role labels in the UI.
+		-- type: 'campaign', ... determines role labels in the UI.
 		CREATE TABLE IF NOT EXISTS projects (
 			id         TEXT    PRIMARY KEY,
 			name       TEXT    NOT NULL,
@@ -216,7 +216,7 @@ func toV1(db *sql.DB) error {
 		);
 
 		-- Per-project membership. Role name depends on project type:
-		-- campaign → 'gm' / 'player'; book → 'author' / 'collaborator'.
+		-- campaign → 'gm' / 'player'.
 		CREATE TABLE IF NOT EXISTS project_members (
 			id         TEXT    PRIMARY KEY,
 			project_id TEXT    NOT NULL REFERENCES projects(id) ON DELETE CASCADE,

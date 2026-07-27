@@ -47,6 +47,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useLiveSessionStore } from '../stores/useLiveSessionStore'
 import { useProjectStore } from '../stores/useProjectStore'
+import { apiErrorMessage } from '../api/client'
 import ChatMessageList from './ChatMessageList.vue'
 
 const props = defineProps<{ projectId: string }>()
@@ -86,8 +87,8 @@ async function refreshSession() {
       await liveSession.fetchHistory(props.projectId, liveSession.sessionId)
       liveSession.connect(props.projectId)
     }
-  } catch (e: any) {
-    loadError.value = e?.data?.error ?? 'Could not load session status'
+  } catch (e: unknown) {
+    loadError.value = apiErrorMessage(e, 'Could not load session status')
   }
 }
 
@@ -100,8 +101,8 @@ async function onStart() {
       await liveSession.fetchHistory(props.projectId, liveSession.sessionId)
     }
     liveSession.connect(props.projectId)
-  } catch (e: any) {
-    loadError.value = e?.data?.error ?? 'Could not start session'
+  } catch (e: unknown) {
+    loadError.value = apiErrorMessage(e, 'Could not start session')
   } finally {
     starting.value = false
   }
@@ -112,8 +113,8 @@ async function onStop() {
   stopping.value = true
   try {
     await liveSession.stop(props.projectId)
-  } catch (e: any) {
-    loadError.value = e?.data?.error ?? 'Could not stop session'
+  } catch (e: unknown) {
+    loadError.value = apiErrorMessage(e, 'Could not stop session')
   } finally {
     stopping.value = false
   }

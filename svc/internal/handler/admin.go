@@ -172,7 +172,10 @@ func (h *AdminHandler) ListProjectMembers(w http.ResponseWriter, r *http.Request
 
 	// Verify project exists
 	var count int
-	_ = h.db.QueryRowContext(r.Context(), `SELECT COUNT(*) FROM projects WHERE id = ?`, projectID).Scan(&count)
+	if err := h.db.QueryRowContext(r.Context(), `SELECT COUNT(*) FROM projects WHERE id = ?`, projectID).Scan(&count); err != nil {
+		writeError(w, http.StatusInternalServerError, "db error")
+		return
+	}
 	if count == 0 {
 		writeError(w, http.StatusNotFound, "project not found")
 		return

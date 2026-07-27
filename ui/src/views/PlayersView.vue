@@ -75,6 +75,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { useCampaignStore } from '../stores/useCampaignStore'
+import { formatDate } from '../utils/date'
 
 const campaign = useCampaignStore()
 
@@ -99,9 +100,6 @@ async function copyUrl(player) {
   setTimeout(() => { copiedId.value = null }, 2000)
 }
 
-function formatDate(ts) {
-  return new Date(ts).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
-}
 </script>
 
 <style scoped>

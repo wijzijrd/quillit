@@ -16,7 +16,6 @@ import (
 // The first entry is always the editor (creator) role.
 var projectTypeRoles = map[string][2]string{
 	"campaign": {"gm", "player"},
-	"book":     {"author", "collaborator"},
 }
 
 func editorRoleFor(projectType string) string {
@@ -115,7 +114,6 @@ type ProjectType struct {
 func (h *ProjectsHandler) Types(w http.ResponseWriter, r *http.Request) {
 	types := []ProjectType{
 		{Type: "campaign", Label: "Campaign", RoleLabels: [2]string{"GM", "Player"}},
-		{Type: "book", Label: "Book", RoleLabels: [2]string{"Author", "Collaborator"}},
 	}
 	writeJSON(w, http.StatusOK, types)
 }
@@ -678,8 +676,6 @@ var roleLabelPair = func(projectType string) [2]string {
 	switch projectType {
 	case "campaign":
 		return [2]string{"GM", "Player"}
-	case "book":
-		return [2]string{"Author", "Collaborator"}
 	default:
 		return [2]string{"Editor", "Member"}
 	}
