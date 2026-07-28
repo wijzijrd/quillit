@@ -28,9 +28,9 @@ const visible = ref(false)
 <template>
   <InputGroup :class="props.class">
     <InputGroupInput
+      v-bind="$attrs"
       v-model="modelValue"
       :type="visible ? 'text' : 'password'"
-      v-bind="$attrs"
     />
     <InputGroupAddon align="inline-end">
       <InputGroupButton
