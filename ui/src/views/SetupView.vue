@@ -11,8 +11,16 @@
       <FormField label="Email" for="setup-email" required>
         <Input id="setup-email" v-model="email" type="email" autocomplete="email" placeholder="you@example.com" />
       </FormField>
-      <FormField label="Username" for="setup-username" required>
-        <Input id="setup-username" v-model="username" type="text" autocomplete="username" placeholder="dungeon_master" />
+      <FormField
+        label="Username"
+        for="setup-username"
+        required
+        ref="usernameField"
+        :model-value="username"
+        :validate="checkUsernameAvailable"
+        :debounce-ms="400"
+      >
+        <Input id="setup-username" v-model="username" type="text" autocomplete="username" placeholder="dungeon_master" required aria-required="true" />
       </FormField>
       <FormField label="Password" for="setup-password" required>
         <Input id="setup-password" v-model="password" type="password" autocomplete="new-password" />
@@ -40,7 +48,9 @@ import { useProjectStore } from '../stores/useProjectStore'
 import AuthLayout from '../layouts/AuthLayout.vue'
 import { Input } from '../components/ui/input'
 import { FormField } from '../components/ui/form-field'
+import type { ValidationResult } from '../components/ui/form-field'
 import { Button } from '../components/ui/button'
+import { api } from '../api/client'
 
 const router = useRouter()
 const route = useRoute()
@@ -54,6 +64,21 @@ const confirm = ref('')
 const error = ref('')
 const loading = ref(false)
 const inviteToken = ref(null)
+
+const usernameField = ref<{ validateNow: (v: string | number) => Promise<ValidationResult | null> } | null>(null)
+
+async function checkUsernameAvailable(value: string | number): Promise<ValidationResult | null> {
+  const value_ = String(value)
+  if (value_.length < 3) return null
+  try {
+    const { available } = await api<{ available: boolean }>('/auth/users/available', { query: { username: value_ } })
+    return available
+      ? { message: 'Username is available', type: 'success' }
+      : { message: 'Username is already taken', type: 'error' }
+  } catch {
+    return { message: "Couldn't check username right now", type: 'error' }
+  }
+}
 
 onMounted(async () => {
   inviteToken.value = route.query.invite ?? null
@@ -86,6 +111,11 @@ async function submit() {
   }
   if (password.value !== confirm.value) {
     error.value = 'Passwords do not match'
+    return
+  }
+  const usernameCheck = await usernameField.value?.validateNow(username.value)
+  if (usernameCheck?.type === 'error') {
+    error.value = usernameCheck.message
     return
   }
   loading.value = true
