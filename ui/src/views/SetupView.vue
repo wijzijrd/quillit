@@ -18,11 +18,11 @@
       </div>
       <div class="flex flex-col gap-2">
         <label class="auth-label" for="setup-password">Password</label>
-        <Input id="setup-password" v-model="password" type="password" autocomplete="new-password" />
+        <PasswordInput id="setup-password" v-model="password" autocomplete="new-password" />
       </div>
       <div class="flex flex-col gap-2">
         <label class="auth-label" for="setup-confirm">Confirm password</label>
-        <Input id="setup-confirm" v-model="confirm" type="password" autocomplete="new-password" />
+        <PasswordInput id="setup-confirm" v-model="confirm" autocomplete="new-password" />
       </div>
       <p v-if="error" class="text-sm text-[var(--destructive)]">{{ error }}</p>
       <Button type="submit" :disabled="loading" class="mt-1 w-full">
@@ -43,6 +43,7 @@ import { useAuthStore } from '../stores/useAuthStore'
 import { useProjectStore } from '../stores/useProjectStore'
 import AuthLayout from '../layouts/AuthLayout.vue'
 import { Input } from '../components/ui/input'
+import { PasswordInput } from '../components/ui/password-input'
 import { Button } from '../components/ui/button'
 
 const router = useRouter()
