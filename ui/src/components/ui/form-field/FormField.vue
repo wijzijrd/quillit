@@ -17,10 +17,17 @@ const props = defineProps<{
 const touched = ref(false)
 const result = ref<ValidationResult | null>(null)
 let debounceTimer: ReturnType<typeof setTimeout> | undefined
+let seq = 0
 
 async function runValidate(value: string | number) {
   if (!props.validate) return
-  result.value = (await props.validate(value)) ?? null
+  const mySeq = ++seq
+  try {
+    const outcome = (await props.validate(value)) ?? null
+    if (mySeq === seq) result.value = outcome
+  } catch {
+    if (mySeq === seq) result.value = null
+  }
 }
 
 async function validateNow(value: string | number) {
