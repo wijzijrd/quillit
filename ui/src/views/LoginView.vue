@@ -1,14 +1,12 @@
 <template>
   <AuthLayout title="Sign in">
     <form class="flex flex-col gap-5" @submit.prevent="submit">
-      <div class="flex flex-col gap-2">
-        <label class="auth-label" for="login-email">Email</label>
+      <FormField label="Email" for="login-email" required>
         <Input id="login-email" v-model="email" type="email" autocomplete="email" placeholder="you@example.com" />
-      </div>
-      <div class="flex flex-col gap-2">
-        <label class="auth-label" for="login-password">Password</label>
+      </FormField>
+      <FormField label="Password" for="login-password" required>
         <Input id="login-password" v-model="password" type="password" autocomplete="current-password" />
-      </div>
+      </FormField>
       <p v-if="error" class="text-sm text-[var(--destructive)]">{{ error }}</p>
       <Button type="submit" :disabled="loading" class="mt-1 w-full">
         {{ loading ? 'Signing in…' : 'Sign in' }}
@@ -27,6 +25,7 @@ import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '../stores/useAuthStore'
 import AuthLayout from '../layouts/AuthLayout.vue'
 import { Input } from '../components/ui/input'
+import { FormField } from '../components/ui/form-field'
 import { Button } from '../components/ui/button'
 
 const router = useRouter()
