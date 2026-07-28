@@ -56,6 +56,7 @@ func main() {
 	r.Get("/healthz", health.Check)
 
 	r.Get("/auth/status", auth.Status)
+	r.Get("/auth/users/available", auth.UsernameAvailable)
 	r.Post("/auth/register", auth.Register)
 	r.Post("/auth/login", auth.Login)
 	r.Post("/auth/verify", auth.Verify)
