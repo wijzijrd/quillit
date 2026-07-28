@@ -5,3 +5,4 @@ compose.sh
 .agents/
 skills-lock.json
 .claude/
+docs/superpowers/
