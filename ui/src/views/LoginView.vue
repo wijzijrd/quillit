@@ -7,7 +7,7 @@
       </div>
       <div class="flex flex-col gap-2">
         <label class="auth-label" for="login-password">Password</label>
-        <Input id="login-password" v-model="password" type="password" autocomplete="current-password" />
+        <PasswordInput id="login-password" v-model="password" autocomplete="current-password" />
       </div>
       <p v-if="error" class="text-sm text-[var(--destructive)]">{{ error }}</p>
       <Button type="submit" :disabled="loading" class="mt-1 w-full">
@@ -27,6 +27,7 @@ import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '../stores/useAuthStore'
 import AuthLayout from '../layouts/AuthLayout.vue'
 import { Input } from '../components/ui/input'
+import { PasswordInput } from '../components/ui/password-input'
 import { Button } from '../components/ui/button'
 
 const router = useRouter()
