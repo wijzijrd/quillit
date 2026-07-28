@@ -3,8 +3,9 @@ import type { HTMLAttributes } from "vue"
 import { ref } from "vue"
 import { Eye, EyeOff } from "lucide-vue-next"
 import { useVModel } from "@vueuse/core"
-import { cn } from "@/lib/utils"
 import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from "@/components/ui/input-group"
+
+defineOptions({ inheritAttrs: false })
 
 const props = defineProps<{
   defaultValue?: string | number
@@ -29,6 +30,7 @@ const visible = ref(false)
     <InputGroupInput
       v-model="modelValue"
       :type="visible ? 'text' : 'password'"
+      v-bind="$attrs"
     />
     <InputGroupAddon align="inline-end">
       <InputGroupButton
