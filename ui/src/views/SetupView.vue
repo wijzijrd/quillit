@@ -8,22 +8,18 @@
     </div>
 
     <form class="flex flex-col gap-5" @submit.prevent="submit">
-      <div class="flex flex-col gap-2">
-        <label class="auth-label" for="setup-email">Email</label>
+      <FormField label="Email" for="setup-email" required>
         <Input id="setup-email" v-model="email" type="email" autocomplete="email" placeholder="you@example.com" />
-      </div>
-      <div class="flex flex-col gap-2">
-        <label class="auth-label" for="setup-username">Username</label>
+      </FormField>
+      <FormField label="Username" for="setup-username" required>
         <Input id="setup-username" v-model="username" type="text" autocomplete="username" placeholder="dungeon_master" />
-      </div>
-      <div class="flex flex-col gap-2">
-        <label class="auth-label" for="setup-password">Password</label>
+      </FormField>
+      <FormField label="Password" for="setup-password" required>
         <Input id="setup-password" v-model="password" type="password" autocomplete="new-password" />
-      </div>
-      <div class="flex flex-col gap-2">
-        <label class="auth-label" for="setup-confirm">Confirm password</label>
+      </FormField>
+      <FormField label="Confirm password" for="setup-confirm" required>
         <Input id="setup-confirm" v-model="confirm" type="password" autocomplete="new-password" />
-      </div>
+      </FormField>
       <p v-if="error" class="text-sm text-[var(--destructive)]">{{ error }}</p>
       <Button type="submit" :disabled="loading" class="mt-1 w-full">
         {{ loading ? 'Creating account…' : 'Create account' }}
@@ -43,6 +39,7 @@ import { useAuthStore } from '../stores/useAuthStore'
 import { useProjectStore } from '../stores/useProjectStore'
 import AuthLayout from '../layouts/AuthLayout.vue'
 import { Input } from '../components/ui/input'
+import { FormField } from '../components/ui/form-field'
 import { Button } from '../components/ui/button'
 
 const router = useRouter()
