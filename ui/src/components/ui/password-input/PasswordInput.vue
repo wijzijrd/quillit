@@ -36,7 +36,7 @@ const visible = ref(false)
       <InputGroupButton
         type="button"
         size="icon-xs"
-        aria-label="Toggle password visibility"
+        :aria-label="visible ? 'Hide password' : 'Show password'"
         @click="visible = !visible"
       >
         <EyeOff v-if="visible" class="size-4" />
