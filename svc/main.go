@@ -88,6 +88,7 @@ func main() {
 
 	// Auth routes (no session required)
 	r.Get("/api/auth/status", auth.Status)
+	r.Get("/api/auth/users/available", auth.UsernameAvailable)
 	r.Post("/api/auth/register", auth.Register)
 	r.Post("/api/auth/login", auth.Login)
 	r.Post("/api/auth/logout", auth.Logout)

@@ -68,6 +68,27 @@ func (a *AuthHandler) Status(w http.ResponseWriter, r *http.Request) {
 	a.proxy(w, r, http.MethodGet, "/auth/status", nil)
 }
 
+// UsernameAvailableResponse mirrors the auth-svc response.
+type UsernameAvailableResponse struct {
+	Available bool `json:"available"`
+}
+
+// UsernameAvailable godoc
+// @Summary      Username availability
+// @Description  Proxies to auth-svc to check whether a username is free to register.
+// @Tags         auth
+// @Produce      json
+// @Param        username  query  string  true  "Username to check"
+// @Success      200  {object}  UsernameAvailableResponse
+// @Router       /api/auth/users/available [get]
+func (a *AuthHandler) UsernameAvailable(w http.ResponseWriter, r *http.Request) {
+	path := "/auth/users/available"
+	if r.URL.RawQuery != "" {
+		path += "?" + r.URL.RawQuery
+	}
+	a.proxy(w, r, http.MethodGet, path, nil)
+}
+
 // Register godoc
 // @Summary      Register
 // @Description  Forwards credentials to auth-svc, creates an HTTP-only session cookie on success.
