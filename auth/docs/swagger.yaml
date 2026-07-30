@@ -2,6 +2,8 @@ basePath: /
 definitions:
   handler.ClaimsResponse:
     properties:
+      active:
+        type: boolean
       email:
         type: string
       exp:
@@ -41,6 +43,35 @@ definitions:
     properties:
       token:
         type: string
+    type: object
+  handler.UserResponse:
+    properties:
+      active:
+        type: boolean
+      createdAt:
+        type: integer
+      email:
+        type: string
+      id:
+        type: string
+      role:
+        type: string
+      username:
+        type: string
+    type: object
+  handler.UserSearchResult:
+    properties:
+      email:
+        type: string
+      id:
+        type: string
+      username:
+        type: string
+    type: object
+  handler.UsernameAvailableResponse:
+    properties:
+      available:
+        type: boolean
     type: object
   handler.VerifyRequest:
     properties:
@@ -88,7 +119,7 @@ paths:
     post:
       consumes:
       - application/json
-      description: Creates a GM account. Returns 409 if email or username is taken.
+      description: Creates a user account. Returns 409 if email or username is taken.
       parameters:
       - description: Registration credentials
         in: body
@@ -127,6 +158,145 @@ paths:
       summary: Registration status
       tags:
       - auth
+  /auth/users:
+    get:
+      description: Returns all users, optionally filtered. Requires admin JWT.
+      parameters:
+      - description: Search by email or username
+        in: query
+        name: q
+        type: string
+      - description: 'Filter by active status: true or false'
+        in: query
+        name: active
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/handler.UserResponse'
+            type: array
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+      summary: List users
+      tags:
+      - admin
+  /auth/users/{id}:
+    delete:
+      description: Permanently removes a user account. Requires admin JWT.
+      parameters:
+      - description: User ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No Content
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+      summary: Delete a user
+      tags:
+      - admin
+    patch:
+      consumes:
+      - application/json
+      description: 'Updates user fields (currently: active). Requires admin JWT.'
+      parameters:
+      - description: User ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Fields to update
+        in: body
+        name: body
+        required: true
+        schema:
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handler.UserResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+      summary: Update a user
+      tags:
+      - admin
+  /auth/users/available:
+    get:
+      description: Returns whether a username is not yet taken.
+      parameters:
+      - description: Username to check
+        in: query
+        name: username
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handler.UsernameAvailableResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+      summary: Username availability
+      tags:
+      - auth
+  /auth/users/search:
+    get:
+      description: Returns users matching the query (email or username). Any valid
+        JWT required.
+      parameters:
+      - description: Search term
+        in: query
+        name: q
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/handler.UserSearchResult'
+            type: array
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+      summary: Search users
+      tags:
+      - auth
   /auth/verify:
     post:
       consumes:
@@ -158,4 +328,24 @@ paths:
       summary: Verify a JWT
       tags:
       - auth
+  /healthz:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "503":
+          description: Service Unavailable
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Health check
+      tags:
+      - health
 swagger: "2.0"

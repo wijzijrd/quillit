@@ -99,6 +99,34 @@ func (a *Auth) Status(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]bool{"registered": count > 0})
 }
 
+// UsernameAvailableResponse indicates whether a username is free to register.
+type UsernameAvailableResponse struct {
+	Available bool `json:"available"`
+}
+
+// UsernameAvailable godoc
+// @Summary      Username availability
+// @Description  Returns whether a username is not yet taken.
+// @Tags         auth
+// @Produce      json
+// @Param        username  query  string  true  "Username to check"
+// @Success      200  {object}  UsernameAvailableResponse
+// @Failure      400  {object}  ErrorResponse
+// @Router       /auth/users/available [get]
+func (a *Auth) UsernameAvailable(w http.ResponseWriter, r *http.Request) {
+	username := r.URL.Query().Get("username")
+	if username == "" {
+		writeError(w, http.StatusBadRequest, "username is required")
+		return
+	}
+	var count int
+	if err := a.db.QueryRow("SELECT COUNT(*) FROM users WHERE username = ?", username).Scan(&count); err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	writeJSON(w, http.StatusOK, UsernameAvailableResponse{Available: count == 0})
+}
+
 // Register godoc
 // @Summary      Register a new user
 // @Description  Creates a user account. Returns 409 if email or username is taken.
