@@ -16,6 +16,11 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
+// OkResponse is a simple success acknowledgement.
+type OkResponse struct {
+	Ok bool `json:"ok"`
+}
+
 type ForgotPasswordRequest struct {
 	Email string `json:"email"`
 }
@@ -37,7 +42,7 @@ func (a *Auth) ForgotPassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ok := func() { writeJSON(w, http.StatusOK, map[string]bool{"ok": true}) }
+	ok := func() { writeJSON(w, http.StatusOK, OkResponse{Ok: true}) }
 
 	var userID string
 	if err := a.db.QueryRow("SELECT id FROM users WHERE email = ?", body.Email).Scan(&userID); err != nil {
@@ -173,5 +178,5 @@ func (a *Auth) ResetPassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	writeJSON(w, http.StatusOK, OkResponse{Ok: true})
 }
