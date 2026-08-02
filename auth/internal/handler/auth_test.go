@@ -25,7 +25,7 @@ func TestUsernameAvailable(t *testing.T) {
 		t.Fatalf("seed user: %v", err)
 	}
 
-	auth := handler.NewAuth(database, "test-secret")
+	auth := handler.NewAuth(database, "test-secret", "", "", "")
 
 	t.Run("taken username", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/auth/users/available?username=takenname", nil)
