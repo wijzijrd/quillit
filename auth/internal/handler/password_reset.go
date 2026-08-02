@@ -65,18 +65,7 @@ func (a *Auth) ForgotPassword(w http.ResponseWriter, r *http.Request) {
 	tokenHash := hex.EncodeToString(sum[:])
 
 	now := time.Now().Unix()
-	tx, err := a.db.Begin()
-	if err == nil {
-		tx.Exec("DELETE FROM password_reset_tokens WHERE user_id = ? AND used = 0", userID)
-		_, err = tx.Exec(
-			"INSERT INTO password_reset_tokens (id, user_id, token_hash, expires_at, used, created_at) VALUES (?, ?, ?, ?, 0, ?)",
-			newID(), userID, tokenHash, now+3600, now,
-		)
-		if err == nil {
-			err = tx.Commit()
-		}
-	}
-	if err != nil {
+	if err := a.storeResetToken(userID, tokenHash, now); err != nil {
 		log.Printf("forgot-password: token store error: %v", err)
 		ok()
 		return
@@ -93,6 +82,29 @@ func (a *Auth) ForgotPassword(w http.ResponseWriter, r *http.Request) {
 		log.Printf("forgot-password: send error: %v", err)
 	}
 	ok()
+}
+
+// storeResetToken invalidates any prior unused reset tokens for userID and
+// stores a new one, atomically. Every step's error is checked — a silently
+// discarded Exec error here could let Commit succeed while the delete or
+// insert never actually happened.
+func (a *Auth) storeResetToken(userID, tokenHash string, now int64) error {
+	tx, err := a.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.Exec("DELETE FROM password_reset_tokens WHERE user_id = ? AND used = 0", userID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(
+		"INSERT INTO password_reset_tokens (id, user_id, token_hash, expires_at, used, created_at) VALUES (?, ?, ?, ?, 0, ?)",
+		newID(), userID, tokenHash, now+3600, now,
+	); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (a *Auth) sendResetEmail(to, link string) error {
@@ -171,8 +183,16 @@ func (a *Auth) ResetPassword(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
-	tx.Exec("UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?", string(hash), now, userID)
-	tx.Exec("UPDATE password_reset_tokens SET used = 1 WHERE id = ?", id)
+	defer tx.Rollback()
+
+	if _, err := tx.Exec("UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?", string(hash), now, userID); err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	if _, err := tx.Exec("UPDATE password_reset_tokens SET used = 1 WHERE id = ?", id); err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
 	if err := tx.Commit(); err != nil {
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
