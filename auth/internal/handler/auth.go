@@ -13,6 +13,8 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/golang-jwt/jwt/v5"
 	"golang.org/x/crypto/bcrypt"
+	"modernc.org/sqlite"
+	sqlite3 "modernc.org/sqlite/lib"
 )
 
 type Auth struct {
@@ -86,6 +88,30 @@ type ErrorResponse struct {
 	Error string `json:"error"`
 }
 
+// RegisterConflictResponse is returned on 409 when email or username is already taken.
+// Field is "email" or "username" when the specific column can be identified from the
+// database's constraint violation, and omitted otherwise.
+type RegisterConflictResponse struct {
+	Error string `json:"error"`
+	Field string `json:"field,omitempty"`
+}
+
+// conflictField inspects a UNIQUE constraint violation and identifies which column
+// caused it, so the frontend can offer a field-specific action (e.g. prompting to
+// sign in when the conflict is on email rather than username).
+func conflictField(err error) (field, message string) {
+	var sqliteErr *sqlite.Error
+	if errors.As(err, &sqliteErr) && sqliteErr.Code() == sqlite3.SQLITE_CONSTRAINT_UNIQUE {
+		switch {
+		case strings.Contains(sqliteErr.Error(), "users.email"):
+			return "email", "email already registered"
+		case strings.Contains(sqliteErr.Error(), "users.username"):
+			return "username", "username already taken"
+		}
+	}
+	return "", "email or username already in use"
+}
+
 // Status godoc
 // @Summary      Registration status
 // @Description  Returns whether any users are registered in the auth database.
@@ -136,7 +162,7 @@ func (a *Auth) UsernameAvailable(w http.ResponseWriter, r *http.Request) {
 // @Param        body  body      RegisterRequest  true  "Registration credentials"
 // @Success      201   {object}  TokenResponse
 // @Failure      400   {object}  ErrorResponse
-// @Failure      409   {object}  ErrorResponse
+// @Failure      409   {object}  RegisterConflictResponse
 // @Router       /auth/register [post]
 func (a *Auth) Register(w http.ResponseWriter, r *http.Request) {
 	var body struct {
@@ -170,7 +196,8 @@ func (a *Auth) Register(w http.ResponseWriter, r *http.Request) {
 		id, body.Email, body.Username, string(hash), now, now,
 	)
 	if err != nil {
-		writeError(w, http.StatusConflict, "email or username already in use")
+		field, message := conflictField(err)
+		writeJSON(w, http.StatusConflict, RegisterConflictResponse{Error: message, Field: field})
 		return
 	}
 

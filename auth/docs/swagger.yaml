@@ -25,6 +25,13 @@ definitions:
       password:
         type: string
     type: object
+  handler.RegisterConflictResponse:
+    properties:
+      error:
+        type: string
+      field:
+        type: string
+    type: object
   handler.RegisterRequest:
     properties:
       email:
@@ -141,7 +148,7 @@ paths:
         "409":
           description: Conflict
           schema:
-            $ref: '#/definitions/handler.ErrorResponse'
+            $ref: '#/definitions/handler.RegisterConflictResponse'
       summary: Register a new user
       tags:
       - auth
