@@ -1,0 +1,85 @@
+basePath: /
+definitions:
+  handler.ErrorResponse:
+    properties:
+      error:
+        type: string
+    type: object
+  handler.OkResponse:
+    properties:
+      ok:
+        type: boolean
+    type: object
+  handler.SendRequest:
+    properties:
+      html:
+        type: string
+      subject:
+        type: string
+      text:
+        type: string
+      to:
+        type: string
+    type: object
+host: localhost:3003
+info:
+  contact: {}
+  description: Sends transactional email via SMTP.
+  title: Quillit Messaging Service API
+  version: "1.0"
+paths:
+  /healthz:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Health check
+      tags:
+      - health
+  /send:
+    post:
+      consumes:
+      - application/json
+      description: Sends a transactional email via SMTP. Requires the shared X-Messaging-Secret
+        header.
+      parameters:
+      - description: Shared messaging secret
+        in: header
+        name: X-Messaging-Secret
+        required: true
+        type: string
+      - description: Email to send
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.SendRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handler.OkResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+        "502":
+          description: Bad Gateway
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+      summary: Send an email
+      tags:
+      - messaging
+swagger: "2.0"
