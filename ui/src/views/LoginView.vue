@@ -20,7 +20,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '../stores/useAuthStore'
 import AuthLayout from '../layouts/AuthLayout.vue'
@@ -35,6 +35,13 @@ const email = ref('')
 const password = ref('')
 const error = ref('')
 const loading = ref(false)
+
+onMounted(() => {
+  const prefill = route.query.email
+  if (typeof prefill === 'string') {
+    email.value = prefill
+  }
+})
 
 async function submit() {
   if (!email.value || !password.value) return
