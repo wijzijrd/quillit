@@ -21,3 +21,21 @@ func TestOpen_FreshDatabase(t *testing.T) {
 		t.Errorf("expected 0 users on fresh install, got %d", count)
 	}
 }
+
+func TestOpen_CreatesPasswordResetTokensTable(t *testing.T) {
+	database, err := Open(":memory:")
+	if err != nil {
+		t.Fatalf("Open() failed: %v", err)
+	}
+	defer database.Close()
+
+	var tableCount int
+	if err := database.QueryRow(
+		`SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='password_reset_tokens'`,
+	).Scan(&tableCount); err != nil {
+		t.Fatalf("query sqlite_master: %v", err)
+	}
+	if tableCount != 1 {
+		t.Errorf("expected password_reset_tokens table to exist")
+	}
+}
