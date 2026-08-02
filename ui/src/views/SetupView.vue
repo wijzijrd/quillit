@@ -28,7 +28,11 @@
       <FormField label="Confirm password" for="setup-confirm" required>
         <Input id="setup-confirm" v-model="confirm" type="password" autocomplete="new-password" />
       </FormField>
-      <p v-if="error" class="text-sm text-[var(--destructive)]">{{ error }}</p>
+      <p v-if="emailTaken" class="text-sm text-[var(--destructive)]">
+        This email is already registered.
+        <router-link class="text-[var(--primary)] hover:underline" :to="{ path: '/login', query: { email } }">Sign in instead?</router-link>
+      </p>
+      <p v-else-if="error" class="text-sm text-[var(--destructive)]">{{ error }}</p>
       <Button type="submit" :disabled="loading" class="mt-1 w-full">
         {{ loading ? 'Creating account…' : 'Create account' }}
       </Button>
@@ -62,6 +66,7 @@ const username = ref('')
 const password = ref('')
 const confirm = ref('')
 const error = ref('')
+const emailTaken = ref(false)
 const loading = ref(false)
 const inviteToken = ref(null)
 
@@ -101,6 +106,7 @@ onMounted(async () => {
 
 async function submit() {
   error.value = ''
+  emailTaken.value = false
   if (!email.value || !username.value || !password.value) {
     error.value = 'All fields are required'
     return
@@ -132,7 +138,11 @@ async function submit() {
     }
     router.push('/')
   } catch (e) {
-    error.value = e?.data?.error ?? 'Registration failed'
+    if (e?.data?.field === 'email') {
+      emailTaken.value = true
+    } else {
+      error.value = e?.data?.error ?? 'Registration failed'
+    }
   } finally {
     loading.value = false
   }
