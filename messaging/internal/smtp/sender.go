@@ -77,11 +77,13 @@ func (s *SMTPSender) Send(to, subject, text, html string) error {
 // multipart/alternative message with both text and html parts; otherwise it
 // is a single text/plain message.
 //
-// from, to, and subject are caller-supplied (ultimately attacker-influenced,
-// e.g. an unvalidated registration email address) and are sanitized against
-// header injection before use; an error here means one of those fields
-// contained a bare CR or LF, which would otherwise let an attacker splice in
-// arbitrary extra headers (a forged From, an extra Bcc, etc).
+// to and subject are ultimately attacker-influenced (e.g. an unvalidated
+// registration email address reaching this as `to`); from is operator-set
+// service config (SMTPSender.From), not per-request input. All three are
+// sanitized against header injection regardless, since a defensive check
+// here costs nothing. An error means one of those fields contained a bare
+// CR or LF, which would otherwise let an attacker splice in arbitrary extra
+// headers (a forged From, an extra Bcc, etc).
 func buildMessage(from, to, subject, text, html string) ([]byte, error) {
 	from, err := sanitizeHeaderValue(from)
 	if err != nil {
