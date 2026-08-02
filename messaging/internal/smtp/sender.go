@@ -4,6 +4,8 @@ package smtp
 
 import (
 	"bytes"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"net/smtp"
 	"strings"
@@ -74,7 +76,26 @@ func (s *SMTPSender) Send(to, subject, text, html string) error {
 // for passing to smtp.SendMail. If html is non-empty the message is a
 // multipart/alternative message with both text and html parts; otherwise it
 // is a single text/plain message.
+//
+// from, to, and subject are caller-supplied (ultimately attacker-influenced,
+// e.g. an unvalidated registration email address) and are sanitized against
+// header injection before use; an error here means one of those fields
+// contained a bare CR or LF, which would otherwise let an attacker splice in
+// arbitrary extra headers (a forged From, an extra Bcc, etc).
 func buildMessage(from, to, subject, text, html string) ([]byte, error) {
+	from, err := sanitizeHeaderValue(from)
+	if err != nil {
+		return nil, fmt.Errorf("from contains invalid characters: %w", err)
+	}
+	to, err = sanitizeHeaderValue(to)
+	if err != nil {
+		return nil, fmt.Errorf("to contains invalid characters: %w", err)
+	}
+	subject, err = sanitizeHeaderValue(subject)
+	if err != nil {
+		return nil, fmt.Errorf("subject contains invalid characters: %w", err)
+	}
+
 	var buf bytes.Buffer
 
 	headers := map[string]string{
@@ -86,6 +107,7 @@ func buildMessage(from, to, subject, text, html string) ([]byte, error) {
 
 	if html == "" {
 		headers["Content-Type"] = `text/plain; charset="UTF-8"`
+		headers["Content-Transfer-Encoding"] = "8bit"
 
 		writeHeaders(&buf, headers)
 		buf.WriteString("\r\n")
@@ -94,7 +116,7 @@ func buildMessage(from, to, subject, text, html string) ([]byte, error) {
 		return buf.Bytes(), nil
 	}
 
-	const boundary = "quillit-boundary-42"
+	boundary := generateBoundary()
 
 	headers["Content-Type"] = fmt.Sprintf(`multipart/alternative; boundary="%s"`, boundary)
 	writeHeaders(&buf, headers)
@@ -102,12 +124,14 @@ func buildMessage(from, to, subject, text, html string) ([]byte, error) {
 
 	buf.WriteString("--" + boundary + "\r\n")
 	buf.WriteString("Content-Type: text/plain; charset=\"UTF-8\"\r\n")
+	buf.WriteString("Content-Transfer-Encoding: 8bit\r\n")
 	buf.WriteString("\r\n")
 	buf.WriteString(text)
 	buf.WriteString("\r\n")
 
 	buf.WriteString("--" + boundary + "\r\n")
 	buf.WriteString("Content-Type: text/html; charset=\"UTF-8\"\r\n")
+	buf.WriteString("Content-Transfer-Encoding: 8bit\r\n")
 	buf.WriteString("\r\n")
 	buf.WriteString(html)
 	buf.WriteString("\r\n")
@@ -117,11 +141,49 @@ func buildMessage(from, to, subject, text, html string) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
+// sanitizeHeaderValue rejects header values containing a bare CR or LF
+// anywhere in the string. Header values in RFC 5322 messages are terminated
+// by CRLF, so an attacker-controlled value containing an embedded CR/LF can
+// inject arbitrary extra headers (e.g. a spoofed From or an extra Bcc) once
+// written by writeHeaders. Values are checked before trimming so that a
+// CRLF hidden at the very edge of the string (which TrimSpace would
+// otherwise silently remove) is still caught. Rejection, rather than silent
+// stripping, is deliberate: stripping the bytes would hide the malformed
+// input rather than surface it as an error the caller must handle.
+func sanitizeHeaderValue(value string) (string, error) {
+	if strings.ContainsAny(value, "\r\n") {
+		return "", fmt.Errorf("value contains a CR or LF character")
+	}
+	return strings.TrimSpace(value), nil
+}
+
+// generateBoundary returns a random MIME multipart boundary, unique per
+// call. A static boundary would let attacker- or accident-controlled text
+// or html body content containing a matching "--boundary" line corrupt the
+// MIME structure; using crypto/rand instead of math/rand makes the
+// resulting boundary unpredictable, matching the CSPRNG posture already
+// used elsewhere in this codebase (see auth/internal/handler/auth.go's
+// newID()). As with newID(), a failure to read from the OS CSPRNG is not a
+// recoverable condition — falling back to a predictable boundary would
+// reintroduce the exact issue this function exists to prevent — so this
+// panics rather than returning a degraded value.
+func generateBoundary() string {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		panic(err)
+	}
+	return "quillit-boundary-" + hex.EncodeToString(b)
+}
+
 // writeHeaders writes RFC 5322 headers in a stable order (From, To,
-// Subject, MIME-Version, Content-Type) followed by a CRLF-terminated line
-// per header.
+// Subject, MIME-Version, Content-Type, Content-Transfer-Encoding) followed
+// by a CRLF-terminated line per header. Values are expected to already be
+// sanitized (see sanitizeHeaderValue); TrimSpace here is a harmless no-op
+// for already-trimmed values and a defensive backstop for the
+// caller-independent, hardcoded values in this map (MIME-Version,
+// Content-Type, Content-Transfer-Encoding).
 func writeHeaders(buf *bytes.Buffer, headers map[string]string) {
-	order := []string{"From", "To", "Subject", "MIME-Version", "Content-Type"}
+	order := []string{"From", "To", "Subject", "MIME-Version", "Content-Type", "Content-Transfer-Encoding"}
 	for _, key := range order {
 		value, ok := headers[key]
 		if !ok {
