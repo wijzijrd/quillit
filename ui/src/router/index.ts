@@ -22,6 +22,7 @@ const router = createRouter({
     { path: '/profile', component: () => import('../views/ProfileView.vue') },
     { path: '/login', component: () => import('../views/LoginView.vue'), meta: { public: true } },
     { path: '/register', component: () => import('../views/SetupView.vue'), meta: { public: true } },
+    { path: '/forgot-password', component: () => import('../views/ForgotPasswordView.vue'), meta: { public: true } },
     { path: '/admin', component: () => import('../views/AdminView.vue'), meta: { adminOnly: true } },
     { path: '/admin/categories', redirect: '/admin' },
   ],
