@@ -141,7 +141,7 @@ const docTemplate = `{
                     "409": {
                         "description": "Conflict",
                         "schema": {
-                            "$ref": "#/definitions/handler.ErrorResponse"
+                            "$ref": "#/definitions/handler.RegisterConflictResponse"
                         }
                     }
                 }
@@ -548,6 +548,17 @@ const docTemplate = `{
             "properties": {
                 "ok": {
                     "type": "boolean"
+                }
+            }
+        },
+        "handler.RegisterConflictResponse": {
+            "type": "object",
+            "properties": {
+                "error": {
+                    "type": "string"
+                },
+                "field": {
+                    "type": "string"
                 }
             }
         },

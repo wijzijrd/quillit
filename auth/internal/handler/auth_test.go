@@ -89,7 +89,7 @@ func TestRegister_ConflictField(t *testing.T) {
 		t.Fatalf("seed user: %v", err)
 	}
 
-	auth := handler.NewAuth(database, "test-secret")
+	auth := handler.NewAuth(database, "test-secret", "", "", "")
 
 	t.Run("email conflict", func(t *testing.T) {
 		body := `{"email":"taken@example.com","username":"freshname","password":"longenough1"}`
