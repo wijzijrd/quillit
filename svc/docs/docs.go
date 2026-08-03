@@ -368,6 +368,40 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/auth/forgot-password": {
+            "post": {
+                "description": "Proxies to auth-svc. Always returns 200 regardless of whether the email is registered.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "auth"
+                ],
+                "summary": "Forgot password",
+                "parameters": [
+                    {
+                        "description": "Email",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/handler.AuthForgotPasswordRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/handler.OkResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/auth/login": {
             "post": {
                 "description": "Forwards credentials to auth-svc, creates an HTTP-only session cookie on success.",
@@ -506,6 +540,46 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/auth/reset-password": {
+            "post": {
+                "description": "Proxies to auth-svc.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "auth"
+                ],
+                "summary": "Reset password",
+                "parameters": [
+                    {
+                        "description": "Token and new password",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/handler.AuthResetPasswordRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/handler.OkResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/handler.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/auth/status": {
             "get": {
                 "description": "Proxies to auth-svc to check whether any users are registered.",
@@ -521,6 +595,35 @@ const docTemplate = `{
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/handler.AuthStatusResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/auth/users/available": {
+            "get": {
+                "description": "Proxies to auth-svc to check whether a username is free to register.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "auth"
+                ],
+                "summary": "Username availability",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Username to check",
+                        "name": "username",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/handler.UsernameAvailableResponse"
                         }
                     }
                 }
@@ -2278,6 +2381,50 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/projects/{projectId}/sessions": {
+            "get": {
+                "description": "Returns the project's sessions, newest first (max 100).",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "game-sessions"
+                ],
+                "summary": "List past and current game sessions for a project",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "projectId",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/handler.GameSession"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/handler.ErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/handler.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/quickview": {
             "get": {
                 "produces": [
@@ -2701,6 +2848,14 @@ const docTemplate = `{
                 }
             }
         },
+        "handler.AuthForgotPasswordRequest": {
+            "type": "object",
+            "properties": {
+                "email": {
+                    "type": "string"
+                }
+            }
+        },
         "handler.AuthLoginRequest": {
             "type": "object",
             "properties": {
@@ -2722,6 +2877,17 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "username": {
+                    "type": "string"
+                }
+            }
+        },
+        "handler.AuthResetPasswordRequest": {
+            "type": "object",
+            "properties": {
+                "newPassword": {
+                    "type": "string"
+                },
+                "token": {
                     "type": "string"
                 }
             }
@@ -3102,6 +3268,9 @@ const docTemplate = `{
                 "id": {
                     "type": "string"
                 },
+                "live": {
+                    "type": "boolean"
+                },
                 "memberCount": {
                     "type": "integer"
                 },
@@ -3207,6 +3376,14 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "fields": {}
+            }
+        },
+        "handler.UsernameAvailableResponse": {
+            "type": "object",
+            "properties": {
+                "available": {
+                    "type": "boolean"
+                }
             }
         }
     }

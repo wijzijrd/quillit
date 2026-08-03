@@ -93,6 +93,8 @@ func main() {
 	r.Post("/api/auth/login", auth.Login)
 	r.Post("/api/auth/logout", auth.Logout)
 	r.Get("/api/auth/me", auth.Me)
+	r.Post("/api/auth/forgot-password", auth.ForgotPassword)
+	r.Post("/api/auth/reset-password", auth.ResetPassword)
 
 	// Public share routes (no session required)
 	r.Get("/api/share/{token}", share.GetEntries)

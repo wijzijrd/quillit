@@ -73,6 +73,17 @@ type UsernameAvailableResponse struct {
 	Available bool `json:"available"`
 }
 
+// AuthForgotPasswordRequest is the forgot-password body forwarded to auth-svc.
+type AuthForgotPasswordRequest struct {
+	Email string `json:"email"`
+}
+
+// AuthResetPasswordRequest is the reset-password body forwarded to auth-svc.
+type AuthResetPasswordRequest struct {
+	Token       string `json:"token"`
+	NewPassword string `json:"newPassword"`
+}
+
 // UsernameAvailable godoc
 // @Summary      Username availability
 // @Description  Proxies to auth-svc to check whether a username is free to register.
@@ -87,6 +98,33 @@ func (a *AuthHandler) UsernameAvailable(w http.ResponseWriter, r *http.Request) 
 		path += "?" + r.URL.RawQuery
 	}
 	a.proxy(w, r, http.MethodGet, path, nil)
+}
+
+// ForgotPassword godoc
+// @Summary      Forgot password
+// @Description  Proxies to auth-svc. Always returns 200 regardless of whether the email is registered.
+// @Tags         auth
+// @Accept       json
+// @Produce      json
+// @Param        body  body      AuthForgotPasswordRequest  true  "Email"
+// @Success      200   {object}  OkResponse
+// @Router       /api/auth/forgot-password [post]
+func (a *AuthHandler) ForgotPassword(w http.ResponseWriter, r *http.Request) {
+	a.proxy(w, r, http.MethodPost, "/auth/forgot-password", r.Body)
+}
+
+// ResetPassword godoc
+// @Summary      Reset password
+// @Description  Proxies to auth-svc.
+// @Tags         auth
+// @Accept       json
+// @Produce      json
+// @Param        body  body      AuthResetPasswordRequest  true  "Token and new password"
+// @Success      200   {object}  OkResponse
+// @Failure      400   {object}  ErrorResponse
+// @Router       /api/auth/reset-password [post]
+func (a *AuthHandler) ResetPassword(w http.ResponseWriter, r *http.Request) {
+	a.proxy(w, r, http.MethodPost, "/auth/reset-password", r.Body)
 }
 
 // Register godoc

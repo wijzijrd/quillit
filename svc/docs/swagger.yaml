@@ -43,6 +43,11 @@ definitions:
       visibility:
         type: string
     type: object
+  handler.AuthForgotPasswordRequest:
+    properties:
+      email:
+        type: string
+    type: object
   handler.AuthLoginRequest:
     properties:
       email:
@@ -57,6 +62,13 @@ definitions:
       password:
         type: string
       username:
+        type: string
+    type: object
+  handler.AuthResetPasswordRequest:
+    properties:
+      newPassword:
+        type: string
+      token:
         type: string
     type: object
   handler.AuthStatusResponse:
@@ -306,6 +318,8 @@ definitions:
         type: string
       id:
         type: string
+      live:
+        type: boolean
       memberCount:
         type: integer
       members:
@@ -375,6 +389,11 @@ definitions:
   handler.UpsertQuickViewRequest:
     properties:
       fields: {}
+    type: object
+  handler.UsernameAvailableResponse:
+    properties:
+      available:
+        type: boolean
     type: object
 host: localhost:3000
 info:
@@ -616,6 +635,29 @@ paths:
       summary: Update annotation
       tags:
       - annotations
+  /api/auth/forgot-password:
+    post:
+      consumes:
+      - application/json
+      description: Proxies to auth-svc. Always returns 200 regardless of whether the
+        email is registered.
+      parameters:
+      - description: Email
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.AuthForgotPasswordRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handler.OkResponse'
+      summary: Forgot password
+      tags:
+      - auth
   /api/auth/login:
     post:
       consumes:
@@ -708,6 +750,32 @@ paths:
       summary: Register
       tags:
       - auth
+  /api/auth/reset-password:
+    post:
+      consumes:
+      - application/json
+      description: Proxies to auth-svc.
+      parameters:
+      - description: Token and new password
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.AuthResetPasswordRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handler.OkResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+      summary: Reset password
+      tags:
+      - auth
   /api/auth/status:
     get:
       description: Proxies to auth-svc to check whether any users are registered.
@@ -719,6 +787,25 @@ paths:
           schema:
             $ref: '#/definitions/handler.AuthStatusResponse'
       summary: Auth status
+      tags:
+      - auth
+  /api/auth/users/available:
+    get:
+      description: Proxies to auth-svc to check whether a username is free to register.
+      parameters:
+      - description: Username to check
+        in: query
+        name: username
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handler.UsernameAvailableResponse'
+      summary: Username availability
       tags:
       - auth
   /api/campaigns:
@@ -1832,6 +1919,35 @@ paths:
           schema:
             $ref: '#/definitions/handler.ErrorResponse'
       summary: Stop the running game session
+      tags:
+      - game-sessions
+  /api/projects/{projectId}/sessions:
+    get:
+      description: Returns the project's sessions, newest first (max 100).
+      parameters:
+      - description: Project ID
+        in: path
+        name: projectId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/handler.GameSession'
+            type: array
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+      summary: List past and current game sessions for a project
       tags:
       - game-sessions
   /api/projects/join:
