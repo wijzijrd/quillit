@@ -18,12 +18,18 @@ import (
 )
 
 type Auth struct {
-	db        *sql.DB
-	jwtSecret []byte
+	db                  *sql.DB
+	jwtSecret           []byte
+	messagingServiceURL string
+	messagingSecret     string
+	appBaseURL          string
 }
 
-func NewAuth(db *sql.DB, jwtSecret string) *Auth {
-	return &Auth{db: db, jwtSecret: []byte(jwtSecret)}
+func NewAuth(db *sql.DB, jwtSecret, messagingServiceURL, messagingSecret, appBaseURL string) *Auth {
+	return &Auth{
+		db: db, jwtSecret: []byte(jwtSecret),
+		messagingServiceURL: messagingServiceURL, messagingSecret: messagingSecret, appBaseURL: appBaseURL,
+	}
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

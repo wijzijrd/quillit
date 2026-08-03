@@ -18,12 +18,22 @@ definitions:
       error:
         type: string
     type: object
+  handler.ForgotPasswordRequest:
+    properties:
+      email:
+        type: string
+    type: object
   handler.LoginRequest:
     properties:
       email:
         type: string
       password:
         type: string
+    type: object
+  handler.OkResponse:
+    properties:
+      ok:
+        type: boolean
     type: object
   handler.RegisterConflictResponse:
     properties:
@@ -39,6 +49,13 @@ definitions:
       password:
         type: string
       username:
+        type: string
+    type: object
+  handler.ResetPasswordRequest:
+    properties:
+      newPassword:
+        type: string
+      token:
         type: string
     type: object
   handler.StatusResponse:
@@ -92,6 +109,33 @@ info:
   title: Quillit Auth Service API
   version: "1.0"
 paths:
+  /auth/forgot-password:
+    post:
+      consumes:
+      - application/json
+      description: Sends a reset link if the email is registered. Always returns 200
+        to avoid leaking account existence.
+      parameters:
+      - description: Email to send the reset link to
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.ForgotPasswordRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handler.OkResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+      summary: Request a password reset
+      tags:
+      - auth
   /auth/login:
     post:
       consumes:
@@ -150,6 +194,33 @@ paths:
           schema:
             $ref: '#/definitions/handler.RegisterConflictResponse'
       summary: Register a new user
+      tags:
+      - auth
+  /auth/reset-password:
+    post:
+      consumes:
+      - application/json
+      description: Consumes a reset token and sets a new password. Same generic error
+        for any invalid/expired/used token.
+      parameters:
+      - description: Reset token and new password
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.ResetPasswordRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handler.OkResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+      summary: Reset password
       tags:
       - auth
   /auth/status:

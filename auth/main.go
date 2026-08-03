@@ -27,6 +27,9 @@ func main() {
 	port := env("PORT", "3002")
 	dbPath := env("DB_PATH", "./quillit-auth.db")
 	jwtSecret := mustEnv("JWT_SECRET")
+	messagingServiceURL := env("MESSAGING_SERVICE_URL", "")
+	messagingSecret := env("MESSAGING_SECRET", "")
+	appBaseURL := env("APP_BASE_URL", "")
 
 	database, err := db.Open(dbPath)
 	if err != nil {
@@ -34,7 +37,7 @@ func main() {
 	}
 	defer database.Close()
 
-	auth := handler.NewAuth(database, jwtSecret)
+	auth := handler.NewAuth(database, jwtSecret, messagingServiceURL, messagingSecret, appBaseURL)
 	health := handler.NewHealth(database)
 
 	// Seed admin account if credentials are configured
@@ -60,6 +63,8 @@ func main() {
 	r.Post("/auth/register", auth.Register)
 	r.Post("/auth/login", auth.Login)
 	r.Post("/auth/verify", auth.Verify)
+	r.Post("/auth/forgot-password", auth.ForgotPassword)
+	r.Post("/auth/reset-password", auth.ResetPassword)
 
 	// Any-auth user search (requires valid Bearer JWT, not admin-only)
 	r.With(auth.RequireAnyAuth).Get("/auth/users/search", auth.SearchUsers)
