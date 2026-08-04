@@ -1,0 +1,20 @@
+{
+  "Frontmatter": {
+    "Name": "Old Letter",
+    "Tags": []
+  },
+  "Body": [
+    {
+      "Kind": "prose",
+      "Facet": "",
+      "Content": "A letter mentions [[characters/npcs/nobody]], a name that appears nowhere\nelse in the campaign.",
+      "Blocks": null,
+      "Links": [
+        {
+          "Path": "characters/npcs/nobody",
+          "Label": "characters/npcs/nobody"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,32 @@
+{
+  "Frontmatter": {
+    "Name": "The Contact",
+    "Tags": [
+      "npc"
+    ]
+  },
+  "Body": [
+    {
+      "Kind": "prose",
+      "Facet": "",
+      "Content": "# The Contact\n\nA hooded figure who meets clients only after dark.",
+      "Blocks": null,
+      "Links": null
+    },
+    {
+      "Kind": "secret",
+      "Facet": "",
+      "Content": "This is actually the disguised form of a retired assassin who owes the\nparty's patron a favor.",
+      "Blocks": [
+        {
+          "Kind": "card",
+          "Facet": "motivation",
+          "Content": "Wants the debt settled quietly, with no one else finding out it exists.",
+          "Blocks": null,
+          "Links": null
+        }
+      ],
+      "Links": null
+    }
+  ]
+}

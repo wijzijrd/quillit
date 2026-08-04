@@ -1,0 +1,13 @@
+[
+  {
+    "target_path": "characters/npcs/mary",
+    "label": "Mary",
+    "resolved": true
+  },
+  {
+    "target_path": "characters/npcs/mary",
+    "label": "Mary",
+    "card_facet": "description",
+    "resolved": true
+  }
+]
