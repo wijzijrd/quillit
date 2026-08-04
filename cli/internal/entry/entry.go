@@ -4,6 +4,7 @@ package entry
 
 import (
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 )
@@ -32,4 +33,30 @@ func Assign(projectRoot, name, directory string) (newPath string, err error) {
 		return "", fmt.Errorf("moving entry %q to %s: %w", name, dest, err)
 	}
 	return dest, nil
+}
+
+// WalkAll returns the project-root-relative path of every entry folder
+// under projectRoot, at any depth — any directory containing a file
+// named "<its own basename>.md", per CLI spec §5's entry folder anatomy.
+// Used by `compile --all` and (later) `export` with no path.
+func WalkAll(projectRoot string) ([]string, error) {
+	var paths []string
+	err := filepath.WalkDir(projectRoot, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if p == projectRoot || !d.IsDir() {
+			return nil
+		}
+		name := filepath.Base(p)
+		if _, statErr := os.Stat(filepath.Join(p, name+".md")); statErr == nil {
+			rel, relErr := filepath.Rel(projectRoot, p)
+			if relErr != nil {
+				return relErr
+			}
+			paths = append(paths, rel)
+		}
+		return nil
+	})
+	return paths, err
 }
