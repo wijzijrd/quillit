@@ -1,0 +1,174 @@
+name: CLI Release
+
+# Builds and publishes cross-platform `quillit` CLI binaries as a GitHub
+# Release. Two ways to trigger:
+#
+#   - Push a tag matching cli-v*.*.* (e.g. cli-v0.1.0). The "cli-" prefix
+#     namespaces this from any future per-component release tags
+#     (content-v*, svc-v*, ...) once #70's granular-deploy split lands.
+#   - workflow_dispatch with a required `version` input, for a manual/
+#     out-of-band release. The "cli-" prefix is added automatically if
+#     you don't include it (e.g. "v0.1.0" and "0.1.0" both become
+#     "cli-v0.1.0").
+#
+# Either way, tests run first (cli/ + pkg/contentengine/, since cli
+# depends on it) — nothing untested gets released. A plain push or PR
+# that happens to touch this file, or anything else in the repo, never
+# triggers this workflow at all: the only push trigger is a tag ref
+# matching cli-v*.*.*, which ordinary commits never create.
+
+on:
+  push:
+    tags:
+      - "cli-v*.*.*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release, e.g. v0.1.0 (a "cli-" prefix is added automatically if omitted)'
+        required: true
+
+jobs:
+  prepare:
+    name: Determine version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+    steps:
+      # inputs.version (and, in principle, a maliciously-named tag) is
+      # free text supplied by whoever triggers this workflow — routed
+      # through env: rather than interpolated into the script, and
+      # validated against a safe character set before it's used to build
+      # filenames and -ldflags values later in the workflow.
+      - name: Determine version and release tag
+        id: version
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = "push" ]; then
+            TAG="$REF_NAME"
+          else
+            TAG="$INPUT_VERSION"
+            case "$TAG" in
+              cli-v*) ;;
+              v*) TAG="cli-$TAG" ;;
+              *) TAG="cli-v$TAG" ;;
+            esac
+          fi
+          if ! [[ "$TAG" =~ ^cli-v[A-Za-z0-9.+_-]+$ ]]; then
+            echo "::error::Invalid version/tag '$TAG' — expected cli-v<version>, using only letters, digits, dots, plus, hyphens, underscores."
+            exit 1
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=${TAG#cli-}" >> "$GITHUB_OUTPUT"
+
+  test:
+    name: Test cli + pkg/contentengine
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: "1.26"
+      - name: Test pkg/contentengine
+        working-directory: pkg/contentengine
+        run: go test ./...
+      - name: Test cli
+        working-directory: cli
+        run: go test ./...
+
+  build:
+    name: Build ${{ matrix.goos }}/${{ matrix.goarch }}
+    needs: [prepare, test]
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - { goos: linux, goarch: amd64 }
+          - { goos: linux, goarch: arm64 }
+          - { goos: darwin, goarch: amd64 }
+          - { goos: darwin, goarch: arm64 }
+          - { goos: windows, goarch: amd64 }
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: "1.26"
+
+      # cli/go.mod's `replace github.com/quillit/contentengine =>
+      # ../pkg/contentengine` resolves the shared content-engine package
+      # from this same checkout — no go.work / workspace mode needed in
+      # CI, a plain `go build` here follows the replace directive fine.
+      - name: Build static binary
+        working-directory: cli
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: 0
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          set -euo pipefail
+          OUT="quillit"
+          [ "$GOOS" = "windows" ] && OUT="quillit.exe"
+          go build -trimpath \
+            -ldflags "-s -w -X github.com/quillit/cli/cmd.Version=$VERSION" \
+            -o "$OUT" .
+
+      - name: Package
+        working-directory: cli
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          set -euo pipefail
+          NAME="quillit-${VERSION}-${GOOS}-${GOARCH}"
+          mkdir "$NAME"
+          if [ "$GOOS" = "windows" ]; then
+            mv quillit.exe "$NAME"/
+            zip -r "${NAME}.zip" "$NAME"
+            sha256sum "${NAME}.zip" > "${NAME}.zip.sha256"
+          else
+            mv quillit "$NAME"/
+            tar -czf "${NAME}.tar.gz" "$NAME"
+            sha256sum "${NAME}.tar.gz" > "${NAME}.tar.gz.sha256"
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: quillit-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: |
+            cli/quillit-*.tar.gz
+            cli/quillit-*.tar.gz.sha256
+            cli/quillit-*.zip
+            cli/quillit-*.zip.sha256
+          if-no-files-found: ignore
+
+  release:
+    name: Publish GitHub Release
+    needs: [prepare, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Combined checksums file
+        working-directory: dist
+        run: cat *.sha256 > checksums.txt
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.prepare.outputs.tag }}
+          name: quillit CLI ${{ needs.prepare.outputs.version }}
+          generate_release_notes: true
+          files: |
+            dist/*.tar.gz
+            dist/*.zip
+            dist/checksums.txt

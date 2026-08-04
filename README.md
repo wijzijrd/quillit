@@ -9,6 +9,8 @@ quillit/
 ├── ui/      Vue 3 + Vite frontend
 ├── svc/     Go backend API
 ├── auth/    Go authentication service
+├── cli/     quillit CLI — see cli/README.md to download or build it
+├── pkg/     Shared Go packages (contentengine: parse/filter/render/export, used by cli/)
 ├── docker-compose.yml
 └── setup.sh  (Linux server automated setup)
 ```
