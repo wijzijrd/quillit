@@ -7,7 +7,7 @@ COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -o /out/quillit-svc .
 
 # Runtime stage
-FROM alpine:3.21
+FROM alpine:3.24
 RUN mkdir -p /data
 COPY --from=build /out/quillit-svc /usr/local/bin/quillit-svc
 ENV PORT=3000
