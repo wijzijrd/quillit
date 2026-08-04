@@ -26,6 +26,18 @@ on:
   workflow_dispatch: {}      # manual "Run workflow" button
   push:
     branches: [main]         # auto-deploy on merge/push to main
+    # None of these affect the running docker-compose stack (ui/svc/auth):
+    # cli/ and pkg/ are the CLI + shared content-engine (cli-release.yml
+    # handles those), docs/ is documentation, README.md is the root
+    # readme. A push touching any web-stack path alongside these still
+    # deploys normally — paths-ignore only skips when *every* changed
+    # file matches.
+    paths-ignore:
+      - "cli/**"
+      - "pkg/**"
+      - "docs/**"
+      - ".github/workflows/cli-release.yml"
+      - "README.md"
 
 # Never run two deploys against the box at once.
 concurrency:
