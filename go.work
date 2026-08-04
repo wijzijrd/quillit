@@ -1,0 +1,10 @@
+// If your global GOFLAGS sets -mod=mod, Go workspace mode will refuse to
+// run ("may only be set to readonly or vendor when in workspace mode").
+// Override per-command: GOFLAGS=-mod=readonly go build ./...
+
+go 1.26.3
+
+use (
+	./cli
+	./pkg/contentengine
+)
