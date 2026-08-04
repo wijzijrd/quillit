@@ -5,11 +5,17 @@ name: CLI Release
 #
 #   - Push a tag matching cli-v*.*.* (e.g. cli-v0.1.0). The "cli-" prefix
 #     namespaces this from any future per-component release tags
-#     (content-v*, svc-v*, ...) once #70's granular-deploy split lands.
-#   - workflow_dispatch with a required `version` input, for a manual/
-#     out-of-band release. The "cli-" prefix is added automatically if
-#     you don't include it (e.g. "v0.1.0" and "0.1.0" both become
-#     "cli-v0.1.0").
+#     (content-v*, svc-v*, ...) — see #70's granular-deploy split.
+#   - workflow_dispatch, for a manual/out-of-band run.
+#
+# The version embedded in the binaries (and the release's own tag) is
+# NOT the pushed tag's literal name — it's derived from cli/version.txt
+# plus the current commit's short sha, e.g. version.txt containing
+# "v0.0.1" at commit e6e063e produces version "v0.0.1-e6e063e" and
+# release tag "cli-v0.0.1-e6e063e". This ties every release to the exact
+# source commit it was built from: bump cli/version.txt when you want to
+# mark a new version line, and every build off that commit (or any
+# commit before the next bump) carries a distinct, traceable identifier.
 #
 # Either way, tests run first (cli/ + pkg/contentengine/, since cli
 # depends on it) — nothing untested gets released. A plain push or PR
@@ -21,11 +27,7 @@ on:
   push:
     tags:
       - "cli-v*.*.*"
-  workflow_dispatch:
-    inputs:
-      version:
-        description: 'Version to release, e.g. v0.1.0 (a "cli-" prefix is added automatically if omitted)'
-        required: true
+  workflow_dispatch: {}
 
 jobs:
   prepare:
@@ -35,35 +37,23 @@ jobs:
       version: ${{ steps.version.outputs.version }}
       tag: ${{ steps.version.outputs.tag }}
     steps:
-      # inputs.version (and, in principle, a maliciously-named tag) is
-      # free text supplied by whoever triggers this workflow — routed
-      # through env: rather than interpolated into the script, and
-      # validated against a safe character set before it's used to build
-      # filenames and -ldflags values later in the workflow.
-      - name: Determine version and release tag
+      - uses: actions/checkout@v7
+
+      # Both cli/version.txt's content and the commit sha are repo-
+      # controlled values (a file change requires a real commit, the sha
+      # is git-computed) — no free-text user input flows into this
+      # workflow anymore, unlike the tag-name-parsing / workflow_dispatch
+      # `version` input this replaced.
+      - name: Determine version and release tag from cli/version.txt + commit sha
         id: version
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-          REF_NAME: ${{ github.ref_name }}
-          INPUT_VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
-          if [ "$EVENT_NAME" = "push" ]; then
-            TAG="$REF_NAME"
-          else
-            TAG="$INPUT_VERSION"
-            case "$TAG" in
-              cli-v*) ;;
-              v*) TAG="cli-$TAG" ;;
-              *) TAG="cli-v$TAG" ;;
-            esac
-          fi
-          if ! [[ "$TAG" =~ ^cli-v[A-Za-z0-9.+_-]+$ ]]; then
-            echo "::error::Invalid version/tag '$TAG' — expected cli-v<version>, using only letters, digits, dots, plus, hyphens, underscores."
-            exit 1
-          fi
+          RAW_VERSION="$(tr -d '[:space:]' < cli/version.txt)"
+          SHORT_SHA="$(git rev-parse --short=7 HEAD)"
+          VERSION="${RAW_VERSION}-${SHORT_SHA}"
+          TAG="cli-${VERSION}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
-          echo "version=${TAG#cli-}" >> "$GITHUB_OUTPUT"
 
   test:
     name: Test cli + pkg/contentengine

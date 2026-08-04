@@ -1,6 +1,10 @@
 name: Deploy to home server
 
-# Automated deploy to the self-hosted home server.
+# Automated per-component deploy to the self-hosted home server. Each
+# buildable service (auth, svc, ui, messaging) gets its own test + deploy
+# + smoke-test + rollback path, gated on whether that service's own
+# directory actually changed — a push touching only auth/ rebuilds and
+# restarts only the auth container, leaving svc/ui/messaging untouched.
 #
 # Model: a self-hosted GitHub Actions runner runs ON the home server and polls
 # GitHub over outbound HTTPS — so nothing new is exposed inbound (the server's
@@ -9,7 +13,18 @@ name: Deploy to home server
 # Health gate: because a home server may be powered off, the `preflight` job runs
 # on a GitHub-hosted runner and checks whether the self-hosted runner is online.
 # Server down -> runner offline -> preflight fails fast with a clear message and
-# the deploy never queues.
+# nothing else runs.
+#
+# Rollback is image-based, not git-based: each docker-compose.yml service has
+# an explicit `image: quillit-<service>` tag (no digest suffix, i.e. :latest).
+# Before rebuilding a service, its current image is captured by id; on a
+# failed build/restart/smoke-test, that id is re-tagged back onto
+# quillit-<service> and the container recreated from it. This means a failed
+# auth deploy only ever touches the auth image/container — svc/ui/messaging
+# are never restarted, rebuilt, or rolled back as a side effect. (The
+# previous version of this workflow rolled back via `git reset --hard`
+# against the whole checkout, which cannot be scoped to one component; git
+# now only ever moves forward — the `sync` step below never rolls back.)
 #
 # One-time setup on the server (as the deploy user, inside the setup.sh repo dir):
 #   1. Install & register the runner with the label `quillit`:
@@ -23,15 +38,16 @@ name: Deploy to home server
 #      dir if it is not "$HOME/quillit".
 
 on:
-  workflow_dispatch: {}      # manual "Run workflow" button
+  workflow_dispatch: {}      # manual "Run workflow" button — deploys every component regardless of what changed
   push:
     branches: [main]         # auto-deploy on merge/push to main
-    # None of these affect the running docker-compose stack (ui/svc/auth):
     # cli/ and pkg/ are the CLI + shared content-engine (cli-release.yml
-    # handles those), docs/ is documentation, README.md is the root
-    # readme. A push touching any web-stack path alongside these still
-    # deploys normally — paths-ignore only skips when *every* changed
-    # file matches.
+    # handles those, entirely separate from this docker-compose stack),
+    # docs/ is documentation, README.md is the root readme. A push
+    # touching any web-stack path alongside these still runs this
+    # workflow — paths-ignore only skips when *every* changed file
+    # matches. Per-component skipping within a run that does trigger is
+    # handled by the `changes` job below, not by this top-level filter.
     paths-ignore:
       - "cli/**"
       - "pkg/**"
@@ -65,36 +81,89 @@ jobs:
           fi
           echo "Runner online — proceeding to deploy."
 
-  test:
-    name: Run Go tests (svc + auth)
+  changes:
+    name: Detect changed components
+    runs-on: ubuntu-latest
+    outputs:
+      auth: ${{ steps.filter.outputs.auth }}
+      svc: ${{ steps.filter.outputs.svc }}
+      ui: ${{ steps.filter.outputs.ui }}
+      messaging: ${{ steps.filter.outputs.messaging }}
+    steps:
+      - uses: actions/checkout@v7
+      # Skipped (not run) for workflow_dispatch: there's no meaningful
+      # "before" commit to diff a manual run against, and every job below
+      # that reads these outputs also OR's in
+      # `github.event_name == 'workflow_dispatch'`, so a manual run always
+      # deploys every component regardless of what this step would say —
+      # matching the old workflow's "manual = deploy everything" behavior,
+      # and skipping this step (rather than letting it run and possibly
+      # error with no base ref) keeps the `changes` job itself green.
+      - uses: dorny/paths-filter@v3
+        id: filter
+        if: github.event_name == 'push'
+        with:
+          filters: |
+            auth:
+              - 'auth/**'
+              - 'docker-compose.yml'
+            svc:
+              - 'svc/**'
+              - 'docker-compose.yml'
+            ui:
+              - 'ui/**'
+              - 'docker-compose.yml'
+            messaging:
+              - 'messaging/**'
+              - 'docker-compose.yml'
+
+  test-svc:
+    name: Test svc
+    needs: changes
+    if: needs.changes.outputs.svc == 'true' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with:
-          go-version: '1.26'
+          go-version: "1.26"
+      # GOWORK=off: the repo-root go.work workspace (cli/ + pkg/contentengine/)
+      # gets auto-detected by directory-walk from anywhere in this repo, but
+      # svc isn't a workspace member — left on, `go test ./...` here fails
+      # with "directory prefix . does not contain modules listed in go.work".
       - name: Test svc
         working-directory: svc
+        env:
+          GOWORK: "off"
         run: go test ./...
+
+  test-auth:
+    name: Test auth
+    needs: changes
+    if: needs.changes.outputs.auth == 'true' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: "1.26"
       - name: Test auth
         working-directory: auth
+        env:
+          GOWORK: "off"
         run: go test ./...
 
-  deploy:
-    name: Build, deploy & smoke test
-    needs: [preflight, test]
+  sync:
+    name: Sync repo on server
+    needs: [preflight, changes]
+    if: >
+      needs.changes.outputs.auth == 'true' || needs.changes.outputs.svc == 'true' ||
+      needs.changes.outputs.ui == 'true' || needs.changes.outputs.messaging == 'true' ||
+      github.event_name == 'workflow_dispatch'
     runs-on: [self-hosted, quillit]
-    timeout-minutes: 30
     env:
-      QUILLIT_DIR: ${{ vars.QUILLIT_DIR }}   # empty -> falls back to $HOME/quillit below
+      QUILLIT_DIR: ${{ vars.QUILLIT_DIR }}
     steps:
-      - name: Record current revision (for rollback)
-        run: |
-          set -euo pipefail
-          DIR="${QUILLIT_DIR:-$HOME/quillit}"
-          echo "PREV_SHA=$(git -C "$DIR" rev-parse HEAD)" >> "$GITHUB_ENV"
-          echo "Deploying from: $DIR"
-
       - name: Pull latest main
         run: |
           set -euo pipefail
@@ -102,16 +171,209 @@ jobs:
           cd "$DIR"
           git fetch --prune origin
           git reset --hard origin/main   # gitignored .env / compose.sh / backups are untouched
+          echo "Synced to $(git rev-parse HEAD)"
 
-      - name: Build & start
+  deploy-auth:
+    name: Deploy auth
+    needs: [changes, sync, test-auth]
+    if: >
+      always() && needs.sync.result == 'success' &&
+      (needs.changes.outputs.auth == 'true' || github.event_name == 'workflow_dispatch') &&
+      needs.test-auth.result != 'failure'
+    runs-on: [self-hosted, quillit]
+    timeout-minutes: 15
+    env:
+      QUILLIT_DIR: ${{ vars.QUILLIT_DIR }}
+    steps:
+      - name: Record previous auth image
+        run: |
+          set -euo pipefail
+          echo "PREV_IMAGE_ID=$(docker image inspect --format '{{.Id}}' quillit-auth 2>/dev/null || true)" >> "$GITHUB_ENV"
+
+      - name: Build & restart auth (no dependents touched)
         run: |
           set -euo pipefail
           DIR="${QUILLIT_DIR:-$HOME/quillit}"
           cd "$DIR"
-          ./compose.sh build
-          ./compose.sh up -d --remove-orphans
+          ./compose.sh build auth
+          ./compose.sh up -d --no-deps auth
 
-      - name: Smoke test
+      - name: Smoke test auth
+        run: |
+          set -euo pipefail
+          DIR="${QUILLIT_DIR:-$HOME/quillit}"
+          cd "$DIR"
+          ./compose.sh exec -T auth wget -q -O - http://localhost:3002/healthz
+          echo
+
+      - name: Roll back auth on failure
+        if: failure()
+        run: |
+          set -euo pipefail
+          DIR="${QUILLIT_DIR:-$HOME/quillit}"
+          cd "$DIR"
+          if [ -z "${PREV_IMAGE_ID:-}" ]; then
+            echo "::error::No previous auth image recorded — cannot roll back."
+            exit 1
+          fi
+          echo "::warning::auth deploy or smoke test failed — rolling back"
+          docker tag "$PREV_IMAGE_ID" quillit-auth
+          ./compose.sh up -d --no-deps auth
+          echo "auth rolled back to $PREV_IMAGE_ID."
+
+  deploy-svc:
+    name: Deploy svc
+    needs: [changes, sync, test-svc]
+    if: >
+      always() && needs.sync.result == 'success' &&
+      (needs.changes.outputs.svc == 'true' || github.event_name == 'workflow_dispatch') &&
+      needs.test-svc.result != 'failure'
+    runs-on: [self-hosted, quillit]
+    timeout-minutes: 15
+    env:
+      QUILLIT_DIR: ${{ vars.QUILLIT_DIR }}
+    steps:
+      - name: Record previous svc image
+        run: |
+          set -euo pipefail
+          echo "PREV_IMAGE_ID=$(docker image inspect --format '{{.Id}}' quillit-svc 2>/dev/null || true)" >> "$GITHUB_ENV"
+
+      - name: Build & restart svc (no dependents touched)
+        run: |
+          set -euo pipefail
+          DIR="${QUILLIT_DIR:-$HOME/quillit}"
+          cd "$DIR"
+          ./compose.sh build svc
+          ./compose.sh up -d --no-deps svc
+
+      - name: Smoke test svc
+        run: |
+          set -euo pipefail
+          DIR="${QUILLIT_DIR:-$HOME/quillit}"
+          cd "$DIR"
+          ./compose.sh exec -T svc wget -q -O - http://localhost:3000/healthz
+          echo
+
+      - name: Roll back svc on failure
+        if: failure()
+        run: |
+          set -euo pipefail
+          DIR="${QUILLIT_DIR:-$HOME/quillit}"
+          cd "$DIR"
+          if [ -z "${PREV_IMAGE_ID:-}" ]; then
+            echo "::error::No previous svc image recorded — cannot roll back."
+            exit 1
+          fi
+          echo "::warning::svc deploy or smoke test failed — rolling back"
+          docker tag "$PREV_IMAGE_ID" quillit-svc
+          ./compose.sh up -d --no-deps svc
+          echo "svc rolled back to $PREV_IMAGE_ID."
+
+  deploy-messaging:
+    name: Deploy messaging
+    needs: [changes, sync]
+    if: >
+      always() && needs.sync.result == 'success' &&
+      (needs.changes.outputs.messaging == 'true' || github.event_name == 'workflow_dispatch')
+    runs-on: [self-hosted, quillit]
+    timeout-minutes: 15
+    env:
+      QUILLIT_DIR: ${{ vars.QUILLIT_DIR }}
+    steps:
+      - name: Record previous messaging image
+        run: |
+          set -euo pipefail
+          echo "PREV_IMAGE_ID=$(docker image inspect --format '{{.Id}}' quillit-messaging 2>/dev/null || true)" >> "$GITHUB_ENV"
+
+      - name: Build & restart messaging (no dependents touched)
+        run: |
+          set -euo pipefail
+          DIR="${QUILLIT_DIR:-$HOME/quillit}"
+          cd "$DIR"
+          ./compose.sh build messaging
+          ./compose.sh up -d --no-deps messaging
+
+      - name: Smoke test messaging
+        run: |
+          set -euo pipefail
+          DIR="${QUILLIT_DIR:-$HOME/quillit}"
+          cd "$DIR"
+          ./compose.sh exec -T messaging wget -q -O - http://localhost:3003/healthz
+          echo
+
+      - name: Roll back messaging on failure
+        if: failure()
+        run: |
+          set -euo pipefail
+          DIR="${QUILLIT_DIR:-$HOME/quillit}"
+          cd "$DIR"
+          if [ -z "${PREV_IMAGE_ID:-}" ]; then
+            echo "::error::No previous messaging image recorded — cannot roll back."
+            exit 1
+          fi
+          echo "::warning::messaging deploy or smoke test failed — rolling back"
+          docker tag "$PREV_IMAGE_ID" quillit-messaging
+          ./compose.sh up -d --no-deps messaging
+          echo "messaging rolled back to $PREV_IMAGE_ID."
+
+  deploy-ui:
+    name: Deploy ui
+    needs: [changes, sync]
+    if: >
+      always() && needs.sync.result == 'success' &&
+      (needs.changes.outputs.ui == 'true' || github.event_name == 'workflow_dispatch')
+    runs-on: [self-hosted, quillit]
+    timeout-minutes: 15
+    env:
+      QUILLIT_DIR: ${{ vars.QUILLIT_DIR }}
+    steps:
+      - name: Record previous ui image
+        run: |
+          set -euo pipefail
+          echo "PREV_IMAGE_ID=$(docker image inspect --format '{{.Id}}' quillit-ui 2>/dev/null || true)" >> "$GITHUB_ENV"
+
+      - name: Build & restart ui
+        run: |
+          set -euo pipefail
+          DIR="${QUILLIT_DIR:-$HOME/quillit}"
+          cd "$DIR"
+          ./compose.sh build ui
+          ./compose.sh up -d --no-deps ui
+
+      - name: Smoke test ui
+        run: |
+          set -euo pipefail
+          DIR="${QUILLIT_DIR:-$HOME/quillit}"
+          cd "$DIR"
+          ./compose.sh exec -T ui wget -q -O /dev/null http://localhost:80/
+
+      - name: Roll back ui on failure
+        if: failure()
+        run: |
+          set -euo pipefail
+          DIR="${QUILLIT_DIR:-$HOME/quillit}"
+          cd "$DIR"
+          if [ -z "${PREV_IMAGE_ID:-}" ]; then
+            echo "::error::No previous ui image recorded — cannot roll back."
+            exit 1
+          fi
+          echo "::warning::ui deploy or smoke test failed — rolling back"
+          docker tag "$PREV_IMAGE_ID" quillit-ui
+          ./compose.sh up -d --no-deps ui
+          echo "ui rolled back to $PREV_IMAGE_ID."
+
+  verify-stack:
+    name: Final whole-stack smoke test
+    needs: [preflight, deploy-auth, deploy-svc, deploy-messaging, deploy-ui]
+    # Runs whenever preflight passed and no attempted component deploy
+    # failed — skipped components (not touched by this push) don't block
+    # it, since a skipped job's result is "skipped", not "failure".
+    if: always() && needs.preflight.result == 'success' && !contains(needs.*.result, 'failure')
+    runs-on: [self-hosted, quillit]
+    env:
+      QUILLIT_DIR: ${{ vars.QUILLIT_DIR }}
+    steps:
+      - name: Whole-stack smoke test
         run: |
           set -euo pipefail
           DIR="${QUILLIT_DIR:-$HOME/quillit}"
@@ -124,20 +386,7 @@ jobs:
           echo "auth /healthz..."
           ./compose.sh exec -T auth wget -q -O - http://localhost:3002/healthz
           echo
+          echo "messaging /healthz..."
+          ./compose.sh exec -T messaging wget -q -O - http://localhost:3003/healthz
+          echo
           echo "All health checks passed."
-
-      - name: Roll back on failure
-        if: failure()
-        run: |
-          set -euo pipefail
-          DIR="${QUILLIT_DIR:-$HOME/quillit}"
-          cd "$DIR"
-          if [ -z "${PREV_SHA:-}" ]; then
-            echo "::error::No previous revision recorded — cannot roll back."
-            exit 1
-          fi
-          echo "::warning::Deploy or smoke test failed — rolling back to $PREV_SHA"
-          git reset --hard "$PREV_SHA"
-          ./compose.sh build
-          ./compose.sh up -d --remove-orphans
-          echo "Rolled back to $PREV_SHA."
