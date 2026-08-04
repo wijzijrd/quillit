@@ -21,7 +21,7 @@ variables for your shell itself).
 The new project is created regardless of your current directory, and is
 set as the current project afterward (same effect as running
 "quillit connect <project_name>").`,
-	Args: cobra.ExactArgs(1),
+	Args:    cobra.ExactArgs(1),
 	Example: `  quillit init curse-of-strahd`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name := args[0]

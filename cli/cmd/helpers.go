@@ -5,9 +5,13 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/quillit/cli/internal/home"
+	"github.com/quillit/cli/internal/resolver"
+	"github.com/quillit/contentengine/filter"
+	"github.com/quillit/contentengine/parse"
 )
 
 // requireHome loads $QUILLIT_HOME for commands that need global config but
@@ -53,6 +57,43 @@ func promptForDirectory() (string, error) {
 		return "", fmt.Errorf("no directory given")
 	}
 	return dir, nil
+}
+
+// loadFilteredEntry reads and parses an entry's .md, applies
+// filter.Filter for view, and recompiles the entry's links.conf first if
+// it's stale (CLI spec §7 "compile"'s lazy auto-refresh) — the shared
+// first half of both render's and export's pipelines.
+func loadFilteredEntry(projectRoot, entryPath string, view filter.View, vocabulary []string) (*filter.FilteredEntry, error) {
+	entryDir := filepath.Join(projectRoot, entryPath)
+	name := filepath.Base(entryPath)
+	mdPath := filepath.Join(entryDir, name+".md")
+
+	data, err := os.ReadFile(mdPath)
+	if err != nil {
+		return nil, fmt.Errorf("entry path not found: checked %s", mdPath)
+	}
+	entry, err := parse.Parse(data)
+	if err != nil {
+		return nil, err
+	}
+
+	filtered, err := filter.Filter(entry, view, vocabulary)
+	if err != nil {
+		return nil, err
+	}
+
+	confPath := filepath.Join(entryDir, "links.conf")
+	stale, err := resolver.IsStale(mdPath, confPath)
+	if err != nil {
+		return nil, err
+	}
+	if stale {
+		if _, err := compileOne(projectRoot, entryPath); err != nil {
+			return nil, err
+		}
+	}
+
+	return filtered, nil
 }
 
 // stdinPrompt is the interactive home.Prompter used by `init` when
