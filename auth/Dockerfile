@@ -7,7 +7,7 @@ COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -o /out/quillit-auth-svc .
 
 # Runtime stage
-FROM alpine:3.21
+FROM alpine:3.24
 RUN mkdir -p /data
 COPY --from=build /out/quillit-auth-svc /usr/local/bin/quillit-auth-svc
 ENV PORT=3002
