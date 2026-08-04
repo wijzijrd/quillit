@@ -7,10 +7,10 @@
     </p>
     <form v-else-if="!submitted" class="flex flex-col gap-5" @submit.prevent="submit">
       <FormField label="New password" for="reset-password" required>
-        <Input id="reset-password" v-model="password" type="password" autocomplete="new-password" />
+        <Input id="reset-password" v-model="password" type="password" autocomplete="new-password" required aria-required="true" />
       </FormField>
       <FormField label="Confirm new password" for="reset-confirm" required>
-        <Input id="reset-confirm" v-model="confirm" type="password" autocomplete="new-password" />
+        <Input id="reset-confirm" v-model="confirm" type="password" autocomplete="new-password" required aria-required="true" />
       </FormField>
       <p v-if="error" class="text-sm text-[var(--destructive)]">{{ error }}</p>
       <Button type="submit" :disabled="loading" class="mt-1 w-full">

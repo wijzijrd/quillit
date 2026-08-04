@@ -3,7 +3,7 @@
   <AuthLayout title="Reset your password">
     <form v-if="!submitted" class="flex flex-col gap-5" @submit.prevent="submit">
       <FormField label="Email" for="forgot-email" required>
-        <Input id="forgot-email" v-model="email" type="email" autocomplete="email" placeholder="you@example.com" />
+        <Input id="forgot-email" v-model="email" type="email" autocomplete="email" placeholder="you@example.com" required aria-required="true" />
       </FormField>
       <p v-if="error" class="text-sm text-[var(--destructive)]">{{ error }}</p>
       <Button type="submit" :disabled="loading" class="mt-1 w-full">
@@ -33,8 +33,8 @@ const loading = ref(false)
 const submitted = ref(false)
 
 async function submit() {
-  if (!email.value) return
   error.value = ''
+  if (!email.value) return
   loading.value = true
   try {
     await api('/auth/forgot-password', { method: 'POST', body: { email: email.value } })
