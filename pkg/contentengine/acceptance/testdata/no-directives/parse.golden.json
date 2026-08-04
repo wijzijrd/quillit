@@ -1,0 +1,17 @@
+{
+  "Frontmatter": {
+    "Name": "Waterdeep",
+    "Tags": [
+      "location"
+    ]
+  },
+  "Body": [
+    {
+      "Kind": "prose",
+      "Facet": "",
+      "Content": "# Waterdeep\n\nThe City of Splendors. A sprawling port city on the Sword Coast, home to\nmore secrets than any one person could ever learn.",
+      "Blocks": null,
+      "Links": null
+    }
+  ]
+}

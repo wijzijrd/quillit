@@ -1,0 +1,49 @@
+{
+  "Frontmatter": {
+    "Name": "Tom the Innkeeper",
+    "Tags": [
+      "npc",
+      "waterdeep"
+    ]
+  },
+  "Body": [
+    {
+      "Kind": "prose",
+      "Facet": "",
+      "Content": "# Tom the Innkeeper\n\nTom runs the Gilded Goose inn. He rarely speaks of [[characters/npcs/mary|Mary]].",
+      "Blocks": null,
+      "Links": [
+        {
+          "Path": "characters/npcs/mary",
+          "Label": "Mary"
+        }
+      ]
+    },
+    {
+      "Kind": "secret",
+      "Facet": "",
+      "Content": "Tom is secretly a spy for the Crimson Hand.",
+      "Blocks": null,
+      "Links": null
+    },
+    {
+      "Kind": "card",
+      "Facet": "motivation",
+      "Content": "Wants to buy back his family farm.",
+      "Blocks": null,
+      "Links": null
+    },
+    {
+      "Kind": "card",
+      "Facet": "description",
+      "Content": "Round-faced, ale-stained apron, booming laugh.\nSpouse: [[characters/npcs/mary|Mary]]",
+      "Blocks": null,
+      "Links": [
+        {
+          "Path": "characters/npcs/mary",
+          "Label": "Mary"
+        }
+      ]
+    }
+  ]
+}

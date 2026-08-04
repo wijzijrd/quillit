@@ -6,6 +6,8 @@
 // the quillit/content service, without either depending on the other.
 package parse
 
+import "encoding/json"
+
 // Entry is the parsed representation of one entry's .md file.
 type Entry struct {
 	Frontmatter Frontmatter
@@ -35,6 +37,24 @@ const (
 	// BlockCard is a :::card <facet> ... ::: block (CLI spec §4).
 	BlockCard
 )
+
+// String names a BlockKind ("prose", "secret", "card") — used by
+// MarshalJSON so serialized entries (e.g. golden test fixtures) are
+// readable without memorizing the iota values.
+func (k BlockKind) String() string {
+	switch k {
+	case BlockSecret:
+		return "secret"
+	case BlockCard:
+		return "card"
+	default:
+		return "prose"
+	}
+}
+
+func (k BlockKind) MarshalJSON() ([]byte, error) {
+	return json.Marshal(k.String())
+}
 
 // Block is one piece of entry content, in source order. Blocks nest one
 // level deep: a Secret block's Blocks holds any Card blocks found inside
