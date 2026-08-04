@@ -77,7 +77,7 @@ func parseBlocks(lines []string, start, containerOpenLine int) (blocks []Block, 
 		if content == "" {
 			return
 		}
-		blocks = append(blocks, Block{Kind: BlockProse, Content: content, Links: extractLinks(content)})
+		blocks = append(blocks, Block{Kind: BlockProse, Content: content, Links: ExtractLinks(content)})
 	}
 
 	i := start
@@ -144,8 +144,11 @@ func splitDirect(nested []Block) (content string, childBlocks []Block, links []W
 	return strings.Join(proseParts, "\n\n"), childBlocks, links
 }
 
-// extractLinks finds every [[path]] / [[path|Label]] wikilink in content.
-func extractLinks(content string) []Wikilink {
+// ExtractLinks finds every [[path]] / [[path|Label]] wikilink in content.
+// Exported for reuse by the render package, which needs to re-extract
+// links from raw card content returned by a Resolver (a string, not a
+// parsed Block) when rendering a depth-1 expanded card.
+func ExtractLinks(content string) []Wikilink {
 	matches := wikilinkRe.FindAllStringSubmatch(content, -1)
 	if len(matches) == 0 {
 		return nil
