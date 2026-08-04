@@ -7,6 +7,12 @@
       <FormField label="Password" for="login-password" required>
         <Input id="login-password" v-model="password" type="password" autocomplete="current-password" />
       </FormField>
+      <router-link
+        class="-mt-2 self-end text-sm text-[var(--primary)] hover:underline"
+        :to="{ path: '/forgot-password', query: { email } }"
+      >
+        Forgot password?
+      </router-link>
       <p v-if="error" class="text-sm text-[var(--destructive)]">{{ error }}</p>
       <Button type="submit" :disabled="loading" class="mt-1 w-full">
         {{ loading ? 'Signing in…' : 'Sign in' }}
