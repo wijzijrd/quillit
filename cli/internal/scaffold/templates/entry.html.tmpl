@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>{{.Name}}</title>
+  <link rel="stylesheet" href="{{.Name}}.css">
+</head>
+<body>
+  <!--
+    `quillit render` injects the rendered view's HTML fragment as the
+    content of #quillit-entry-content, replacing this placeholder. Don't
+    remove the id — render looks for it by id, not position.
+  -->
+  <main id="quillit-entry-content">
+    <p><em>Run <code>quillit render {{.Name}}</code> to see this entry rendered.</em></p>
+  </main>
+  <script src="{{.Name}}.js"></script>
+</body>
+</html>

@@ -1,0 +1,21 @@
+// Clipboard-link handler (see docs/cli-spec.md §4 "Links").
+//
+// `quillit render` marks non-expanded / depth-exceeded wikilinks with
+// class="clipboard-link" and a data-quillit-command attribute holding the
+// `quillit render ...` command to copy. This script only wires the click
+// handler — render decides which links get annotated and with what
+// command. Links with no matching card for the requested facet get an
+// extra "clipboard-link--no-card" class instead of failing.
+document.addEventListener("click", (event) => {
+  const target = event.target.closest(".clipboard-link");
+  if (!target) return;
+
+  const command = target.dataset.quillitCommand;
+  if (!command) return;
+
+  event.preventDefault();
+  navigator.clipboard.writeText(command).then(() => {
+    target.classList.add("clipboard-link--copied");
+    setTimeout(() => target.classList.remove("clipboard-link--copied"), 1500);
+  });
+});
