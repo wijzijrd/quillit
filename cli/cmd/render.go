@@ -11,7 +11,6 @@ import (
 
 	"github.com/quillit/cli/internal/resolver"
 	"github.com/quillit/contentengine/filter"
-	"github.com/quillit/contentengine/parse"
 	"github.com/quillit/contentengine/render"
 	"github.com/spf13/cobra"
 )
@@ -51,36 +50,10 @@ is a DM tool.`,
 			return err
 		}
 
-		entryDir := filepath.Join(p.Root, entryPath)
-		name := filepath.Base(entryPath)
-		mdPath := filepath.Join(entryDir, name+".md")
-
-		data, err := os.ReadFile(mdPath)
-		if err != nil {
-			return fmt.Errorf("entry path not found: checked %s", mdPath)
-		}
-		entry, err := parse.Parse(data)
-		if err != nil {
-			return err
-		}
-
 		vocabulary := p.EffectiveFacets(h.Config.Facets)
-		filtered, err := filter.Filter(entry, view, vocabulary)
+		filtered, err := loadFilteredEntry(p.Root, entryPath, view, vocabulary)
 		if err != nil {
 			return err
-		}
-
-		// Lazy auto-refresh (CLI spec §7 "compile"): recompile links.conf
-		// first if the .md is newer (or links.conf doesn't exist yet).
-		confPath := filepath.Join(entryDir, "links.conf")
-		stale, err := resolver.IsStale(mdPath, confPath)
-		if err != nil {
-			return err
-		}
-		if stale {
-			if _, err := compileOne(p.Root, entryPath); err != nil {
-				return err
-			}
 		}
 
 		fragment, err := render.Render(filtered, view, resolver.FS{ProjectRoot: p.Root}, clipboardLinkRenderer)
@@ -88,7 +61,7 @@ is a DM tool.`,
 			return err
 		}
 
-		htmlPath := filepath.Join(entryDir, name+".html")
+		htmlPath := filepath.Join(p.Root, entryPath, filepath.Base(entryPath)+".html")
 		if err := injectFragment(htmlPath, fragment); err != nil {
 			return err
 		}
