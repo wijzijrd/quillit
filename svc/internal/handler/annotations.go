@@ -18,6 +18,12 @@ func NewAnnotations(db *sql.DB, jwtSecret string) *AnnotationsHandler {
 	return &AnnotationsHandler{db: db, jwtSecret: []byte(jwtSecret)}
 }
 
+// NewAnnotationsForTest creates a handler that uses test context for
+// caller ID (see WithTestCallerID) instead of parsing a real JWT.
+func NewAnnotationsForTest(db *sql.DB) *AnnotationsHandler {
+	return &AnnotationsHandler{db: db, jwtSecret: nil}
+}
+
 type Annotation struct {
 	ID           string `json:"id"`
 	EntryID      string `json:"entryId"`
@@ -38,19 +44,50 @@ func scanAnnotation(row interface{ Scan(...any) error }) (Annotation, error) {
 
 // List godoc
 // @Summary      List annotations
+// @Description  Only returns annotations on entries the caller can access (project membership). With entryId, 404s if that entry isn't accessible rather than returning an empty/partial list.
 // @Tags         annotations
 // @Produce      json
 // @Param        entryId  query     string  false  "Filter by entry ID"
 // @Success      200      {array}   Annotation
+// @Failure      401      {object}  ErrorResponse
+// @Failure      404      {object}  ErrorResponse
 // @Router       /api/annotations [get]
 func (h *AnnotationsHandler) List(w http.ResponseWriter, r *http.Request) {
-	q := annoSelect + " WHERE 1=1"
+	callerID, ok := callerIDFromRequest(r, h.jwtSecret)
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	memberProjects, err := callerProjectIDs(r.Context(), h.db, callerID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "db error")
+		return
+	}
+
+	entryID := r.URL.Query().Get("entryId")
+	if entryID != "" {
+		var campaignIDs string
+		err := h.db.QueryRowContext(r.Context(), "SELECT campaign_ids FROM entries WHERE id = ?", entryID).Scan(&campaignIDs)
+		if err != nil || !entryAccessible(json.RawMessage(campaignIDs), memberProjects) {
+			// Same response whether entryId doesn't exist or just isn't
+			// accessible to this caller — doesn't confirm existence.
+			writeError(w, http.StatusNotFound, "entry not found")
+			return
+		}
+	}
+
+	// Joined against entries so every row can be membership-checked in Go
+	// (entryAccessible), same approach as entries.go's List/Get — avoids
+	// a SQL-level json_each array-intersection query, which this codebase
+	// has already gotten wrong once (see share.go's dead fallback path).
+	q := `SELECT a.id, a.entry_id, a.text, a.visibility, a.shared_with, COALESCE(a.author_user_id,''), a.created_at, a.updated_at, e.campaign_ids
+		FROM annotations a JOIN entries e ON e.id = a.entry_id WHERE 1=1`
 	args := []any{}
-	if entryID := r.URL.Query().Get("entryId"); entryID != "" {
-		q += " AND entry_id = ?"
+	if entryID != "" {
+		q += " AND a.entry_id = ?"
 		args = append(args, entryID)
 	}
-	q += " ORDER BY created_at ASC"
+	q += " ORDER BY a.created_at ASC"
 	rows, err := h.db.QueryContext(r.Context(), q, args...)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "db error")
@@ -59,9 +96,15 @@ func (h *AnnotationsHandler) List(w http.ResponseWriter, r *http.Request) {
 	defer rows.Close()
 	annotations := []Annotation{}
 	for rows.Next() {
-		if a, err := scanAnnotation(rows); err == nil {
-			annotations = append(annotations, a)
+		var a Annotation
+		var campaignIDs string
+		if err := rows.Scan(&a.ID, &a.EntryID, &a.Text, &a.Visibility, &a.SharedWith, &a.AuthorUserID, &a.CreatedAt, &a.UpdatedAt, &campaignIDs); err != nil {
+			continue
 		}
+		if !entryAccessible(json.RawMessage(campaignIDs), memberProjects) {
+			continue
+		}
+		annotations = append(annotations, a)
 	}
 	writeJSON(w, http.StatusOK, annotations)
 }
