@@ -1,7 +1,7 @@
 services:
   auth:
     build:
-      context: ./auth
+      context: ../auth
     image: quillit-auth
     volumes:
       - auth-data:/data
@@ -20,7 +20,7 @@ services:
 
   messaging:
     build:
-      context: ./messaging
+      context: ../messaging
     image: quillit-messaging
     environment:
       PORT: 3003
@@ -34,7 +34,7 @@ services:
 
   svc:
     build:
-      context: ./svc
+      context: ../svc
     image: quillit-svc
     volumes:
       - svc-data:/data
@@ -71,7 +71,7 @@ services:
 
   ui:
     build:
-      context: ./ui
+      context: ../ui
     image: quillit-ui
     ports:
       - "8080:80"
