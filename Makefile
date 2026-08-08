@@ -1,6 +1,6 @@
 .PHONY: up down logs ps setup help
 
-COMPOSE ?= docker compose
+COMPOSE ?= docker compose -f infra/docker-compose.yml --project-directory .
 
 up: setup       ## Build and start the full stack (UI at http://localhost:8080)
 	$(COMPOSE) up --build -d

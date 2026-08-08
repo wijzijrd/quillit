@@ -40,7 +40,7 @@ repo, directly on the server.
 | `svc` | `quillit-svc` | **Built locally** — `svc/Dockerfile`: `golang:1.26-alpine` build stage (`CGO_ENABLED=0 GOOS=linux go build`) → `alpine:3.21` runtime. |
 | `auth` | `quillit-auth` | **Built locally** — `auth/Dockerfile`: same multi-stage pattern as `svc`. |
 | `minio` | `minio/minio:latest` | **Pulled** from Docker Hub. |
-| `caddy` | `caddy:alpine` | **Pulled** from Docker Hub — only added when the HTTPS overlay (`docker-compose.caddy.yml`) is used. |
+| `caddy` | `caddy:alpine` | **Pulled** from Docker Hub — only added when the HTTPS overlay (`infra/docker-compose.caddy.yml`) is used. |
 
 Because `svc`/`auth` use multi-stage Dockerfiles, `docker compose build` compiles the
 Go binaries **inside** the build — no Go toolchain needs to be installed on the host,
@@ -74,7 +74,7 @@ What it does, in order:
    sudo ufw --force enable
    ```
    Only **22, 80, 443, and 5353/udp (mDNS)** are ever opened. MinIO (9000/9001) gets no
-   firewall rule because `docker-compose.yml` binds it to `127.0.0.1` only — it's
+   firewall rule because `infra/docker-compose.yml` binds it to `127.0.0.1` only — it's
    unreachable from the network regardless of UFW.
 4. **mDNS (avahi)** — installs `avahi-daemon` if missing and enables it via
    `systemctl enable --now`. This advertises the server at `$(hostname).local` on the
@@ -85,8 +85,8 @@ What it does, in order:
 5. **Interactive prompts**:
    - Server IP or domain (defaults to the detected LAN/public IP).
    - Use HTTPS with Caddy? (y/N) — if yes, sets `CORS_ORIGIN=https://<host>`,
-     `COOKIE_SECURE=true`, rewrites `Caddyfile`'s domain via `sed`, and adds
-     `-f docker-compose.caddy.yml` to the compose flags used for the rest of setup
+     `COOKIE_SECURE=true`, rewrites `infra/Caddyfile`'s domain via `sed`, and adds
+     `-f infra/docker-compose.caddy.yml` to the compose flags used for the rest of setup
      (and baked into `compose.sh`, see below).
    - Admin email (default `admin@quillit.local`).
    - Admin password (blank = auto-generated 20-char alnum string).
@@ -102,8 +102,8 @@ What it does, in order:
    (its port isn't published to the host) for up to 60s, via
    `docker compose exec -T svc wget -q -O /dev/null http://localhost:3000/healthz`.
 10. **Generates `compose.sh`** — a wrapper in the repo root that always includes the
-    right `-f` flags for your install (plain, or `+ -f docker-compose.caddy.yml` if you
-    chose HTTPS). Use this instead of raw `docker compose` from now on. Also
+    right `-f` flags for your install (plain, or `+ -f infra/docker-compose.caddy.yml`
+    if you chose HTTPS). Use this instead of raw `docker compose` from now on. Also
     `chmod +x`'s `backup.sh`.
 
 At the end you'll see the app URL, admin credentials (also saved in `.env`), a LAN
@@ -113,7 +113,7 @@ HTTPS, the app is at **http://YOUR_SERVER_IP:8080**.
 ## 4. Environment variable reference
 
 Only these seven are read from root `.env` (via `${VAR}` substitution in
-`docker-compose.yml`) — everything else the services need is hardcoded in the compose
+`infra/docker-compose.yml`) — everything else the services need is hardcoded in the compose
 file itself and **cannot** be overridden through `.env`.
 
 | Variable | Used by | Notes |
@@ -126,7 +126,7 @@ file itself and **cannot** be overridden through `.env`.
 | `CORS_ORIGIN` | `svc` | The origin the browser uses to reach the app. |
 | `COOKIE_SECURE` | `svc` | `true` when serving over HTTPS, else `false`. |
 
-Hardcoded in `docker-compose.yml` (not `.env`-configurable): `PORT` (3000/3002),
+Hardcoded in `infra/docker-compose.yml` (not `.env`-configurable): `PORT` (3000/3002),
 `DB_PATH` (`/data/quillit.db` / `/data/quillit-auth.db`), `AUTH_SERVICE_URL`
 (`http://auth:3002`), `MINIO_ENDPOINT` (`minio:9000`), `MINIO_BUCKET` (`quillit`),
 `MINIO_USE_SSL` (`false`).
@@ -145,7 +145,7 @@ HTTP/3).
 If you answered "y" to the HTTPS prompt in `setup.sh`, this is already done. To enable
 it manually / after the fact:
 
-1. Edit `Caddyfile`:
+1. Edit `infra/Caddyfile`:
    ```
    your.domain.com {
        reverse_proxy ui:80
@@ -153,7 +153,7 @@ it manually / after the fact:
    ```
    `ui` here is the **Docker Compose service name**, resolved via Docker's embedded
    DNS on the compose network — it must match the service name in
-   `docker-compose.yml`, not the image name (`quillit-ui`).
+   `infra/docker-compose.yml`, not the image name (`quillit-ui`).
 2. Set in `.env`:
    ```
    CORS_ORIGIN=https://your.domain.com
@@ -161,26 +161,26 @@ it manually / after the fact:
    ```
 3. Start with the overlay:
    ```sh
-   docker compose -f docker-compose.yml -f docker-compose.caddy.yml up -d
+   docker compose -f infra/docker-compose.yml -f infra/docker-compose.caddy.yml --project-directory . up -d
    ```
-   `docker-compose.caddy.yml` uses the Compose `!reset []` merge directive to drop
+   `infra/docker-compose.caddy.yml` uses the Compose `!reset []` merge directive to drop
    `ui`'s direct `8080:80` host-port publish (Caddy fronts it instead), and adds the
-   `caddy` service publishing `80/tcp`, `443/tcp`, `443/udp`, with `Caddyfile` mounted
-   read-only and two named volumes (`caddy-data`, `caddy-config`) for its certificate
-   store and config.
+   `caddy` service publishing `80/tcp`, `443/tcp`, `443/udp`, with `infra/Caddyfile`
+   mounted read-only and two named volumes (`caddy-data`, `caddy-config`) for its
+   certificate store and config.
 
 If you ran `setup.sh`, `compose.sh` already has the right `-f` flags baked in — just
 use `./compose.sh up -d` going forward instead of the raw `docker compose` command
 above.
 
-**No public domain, LAN only:** the committed `Caddyfile` already runs in this mode by
+**No public domain, LAN only:** the committed `infra/Caddyfile` already runs in this mode by
 default — `tls internal` instead of ACME, and its address (`{$CADDY_HOST}`) resolved
 from the `CADDY_HOST` env var rather than hardcoded, so nothing in the file itself
 ever needs editing or committing. Set in `.env`:
 ```
 CADDY_HOST=192.168.1.50, quillit.local
 ```
-`Caddyfile.internal.example` documents this same pattern as a reference / reset point.
+`infra/Caddyfile.internal.example` documents this same pattern as a reference / reset point.
 See the README sections "Stable LAN address" and "HTTPS on your local network
 (self-signed, no domain)" for the full walkthrough, including trusting Caddy's
 self-signed root CA on client devices. Whichever address you put in `CADDY_HOST` (a
@@ -202,13 +202,13 @@ backed), `promtail` (ships every running container's logs to Loki), and `grafana
    ```
 2. Start with the overlay (combinable with the Caddy overlay):
    ```sh
-   docker compose -f docker-compose.yml -f docker-compose.logging.yml up -d
+   docker compose -f infra/docker-compose.yml -f infra/docker-compose.logging.yml --project-directory . up -d
    ```
 3. If you used `setup.sh`, edit the generated `compose.sh` to add
-   `-f docker-compose.logging.yml` to its `docker compose ${COMPOSE_FLAGS} "$@"`
+   `-f infra/docker-compose.logging.yml` to its `docker compose ${COMPOSE_FLAGS} "$@"`
    line, so `./compose.sh` includes it on every future invocation.
 
-`promtail-config.yml` uses Docker service discovery (`docker_sd_configs`) against
+`ops/promtail-config.yml` uses Docker service discovery (`docker_sd_configs`) against
 the Docker socket — it needs no fixed list of container names and needs no access
 to `/var/lib/docker/containers`: it pulls logs via the same Docker Engine API that
 `docker logs` uses, over the socket. Each log stream is labeled `service=<compose
@@ -266,7 +266,7 @@ ACLs if you want `accept` instead.
 - `sudo systemctl enable docker` so the Docker daemon starts on boot (do this if you
   didn't use `setup.sh`'s package install, which enables it automatically).
 - No compose changes needed — all four services already set `restart: unless-stopped`
-  in `docker-compose.yml`, so they come back up after a reboot or crash on their own.
+  in `infra/docker-compose.yml`, so they come back up after a reboot or crash on their own.
 - For real power-loss resilience: in BIOS/UEFI, enable **"Restore on AC power loss"**
   so the box powers back on automatically after an outage; a small UPS lets it shut
   down cleanly instead of losing power mid-write.

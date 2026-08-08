@@ -77,7 +77,7 @@ if command -v ufw &>/dev/null; then
     sudo ufw allow 80/tcp            > /dev/null  # HTTP (ACME challenge + redirect)
     sudo ufw allow 443/tcp           > /dev/null  # HTTPS
     sudo ufw allow 5353/udp          > /dev/null  # mDNS (avahi hostname.local advertisement)
-    # MinIO (9000/9001) binds to 127.0.0.1 only in docker-compose.yml.
+    # MinIO (9000/9001) binds to 127.0.0.1 only in infra/docker-compose.yml.
     # Access the console remotely via SSH tunnel:
     #   ssh -L 9001:localhost:9001 user@your-server
     # Then open http://localhost:9001 in your browser.
@@ -118,13 +118,13 @@ if [[ "$USE_HTTPS" =~ ^[Yy]$ ]]; then
     CORS_ORIGIN="https://${HOST}"
     COOKIE_SECURE="true"
     CADDY_HOST="${HOST}"
-    COMPOSE_FLAGS="-f docker-compose.yml -f docker-compose.caddy.yml"
+    COMPOSE_FLAGS="-f infra/docker-compose.yml -f infra/docker-compose.caddy.yml --project-directory ."
     info "Caddy will serve ${HOST} (set via CADDY_HOST in .env — Caddyfile itself never needs editing)"
 else
     CORS_ORIGIN="http://${HOST}:8080"
     COOKIE_SECURE="false"
     CADDY_HOST=""
-    COMPOSE_FLAGS="-f docker-compose.yml"
+    COMPOSE_FLAGS="-f infra/docker-compose.yml --project-directory ."
 fi
 
 prompt "Admin email (default: admin@quillit.local):"

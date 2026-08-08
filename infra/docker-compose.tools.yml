@@ -1,9 +1,9 @@
 # On-demand DB admin overlay. NOT part of the normal stack — start it only when
 # you want to browse/manage the SQLite databases, and stop it afterwards:
 #
-#   docker compose -f docker-compose.yml -f docker-compose.tools.yml up -d sqlite-web-svc sqlite-web-auth
+#   docker compose -f infra/docker-compose.yml -f infra/docker-compose.tools.yml --project-directory . up -d sqlite-web-svc sqlite-web-auth
 #   ...browse http://127.0.0.1:8081 (svc) and http://127.0.0.1:8082 (auth)...
-#   docker compose -f docker-compose.yml -f docker-compose.tools.yml stop sqlite-web-svc sqlite-web-auth
+#   docker compose -f infra/docker-compose.yml -f infra/docker-compose.tools.yml --project-directory . stop sqlite-web-svc sqlite-web-auth
 #
 # Ports are bound to 127.0.0.1 only (sqlite-web has no auth). On the home
 # server, reach them through an SSH tunnel over Tailscale:

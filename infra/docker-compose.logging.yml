@@ -1,7 +1,7 @@
 # Overlay for log aggregation (Loki + Promtail + Grafana).
-# Usage: docker compose -f docker-compose.yml -f docker-compose.logging.yml up -d
+# Usage: docker compose -f infra/docker-compose.yml -f infra/docker-compose.logging.yml --project-directory . up -d
 # Combinable with the Caddy overlay:
-#   docker compose -f docker-compose.yml -f docker-compose.caddy.yml -f docker-compose.logging.yml up -d
+#   docker compose -f infra/docker-compose.yml -f infra/docker-compose.caddy.yml -f infra/docker-compose.logging.yml --project-directory . up -d
 #
 # Requirements: none beyond Docker itself — no new firewall rules, no new public
 # ports. Grafana is bound to 127.0.0.1 only; access it via SSH tunnel (see README).
@@ -11,7 +11,7 @@ services:
     image: grafana/loki:3.6.11
     command: -config.file=/etc/loki/loki-config.yml -config.expand-env=true
     volumes:
-      - ./loki-config.yml:/etc/loki/loki-config.yml:ro
+      - ./ops/loki-config.yml:/etc/loki/loki-config.yml:ro
       - loki-data:/loki
     environment:
       LOKI_RETENTION_DAYS: ${LOKI_RETENTION_DAYS:-14}
@@ -23,7 +23,7 @@ services:
                 # default anyway, pinned explicitly rather than relied on.
     command: -config.file=/etc/promtail/promtail-config.yml
     volumes:
-      - ./promtail-config.yml:/etc/promtail/promtail-config.yml:ro
+      - ./ops/promtail-config.yml:/etc/promtail/promtail-config.yml:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
     depends_on:
       - loki
@@ -33,7 +33,7 @@ services:
     image: grafana/grafana:12.4.5
     volumes:
       - grafana-data:/var/lib/grafana
-      - ./grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./ops/grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
     environment:
       GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
