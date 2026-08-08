@@ -105,16 +105,16 @@ jobs:
         with:
           filters: |
             auth:
-              - 'auth/**'
+              - 'app/auth/**'
               - 'infra/docker-compose.yml'
             svc:
-              - 'svc/**'
+              - 'app/svc/**'
               - 'infra/docker-compose.yml'
             ui:
-              - 'ui/**'
+              - 'app/ui/**'
               - 'infra/docker-compose.yml'
             messaging:
-              - 'messaging/**'
+              - 'app/messaging/**'
               - 'infra/docker-compose.yml'
 
   test-svc:
@@ -132,7 +132,7 @@ jobs:
       # svc isn't a workspace member — left on, `go test ./...` here fails
       # with "directory prefix . does not contain modules listed in go.work".
       - name: Test svc
-        working-directory: svc
+        working-directory: app/svc
         env:
           GOWORK: "off"
         run: go test ./...
@@ -148,7 +148,7 @@ jobs:
         with:
           go-version: "1.26"
       - name: Test auth
-        working-directory: auth
+        working-directory: app/auth
         env:
           GOWORK: "off"
         run: go test ./...
