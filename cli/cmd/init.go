@@ -14,9 +14,10 @@ var initCmd = &cobra.Command{
 
 If $QUILLIT_HOME is unset, or set but its directory is missing, init
 bootstraps the home directory first: it creates the directory, seeds
-config.yaml with the default facet vocabulary, and prints the shell export
-line you need to add to your profile (the CLI cannot persist environment
-variables for your shell itself).
+config.yaml with the default facet vocabulary, and records the chosen
+location so later commands find it automatically, even in a new shell.
+Setting $QUILLIT_HOME yourself still works and takes priority, e.g. to
+override which home a script or CI run uses.
 
 The new project is created regardless of your current directory, and is
 set as the current project afterward (same effect as running
@@ -41,7 +42,7 @@ set as the current project afterward (same effect as running
 			}
 			h = bootstrapped
 			fmt.Println("Bootstrapped quillit home at", h.Path)
-			fmt.Println("Add this to your shell profile so it persists across sessions:")
+			fmt.Println("Future commands will find it automatically. To override (e.g. for scripts/CI), set:")
 			fmt.Println(" ", exportLine)
 		}
 

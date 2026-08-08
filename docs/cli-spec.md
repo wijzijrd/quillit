@@ -195,7 +195,7 @@ All four template files created **from working templates** — fresh entry rende
 - **Home bootstrap**: `$QUILLIT_HOME` unset, or set but directory missing → `init` runs first-time setup before creating project:
   1. Prompt for home location (default `~/quillit`; `$QUILLIT_HOME` set but missing → use its value).
   2. Create directory + `config.yaml` seeded with default global facets (`motivation`, `description`, `history`).
-  3. CLI can't persist env var for user's shell — print exact line for shell profile (e.g. `export QUILLIT_HOME="$HOME/quillit"`) and which file.
+  3. CLI can't set `$QUILLIT_HOME` in the caller's shell directly, so it records the chosen path in a marker file (`~/.quillit-home`) that later commands fall back to when the env var isn't set — no manual export needed for normal use. It also prints the export line (e.g. `export QUILLIT_HOME="$HOME/quillit"`) as an explicit override, e.g. for scripts/CI or pointing at a second home.
 - Project created at `$QUILLIT_HOME/<project_name>` regardless of cwd. Fail if project name exists.
 - After create, set as current project (same effect as `quillit connect <project_name>`).
 
@@ -241,7 +241,7 @@ All four template files created **from working templates** — fresh entry rende
 ### Errors (all commands)
 - No project resolvable (not inside one, no `current_project`): clear error naming fixes (`cd` into project or `quillit connect <project_name>`), except `init`, `connect`, `config`, `version`, `--help`.
 - `current_project` points at dead project: error suggesting `quillit connect` with project list from `$QUILLIT_HOME`.
-- `$QUILLIT_HOME` unset/missing for commands needing global config: error pointing at `quillit init` to bootstrap home.
+- `$QUILLIT_HOME` unset/missing and no marker file (`~/.quillit-home`) from a prior `init` for commands needing global config: error pointing at `quillit init` to bootstrap home.
 - Bad entry path: error stating path checked.
 
 ## 8. Implementation notes

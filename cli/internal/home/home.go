@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -14,6 +15,7 @@ const (
 	EnvVar         = "QUILLIT_HOME"
 	ConfigFileName = "config.yaml"
 	DefaultHomeDir = "quillit"
+	MarkerFileName = ".quillit-home"
 )
 
 // DefaultFacets are seeded into a freshly bootstrapped home's config.yaml.
@@ -41,10 +43,50 @@ func (ErrHomeNotBootstrapped) Error() string {
 	return "$QUILLIT_HOME is not set up yet; run `quillit init <project_name>` to bootstrap it"
 }
 
-// Locate reads $QUILLIT_HOME. ok is false if the env var is unset.
+// Locate resolves the quillit home directory. $QUILLIT_HOME wins when set
+// (letting callers override, e.g. for CI or a second home). Otherwise it
+// falls back to the marker file left by the most recent Bootstrap, so a
+// home persists across shells without requiring the env var to be exported.
 func Locate() (path string, ok bool) {
-	v, set := os.LookupEnv(EnvVar)
-	if !set || v == "" {
+	if v, set := os.LookupEnv(EnvVar); set && v != "" {
+		return v, true
+	}
+	return readMarker()
+}
+
+// markerPath returns the fixed, env-independent location Bootstrap records
+// the chosen home directory at, so later commands can find it without
+// $QUILLIT_HOME being set.
+func markerPath() (string, error) {
+	dir, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("resolving user home directory: %w", err)
+	}
+	return filepath.Join(dir, MarkerFileName), nil
+}
+
+// writeMarker records target as the most recently bootstrapped home.
+func writeMarker(target string) error {
+	path, err := markerPath()
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, []byte(target+"\n"), 0o644)
+}
+
+// readMarker reads back the home path written by writeMarker. ok is false
+// if the marker is missing, unreadable, or empty.
+func readMarker() (path string, ok bool) {
+	markerFile, err := markerPath()
+	if err != nil {
+		return "", false
+	}
+	data, err := os.ReadFile(markerFile)
+	if err != nil {
+		return "", false
+	}
+	v := strings.TrimSpace(string(data))
+	if v == "" {
 		return "", false
 	}
 	return v, true
@@ -113,10 +155,12 @@ type Prompter func(defaultPath string) (string, error)
 //     no prompt.
 //   - $QUILLIT_HOME unset: ask via prompt, defaulting to ~/quillit.
 //
-// It creates the directory and seeds config.yaml with DefaultFacets, then
-// returns the resulting Home plus the shell export line the caller should
-// print (the CLI cannot persist environment variables for the user's shell
-// itself).
+// It creates the directory, seeds config.yaml with DefaultFacets, and
+// records the chosen path in the marker file (see writeMarker) so later
+// commands can find it without $QUILLIT_HOME being set. It also returns the
+// shell export line the caller may print as an explicit override for
+// scripts/CI (the CLI cannot set env vars in the caller's shell, but doesn't
+// need to for normal use — see Locate).
 func Bootstrap(envValue string, envSet bool, prompt Prompter) (h *Home, exportLine string, err error) {
 	var target string
 	switch {
@@ -145,6 +189,10 @@ func Bootstrap(envValue string, envSet bool, prompt Prompter) (h *Home, exportLi
 	if err := h.Save(); err != nil {
 		return nil, "", err
 	}
+
+	// Best-effort: a failed marker write shouldn't fail bootstrap — the
+	// $QUILLIT_HOME env var still works as a fallback for this session.
+	_ = writeMarker(target)
 
 	return h, fmt.Sprintf("export %s=%q", EnvVar, target), nil
 }
