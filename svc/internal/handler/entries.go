@@ -37,6 +37,12 @@ func NewEntriesWithBlobs(db *sql.DB, jwtSecret string, blobs *storage.MinioStore
 	return &EntriesHandler{db: db, jwtSecret: []byte(jwtSecret), blobs: blobs}
 }
 
+// NewEntriesForTest creates a handler that uses test context for caller ID
+// (see WithTestCallerID) instead of parsing a real JWT.
+func NewEntriesForTest(db *sql.DB) *EntriesHandler {
+	return &EntriesHandler{db: db, jwtSecret: nil}
+}
+
 type Entry struct {
 	ID            string          `json:"id"`
 	Title         string          `json:"title"`
@@ -90,11 +96,24 @@ func (h *EntriesHandler) resolveBody(ctx context.Context, e *Entry, bodyKey stri
 
 // List godoc
 // @Summary      List entries
+// @Description  Only returns entries whose campaign_ids intersects a project the caller is a member of.
 // @Tags         entries
 // @Produce      json
 // @Success      200  {array}   Entry
+// @Failure      401  {object}  ErrorResponse
 // @Router       /api/entries [get]
 func (h *EntriesHandler) List(w http.ResponseWriter, r *http.Request) {
+	callerID, ok := callerIDFromRequest(r, h.jwtSecret)
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	memberProjects, err := callerProjectIDs(r.Context(), h.db, callerID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "db error")
+		return
+	}
+
 	rows, err := h.db.QueryContext(r.Context(), entrySelect+" ORDER BY created_at ASC")
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "db error")
@@ -105,6 +124,9 @@ func (h *EntriesHandler) List(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		e, bodyKey, err := scanEntryRaw(rows)
 		if err != nil {
+			continue
+		}
+		if !entryAccessible(e.CampaignIDs, memberProjects) {
 			continue
 		}
 		// Body is fetched from MinIO only for individual Get — list returns inline body or empty.
@@ -118,16 +140,38 @@ func (h *EntriesHandler) List(w http.ResponseWriter, r *http.Request) {
 
 // Get godoc
 // @Summary      Get entry
+// @Description  Only accessible if the entry's campaign_ids intersects a project the caller is a member of.
 // @Tags         entries
 // @Produce      json
 // @Param        id   path      string         true  "Entry ID"
 // @Success      200  {object}  Entry
+// @Failure      401  {object}  ErrorResponse
 // @Failure      404  {object}  ErrorResponse
 // @Router       /api/entries/{id} [get]
 func (h *EntriesHandler) Get(w http.ResponseWriter, r *http.Request) {
+	callerID, ok := callerIDFromRequest(r, h.jwtSecret)
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
 	id := chi.URLParam(r, "id")
 	e, err := h.fetchResolved(r.Context(), id)
 	if err != nil {
+		writeError(w, http.StatusNotFound, "not found")
+		return
+	}
+	memberProjects, err := callerProjectIDs(r.Context(), h.db, callerID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "db error")
+		return
+	}
+	// Same "not found" response whether the entry genuinely doesn't exist
+	// or the caller just can't see it — deliberately doesn't confirm
+	// existence to a non-member, matching the pattern the rest of this
+	// package uses for membership-gated resources (e.g. projects.go's
+	// Update/AddMember/CreateInvite all respond 404 on a failed
+	// membership check, not 403).
+	if !entryAccessible(e.CampaignIDs, memberProjects) {
 		writeError(w, http.StatusNotFound, "not found")
 		return
 	}

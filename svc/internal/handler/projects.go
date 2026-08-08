@@ -1,7 +1,6 @@
 package handler
 
 import (
-	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -9,7 +8,6 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/quillit/svc/internal/middleware"
 )
 
 // projectTypeRoles maps project type → [editorRole, memberRole].
@@ -51,17 +49,9 @@ func NewProjects(db *sql.DB, jwtSecret string) *ProjectsHandler {
 
 // callerID extracts the user ID (sub) from the JWT stored in request context.
 // In tests, a caller ID can be injected directly via WithTestCallerID.
+// (Implementation shared with entries/annotations — see helpers.go.)
 func (h *ProjectsHandler) callerID(r *http.Request) (string, bool) {
-	// Test helper: allow injecting caller ID without JWT.
-	if id, ok := r.Context().Value(testCallerKey{}).(string); ok && id != "" {
-		return id, true
-	}
-	mc, err := middleware.ClaimsFromContext(r.Context(), h.jwtSecret)
-	if err != nil {
-		return "", false
-	}
-	sub, _ := mc["sub"].(string)
-	return sub, sub != ""
+	return callerIDFromRequest(r, h.jwtSecret)
 }
 
 // ── Response types ────────────────────────────────────────────────────────────
@@ -896,11 +886,4 @@ func (h *ProjectsHandler) projectCategoryDefaultTags(r *http.Request, catID stri
 // NewProjectsForTest creates a handler that uses test context for caller ID.
 func NewProjectsForTest(db *sql.DB) *ProjectsHandler {
 	return &ProjectsHandler{db: db, jwtSecret: nil}
-}
-
-type testCallerKey struct{}
-
-// WithTestCallerID injects a caller ID into a request context for tests.
-func WithTestCallerID(ctx context.Context, id string) context.Context {
-	return context.WithValue(ctx, testCallerKey{}, id)
 }
