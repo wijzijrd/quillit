@@ -106,16 +106,16 @@ jobs:
           filters: |
             auth:
               - 'auth/**'
-              - 'docker-compose.yml'
+              - 'infra/docker-compose.yml'
             svc:
               - 'svc/**'
-              - 'docker-compose.yml'
+              - 'infra/docker-compose.yml'
             ui:
               - 'ui/**'
-              - 'docker-compose.yml'
+              - 'infra/docker-compose.yml'
             messaging:
               - 'messaging/**'
-              - 'docker-compose.yml'
+              - 'infra/docker-compose.yml'
 
   test-svc:
     name: Test svc

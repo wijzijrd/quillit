@@ -11,7 +11,8 @@ quillit/
 ├── auth/    Go authentication service
 ├── cli/     quillit CLI — see cli/README.md to download or build it
 ├── pkg/     Shared Go packages (contentengine: parse/filter/render/export, used by cli/)
-├── docker-compose.yml
+├── infra/   docker-compose files + Caddyfile
+├── ops/     Loki/Promtail/Grafana log-aggregation config
 └── setup.sh  (Linux server automated setup)
 ```
 
@@ -40,7 +41,7 @@ Edit `.env` and set at minimum:
 Then start everything:
 
 ```sh
-docker compose up --build -d
+docker compose -f infra/docker-compose.yml --project-directory . up --build -d
 ```
 
 First build takes 2–5 minutes. Once done, open **http://localhost:8080**.
@@ -48,7 +49,7 @@ First build takes 2–5 minutes. Once done, open **http://localhost:8080**.
 To stop:
 
 ```sh
-docker compose down
+docker compose -f infra/docker-compose.yml --project-directory . down
 ```
 
 ---
@@ -79,7 +80,7 @@ After it completes, the app is available at **http://YOUR_SERVER_IP:8080**.
 
 **Requirements:** a domain with an A record pointing at your server's public IP.
 
-1. Edit `Caddyfile` and replace `your.domain.com` with your domain:
+1. Edit `infra/Caddyfile` and replace `your.domain.com` with your domain:
 
    ```
    your.domain.com {
@@ -97,7 +98,7 @@ After it completes, the app is available at **http://YOUR_SERVER_IP:8080**.
 3. Start with the Caddy overlay:
 
    ```sh
-   docker compose -f docker-compose.yml -f docker-compose.caddy.yml up -d
+   docker compose -f infra/docker-compose.yml -f infra/docker-compose.caddy.yml --project-directory . up -d
    ```
 
    Caddy fetches a Let's Encrypt certificate automatically. The app will be available at `https://your.domain.com`.
@@ -125,7 +126,7 @@ No domain, no public DNS, no port-forwarding — just a TLS-encrypted connection
 
 1. Get a stable address first (see "Stable LAN address" above) — a router DHCP reservation, the `<hostname>.local` mDNS alias, or both.
 
-2. Update `.env` — the default `Caddyfile` already reads its address from `CADDY_HOST`, so this is the only file you need to touch (comma-separated if using both a LAN IP and a `.local` alias):
+2. Update `.env` — the default `infra/Caddyfile` already reads its address from `CADDY_HOST`, so this is the only file you need to touch (comma-separated if using both a LAN IP and a `.local` alias):
 
    ```
    CADDY_HOST=192.168.1.50, quillit.local
@@ -133,12 +134,12 @@ No domain, no public DNS, no port-forwarding — just a TLS-encrypted connection
    COOKIE_SECURE=true
    ```
 
-   CORS only accepts a single origin, so pick whichever address you'll actually browse to — the `.local` alias is the more durable choice since it survives even if a DHCP reservation is ever misconfigured. `Caddyfile.internal.example` documents this same pattern if you ever need to reset `Caddyfile` back to it.
+   CORS only accepts a single origin, so pick whichever address you'll actually browse to — the `.local` alias is the more durable choice since it survives even if a DHCP reservation is ever misconfigured. `infra/Caddyfile.internal.example` documents this same pattern if you ever need to reset `infra/Caddyfile` back to it.
 
 3. Start with the same Caddy overlay used for the public-domain path:
 
    ```sh
-   docker compose -f docker-compose.yml -f docker-compose.caddy.yml up -d
+   docker compose -f infra/docker-compose.yml -f infra/docker-compose.caddy.yml --project-directory . up -d
    ```
 
    On first run Caddy generates a local root CA and mints a leaf certificate for the address above — no internet access or domain required.
@@ -146,7 +147,7 @@ No domain, no public DNS, no port-forwarding — just a TLS-encrypted connection
 4. Trust Caddy's root CA on every device that will connect (otherwise browsers show a "not secure" warning):
 
    ```sh
-   docker compose -f docker-compose.yml -f docker-compose.caddy.yml cp caddy:/data/caddy/pki/authorities/local/root.crt ./quillit-lan-root.crt
+   docker compose -f infra/docker-compose.yml -f infra/docker-compose.caddy.yml --project-directory . cp caddy:/data/caddy/pki/authorities/local/root.crt ./quillit-lan-root.crt
    ```
 
    Copy `quillit-lan-root.crt` to each client device, then install it as a trusted root:
@@ -157,7 +158,7 @@ No domain, no public DNS, no port-forwarding — just a TLS-encrypted connection
    - **iOS**: AirDrop/email the file, tap it to install the profile (Settings → General → VPN & Device Management), then enable full trust at Settings → General → About → Certificate Trust Settings.
    - **Android**: Settings → Security → Encryption & credentials → Install a certificate → CA certificate.
 
-Port 80 isn't required for certificate issuance in this mode (there's no ACME challenge), but Caddy still uses it for automatic HTTP→HTTPS redirects, so there's no need to change `docker-compose.caddy.yml` or your firewall rules.
+Port 80 isn't required for certificate issuance in this mode (there's no ACME challenge), but Caddy still uses it for automatic HTTP→HTTPS redirects, so there's no need to change `infra/docker-compose.caddy.yml` or your firewall rules.
 
 </details>
 
@@ -182,16 +183,16 @@ filtered at query time.
 2. Start with the logging overlay:
 
    ```sh
-   docker compose -f docker-compose.yml -f docker-compose.logging.yml up -d
+   docker compose -f infra/docker-compose.yml -f infra/docker-compose.logging.yml --project-directory . up -d
    ```
 
    Combine with the Caddy overlay if you're also using it:
 
    ```sh
-   docker compose -f docker-compose.yml -f docker-compose.caddy.yml -f docker-compose.logging.yml up -d
+   docker compose -f infra/docker-compose.yml -f infra/docker-compose.caddy.yml -f infra/docker-compose.logging.yml --project-directory . up -d
    ```
 
-   If you used `setup.sh`, add `-f docker-compose.logging.yml` to the `docker compose ${COMPOSE_FLAGS}` line inside the generated `compose.sh`, so `./compose.sh` keeps including it going forward.
+   If you used `setup.sh`, add `-f infra/docker-compose.logging.yml` to the `docker compose ${COMPOSE_FLAGS}` line inside the generated `compose.sh`, so `./compose.sh` keeps including it going forward.
 
 3. Access Grafana via SSH tunnel (same pattern as the MinIO console):
 
@@ -216,7 +217,7 @@ Use this when actively developing. Each service runs natively; only MinIO runs i
 ### 1. Start MinIO
 
 ```sh
-docker compose up minio -d
+docker compose -f infra/docker-compose.yml --project-directory . up minio -d
 ```
 
 ### 2. Auth service (port 3002)
@@ -286,7 +287,7 @@ Safe to run while the app is live (SQLite WAL mode).
 
 ```sh
 git pull
-docker compose up --build -d
+docker compose -f infra/docker-compose.yml --project-directory . up --build -d
 ```
 
 **Linux server (after using `setup.sh`):**
