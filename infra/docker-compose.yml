@@ -56,6 +56,18 @@ services:
       - messaging
     restart: unless-stopped
 
+  content:
+    build:
+      context: ..
+      dockerfile: app/content/Dockerfile
+    image: quillit-content
+    volumes:
+      - content-data:/data
+    environment:
+      PORT: 3004
+      DB_PATH: /data/quillit-content.db
+    restart: unless-stopped
+
   minio:
     image: minio/minio:latest
     volumes:
@@ -81,5 +93,6 @@ services:
 
 volumes:
   auth-data:
+  content-data:
   svc-data:
   minio-data:
