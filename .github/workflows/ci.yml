@@ -191,23 +191,42 @@ jobs:
     # skipped job's result is "skipped", not "failure".
     if: always() && needs.preflight.result == 'success' && !contains(needs.*.result, 'failure')
     runs-on: [self-hosted, quillit]
-    env:
-      QUILLIT_DIR: ${{ vars.QUILLIT_DIR }}
     steps:
-      - name: Whole-stack smoke test
+      # `exec` only targets already-running containers of the pinned "quillit"
+      # project — no build/up here — but the Compose CLI still needs a local
+      # docker-compose.yml to resolve service -> container, so this still
+      # needs its own ephemeral checkout rather than assuming a persistent
+      # one exists on disk (it won't, once the manual $HOME/quillit checkout
+      # is retired per #87).
+      - name: Create ephemeral checkout dir
         run: |
           set -euo pipefail
-          DIR="${QUILLIT_DIR:-$HOME/quillit}"
-          cd "$DIR"
+          DIR=$(mktemp -d "${RUNNER_TEMP}/quillit-verify-stack-XXXXXX")
+          echo "CHECKOUT_DIR=$DIR" >> "$GITHUB_ENV"
+          echo "COMPOSE=docker compose -f infra/docker-compose.yml ${{ vars.QUILLIT_COMPOSE_OVERLAYS }} -p quillit --project-directory . --env-file ${{ vars.QUILLIT_ENV_FILE }}" >> "$GITHUB_ENV"
+
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          path: ${{ env.CHECKOUT_DIR }}
+
+      - name: Whole-stack smoke test
+        working-directory: ${{ env.CHECKOUT_DIR }}
+        run: |
+          set -euo pipefail
           echo "UI (internal)..."
-          ./compose.sh exec -T ui wget -q -O /dev/null http://localhost:80/
+          $COMPOSE exec -T ui wget -q -O /dev/null http://localhost:80/
           echo "svc /healthz..."
-          ./compose.sh exec -T svc wget -q -O - http://localhost:3000/healthz
+          $COMPOSE exec -T svc wget -q -O - http://localhost:3000/healthz
           echo
           echo "auth /healthz..."
-          ./compose.sh exec -T auth wget -q -O - http://localhost:3002/healthz
+          $COMPOSE exec -T auth wget -q -O - http://localhost:3002/healthz
           echo
           echo "messaging /healthz..."
-          ./compose.sh exec -T messaging wget -q -O - http://localhost:3003/healthz
+          $COMPOSE exec -T messaging wget -q -O - http://localhost:3003/healthz
           echo
           echo "All health checks passed."
+
+      - name: Clean up ephemeral checkout
+        if: always()
+        run: rm -rf "${{ env.CHECKOUT_DIR }}"

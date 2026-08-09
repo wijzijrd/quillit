@@ -23,26 +23,31 @@ jobs:
     if: always() && needs.validate.result == 'success'
     runs-on: [self-hosted, quillit]
     timeout-minutes: 10
-    env:
-      QUILLIT_DIR: ${{ vars.QUILLIT_DIR }}
     steps:
-      - name: Sync repo on server
+      # Ephemeral per-run checkout, -p quillit pinned — see app-pipeline.yml's
+      # "Create ephemeral checkout dir" step for why the project name must be
+      # pinned explicitly rather than left to Compose's directory-basename default.
+      - name: Create ephemeral checkout dir
         run: |
           set -euo pipefail
-          DIR="${QUILLIT_DIR:-$HOME/quillit}"
-          cd "$DIR"
-          git fetch --prune origin
-          git reset --hard origin/main   # gitignored .env / compose.sh / backups are untouched
-          echo "Synced to $(git rev-parse HEAD)"
+          DIR=$(mktemp -d "${RUNNER_TEMP}/quillit-infra-XXXXXX")
+          echo "CHECKOUT_DIR=$DIR" >> "$GITHUB_ENV"
+          echo "COMPOSE=docker compose -f infra/docker-compose.yml ${{ vars.QUILLIT_COMPOSE_OVERLAYS }} -p quillit --project-directory . --env-file ${{ vars.QUILLIT_ENV_FILE }}" >> "$GITHUB_ENV"
+
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          path: ${{ env.CHECKOUT_DIR }}
 
       # No image to roll back to — Caddy is a pulled image (caddy:alpine),
       # not built from this repo, and the only thing that changes here is
-      # the mounted Caddyfile + compose overlay. `compose.sh` no-ops the
-      # `caddy` service if the caddy overlay isn't part of its baked-in
-      # -f flags on a given server.
+      # the mounted Caddyfile + compose overlay. This fails loudly (rather
+      # than no-op) if the caddy overlay isn't part of QUILLIT_COMPOSE_OVERLAYS
+      # on a given server, since `caddy` wouldn't resolve as a known service.
       - name: Restart caddy
-        run: |
-          set -euo pipefail
-          DIR="${QUILLIT_DIR:-$HOME/quillit}"
-          cd "$DIR"
-          ./compose.sh up -d --no-deps caddy
+        working-directory: ${{ env.CHECKOUT_DIR }}
+        run: $COMPOSE up -d --no-deps caddy
+
+      - name: Clean up ephemeral checkout
+        if: always()
+        run: rm -rf "${{ env.CHECKOUT_DIR }}"
