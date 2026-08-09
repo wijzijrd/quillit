@@ -1,0 +1,213 @@
+name: CI
+
+# Orchestrator for the home-server deploy pipeline. Replaces the old
+# monolithic deploy.yml: this file only does health-gating, path-based
+# change detection, and wiring — the actual test/build/deploy logic for
+# each category lives in its own reusable `workflow_call` workflow
+# (app-pipeline.yml, infra-pipeline.yml, observability-pipeline.yml,
+# operations-pipeline.yml). This consolidates path-filter logic into one
+# place, so a directory rename only ever needs a filter update here
+# instead of being duplicated (and silently drifting) across multiple
+# workflow files.
+#
+# Model: a self-hosted GitHub Actions runner runs ON the home server and polls
+# GitHub over outbound HTTPS — so nothing new is exposed inbound (the server's
+# UFW still only allows 22/80/443).
+#
+# Health gate: because a home server may be powered off, the `preflight` job runs
+# on a GitHub-hosted runner and checks whether the self-hosted runner is online.
+# Server down -> runner offline -> preflight fails fast, and every category
+# pipeline below (which all depend on preflight) never starts.
+#
+# Rollback is image-based, not git-based: each docker-compose.yml service has
+# an explicit `image: quillit-<service>` tag (no digest suffix, i.e. :latest).
+# Before rebuilding a service, its current image is captured by id; on a
+# failed build/restart/smoke-test, that id is re-tagged back onto
+# quillit-<service> and the container recreated from it. This means a failed
+# auth deploy only ever touches the auth image/container — svc/ui/messaging
+# are never restarted, rebuilt, or rolled back as a side effect.
+#
+# One-time setup on the server (as the deploy user, inside the setup.sh repo dir):
+#   1. Install & register the runner with the label `quillit`:
+#        https://github.com/wijzijrd/quillit/settings/actions/runners/new
+#   2. Install it as a systemd service so it survives reboots:
+#        sudo ./svc.sh install <deploy-user> && sudo ./svc.sh start
+#   3. Repo secret  RUNNER_STATUS_TOKEN : a fine-grained PAT scoped to this repo
+#      with "Administration: Read" (needed to query runner status; GITHUB_TOKEN
+#      cannot read the runners list).
+#   4. (optional) Repo variable  QUILLIT_DIR : absolute path to the setup.sh repo
+#      dir if it is not "$HOME/quillit".
+
+on:
+  workflow_dispatch: {}      # manual "Run workflow" button — runs every component regardless of what changed
+  push:
+    branches: [main]         # auto-deploy on merge/push to main
+    # cli/ and pkg/ are the CLI + shared content-engine (cli-release.yml
+    # handles those, entirely separate from this docker-compose stack),
+    # docs/ is documentation, README.md is the root readme. A push
+    # touching any web-stack path alongside these still runs this
+    # workflow — paths-ignore only skips when *every* changed file
+    # matches. Per-component skipping within a run that does trigger is
+    # handled by the `changes` job below, not by this top-level filter.
+    paths-ignore:
+      - "cli/**"
+      - "pkg/**"
+      - "docs/**"
+      - ".github/workflows/cli-release.yml"
+      - "README.md"
+
+# Never run two deploys against the box at once.
+concurrency:
+  group: deploy-home-server
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    name: Health gate — is the server online?
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check self-hosted runner is online
+        env:
+          GH_TOKEN: ${{ secrets.RUNNER_STATUS_TOKEN }}
+        run: |
+          set -euo pipefail
+          echo "Querying runner status for ${{ github.repository }}..."
+          status=$(gh api "repos/${{ github.repository }}/actions/runners" \
+            --jq '.runners[] | select(any(.labels[]; .name == "quillit")) | .status' \
+            | head -n1 || true)
+          echo "Runner status: ${status:-<not registered>}"
+          if [ "$status" != "online" ]; then
+            echo "::error::Home server runner is not online (status: ${status:-not-registered}). Skipping deploy."
+            exit 1
+          fi
+          echo "Runner online — proceeding to deploy."
+
+  changes:
+    name: Detect changed components
+    runs-on: ubuntu-latest
+    outputs:
+      auth: ${{ steps.filter.outputs.auth }}
+      svc: ${{ steps.filter.outputs.svc }}
+      ui: ${{ steps.filter.outputs.ui }}
+      messaging: ${{ steps.filter.outputs.messaging }}
+      infra: ${{ steps.filter.outputs.infra }}
+      observability: ${{ steps.filter.outputs.observability }}
+      operations: ${{ steps.filter.outputs.operations }}
+    steps:
+      - uses: actions/checkout@v7
+      # Skipped (not run) for workflow_dispatch: there's no meaningful
+      # "before" commit to diff a manual run against, and every job below
+      # that reads these outputs also OR's in
+      # `github.event_name == 'workflow_dispatch'`, so a manual run always
+      # runs every component regardless of what this step would say —
+      # matching the old workflow's "manual = deploy everything" behavior,
+      # and skipping this step (rather than letting it run and possibly
+      # error with no base ref) keeps the `changes` job itself green.
+      - uses: dorny/paths-filter@v3
+        id: filter
+        if: github.event_name == 'push'
+        with:
+          filters: |
+            auth:
+              - 'app/auth/**'
+              - 'infra/docker-compose.yml'
+            svc:
+              - 'app/svc/**'
+              - 'infra/docker-compose.yml'
+            ui:
+              - 'app/ui/**'
+              - 'infra/docker-compose.yml'
+            messaging:
+              - 'app/messaging/**'
+              - 'infra/docker-compose.yml'
+            infra:
+              - 'infra/docker-compose.caddy.yml'
+              - 'infra/Caddyfile*'
+            observability:
+              - 'observability/**'
+              - 'infra/docker-compose.logging.yml'
+            operations:
+              - 'operations/**'
+
+  app-auth:
+    name: App pipeline — auth
+    needs: [preflight, changes]
+    if: always() && needs.preflight.result == 'success' && (needs.changes.outputs.auth == 'true' || github.event_name == 'workflow_dispatch')
+    uses: ./.github/workflows/app-pipeline.yml
+    with:
+      service: auth
+      port: 3002
+
+  app-svc:
+    name: App pipeline — svc
+    needs: [preflight, changes]
+    if: always() && needs.preflight.result == 'success' && (needs.changes.outputs.svc == 'true' || github.event_name == 'workflow_dispatch')
+    uses: ./.github/workflows/app-pipeline.yml
+    with:
+      service: svc
+      port: 3000
+
+  app-messaging:
+    name: App pipeline — messaging
+    needs: [preflight, changes]
+    if: always() && needs.preflight.result == 'success' && (needs.changes.outputs.messaging == 'true' || github.event_name == 'workflow_dispatch')
+    uses: ./.github/workflows/app-pipeline.yml
+    with:
+      service: messaging
+      port: 3003
+
+  app-ui:
+    name: App pipeline — ui
+    needs: [preflight, changes]
+    if: always() && needs.preflight.result == 'success' && (needs.changes.outputs.ui == 'true' || github.event_name == 'workflow_dispatch')
+    uses: ./.github/workflows/app-pipeline.yml
+    with:
+      service: ui
+      port: 80
+
+  infra:
+    name: Infra pipeline
+    needs: [preflight, changes]
+    if: always() && needs.preflight.result == 'success' && (needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch')
+    uses: ./.github/workflows/infra-pipeline.yml
+
+  observability:
+    name: Observability pipeline
+    needs: [preflight, changes]
+    if: always() && needs.preflight.result == 'success' && (needs.changes.outputs.observability == 'true' || github.event_name == 'workflow_dispatch')
+    uses: ./.github/workflows/observability-pipeline.yml
+
+  operations:
+    name: Operations pipeline
+    needs: changes
+    if: needs.changes.outputs.operations == 'true' || github.event_name == 'workflow_dispatch'
+    uses: ./.github/workflows/operations-pipeline.yml
+
+  verify-stack:
+    name: Final whole-stack smoke test
+    needs: [preflight, app-auth, app-svc, app-messaging, app-ui]
+    # Runs whenever preflight passed and no attempted app pipeline failed —
+    # skipped components (not touched by this push) don't block it, since a
+    # skipped job's result is "skipped", not "failure".
+    if: always() && needs.preflight.result == 'success' && !contains(needs.*.result, 'failure')
+    runs-on: [self-hosted, quillit]
+    env:
+      QUILLIT_DIR: ${{ vars.QUILLIT_DIR }}
+    steps:
+      - name: Whole-stack smoke test
+        run: |
+          set -euo pipefail
+          DIR="${QUILLIT_DIR:-$HOME/quillit}"
+          cd "$DIR"
+          echo "UI (internal)..."
+          ./compose.sh exec -T ui wget -q -O /dev/null http://localhost:80/
+          echo "svc /healthz..."
+          ./compose.sh exec -T svc wget -q -O - http://localhost:3000/healthz
+          echo
+          echo "auth /healthz..."
+          ./compose.sh exec -T auth wget -q -O - http://localhost:3002/healthz
+          echo
+          echo "messaging /healthz..."
+          ./compose.sh exec -T messaging wget -q -O - http://localhost:3003/healthz
+          echo
+          echo "All health checks passed."

@@ -277,7 +277,7 @@ ACLs if you want `accept` instead.
 
 ## 8. GitHub Actions self-hosted runner
 
-This is what lets `.github/workflows/deploy.yml` deploy to the server automatically.
+This is what lets `.github/workflows/ci.yml` deploy to the server automatically.
 The runner polls GitHub over **outbound HTTPS only** — no inbound port is opened, so
 UFW stays at 22/80/443.
 
@@ -299,8 +299,9 @@ UFW stays at 22/80/443.
    ```sh
    ./config.sh --url https://github.com/wijzijrd/quillit --token <TOKEN> --labels quillit
    ```
-   The label must be exactly `quillit` — `deploy.yml`'s `deploy` job targets
-   `runs-on: [self-hosted, quillit]`.
+   The label must be exactly `quillit` — every `deploy` job in the per-category
+   pipeline workflows (`app-pipeline.yml`, `infra-pipeline.yml`,
+   `observability-pipeline.yml`) targets `runs-on: [self-hosted, quillit]`.
 4. **Install as a systemd service** so it survives reboots and doesn't need a
    logged-in session:
    ```sh
@@ -327,7 +328,7 @@ Actions**):
 - **Secret `RUNNER_STATUS_TOKEN`** *(required)* — a fine-grained personal access
   token, created at `https://github.com/settings/tokens?type=beta`, scoped to **this
   repository only**, with **Administration: Read** permission. `preflight` in
-  `deploy.yml` uses it to check whether the runner is online — the default
+  `ci.yml` uses it to check whether the runner is online — the default
   `GITHUB_TOKEN` can't list runners, so this step is required for the health gate to
   work.
 - **Variable `QUILLIT_COMPOSE_OVERLAYS`** *(required for the ephemeral deploy model)*
@@ -348,15 +349,17 @@ Actions**):
 
 ## 10. Verify end-to-end
 
-1. In GitHub, go to **Actions → Deploy to home server → Run workflow** (manual
-   dispatch).
+1. In GitHub, go to **Actions → CI → Run workflow** (manual dispatch) — this runs
+   every category's pipeline regardless of what changed.
 2. Watch `preflight` — it should report the runner `online` and pass.
-3. Watch `deploy` — pulls `main`, `./compose.sh build`, `./compose.sh up -d
-   --remove-orphans`.
-4. Watch `smoke` — checks `ui` (via `compose.sh exec` against its internal port 80,
-   so it works whether or not `ui` has a host port published), and `/healthz` on
-   `svc` (`:3000`) and `auth` (`:3002`), also via `compose.sh exec`. All three must
-   pass for the job to go green.
+3. Watch each `App pipeline — <service>` job's `deploy` stage — pulls `main`,
+   `./compose.sh build <service>`, `./compose.sh up -d --no-deps <service>`, then a
+   `Smoke test` step: `ui` is checked via `compose.sh exec` against its internal port
+   80 (works whether or not `ui` has a host port published), `svc`/`auth`/`messaging`
+   via `/healthz` on their own ports, also through `compose.sh exec`. All four must
+   pass for `verify-stack` to run.
+4. Watch `verify-stack` — the final whole-stack smoke test, gated on `preflight` plus
+   all four app pipelines succeeding.
 5. **Negative test** — stop the runner (`sudo ./svc.sh stop` in `~/actions-runner`),
    trigger the workflow again, and confirm `preflight` fails fast with
    `Home server runner is not online` instead of the job hanging or queuing

@@ -1,0 +1,48 @@
+name: Infra pipeline
+
+# Reusable workflow for infra/ changes outside the per-service compose file
+# (the Caddy overlay + Caddyfile). infra/docker-compose.yml itself is
+# covered by each app service's own filter in ci.yml, since a base-compose
+# change can affect any service's container.
+
+on:
+  workflow_call: {}
+
+jobs:
+  validate:
+    name: Validate compose config
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: docker compose config (base + caddy overlay)
+        run: docker compose -f infra/docker-compose.yml -f infra/docker-compose.caddy.yml --project-directory . config >/dev/null
+
+  deploy:
+    name: Restart caddy
+    needs: validate
+    if: always() && needs.validate.result == 'success'
+    runs-on: [self-hosted, quillit]
+    timeout-minutes: 10
+    env:
+      QUILLIT_DIR: ${{ vars.QUILLIT_DIR }}
+    steps:
+      - name: Sync repo on server
+        run: |
+          set -euo pipefail
+          DIR="${QUILLIT_DIR:-$HOME/quillit}"
+          cd "$DIR"
+          git fetch --prune origin
+          git reset --hard origin/main   # gitignored .env / compose.sh / backups are untouched
+          echo "Synced to $(git rev-parse HEAD)"
+
+      # No image to roll back to — Caddy is a pulled image (caddy:alpine),
+      # not built from this repo, and the only thing that changes here is
+      # the mounted Caddyfile + compose overlay. `compose.sh` no-ops the
+      # `caddy` service if the caddy overlay isn't part of its baked-in
+      # -f flags on a given server.
+      - name: Restart caddy
+        run: |
+          set -euo pipefail
+          DIR="${QUILLIT_DIR:-$HOME/quillit}"
+          cd "$DIR"
+          ./compose.sh up -d --no-deps caddy

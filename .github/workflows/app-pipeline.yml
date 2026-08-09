@@ -1,0 +1,123 @@
+name: App service pipeline
+
+# Reusable workflow for one app service (auth, svc, messaging, or ui).
+# Called once per service by ci.yml, each with its own `service`/`port`
+# input — every call gets its own independent job graph, so a failing
+# `messaging` test blocks only the `messaging` deploy, never the other
+# three services.
+
+on:
+  workflow_call:
+    inputs:
+      service:
+        description: "Directory name under app/ (auth, svc, messaging, ui)"
+        required: true
+        type: string
+      port:
+        description: "Port the service's /healthz listens on (ui is checked at / on 80 instead)"
+        required: true
+        type: number
+
+jobs:
+  test:
+    name: Test ${{ inputs.service }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Go
+        if: inputs.service != 'ui'
+        uses: actions/setup-go@v7
+        with:
+          go-version: "1.26"
+
+      # GOWORK=off: the repo-root go.work workspace (cli/ + pkg/contentengine/)
+      # gets auto-detected by directory-walk from anywhere in this repo, but
+      # the app services aren't workspace members — left on, `go test ./...`
+      # here fails with "directory prefix . does not contain modules listed
+      # in go.work".
+      - name: Test (go test ./...)
+        if: inputs.service != 'ui'
+        working-directory: app/${{ inputs.service }}
+        env:
+          GOWORK: "off"
+        run: go test ./...
+
+      - name: Set up Node
+        if: inputs.service == 'ui'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        if: inputs.service == 'ui'
+        working-directory: app/ui
+        run: npm ci
+
+      - name: Type check (vue-tsc)
+        if: inputs.service == 'ui'
+        working-directory: app/ui
+        run: npx vue-tsc --noEmit
+
+      - name: Build
+        if: inputs.service == 'ui'
+        working-directory: app/ui
+        run: npm run build
+
+  deploy:
+    name: Deploy ${{ inputs.service }}
+    needs: test
+    if: always() && needs.test.result != 'failure'
+    runs-on: [self-hosted, quillit]
+    timeout-minutes: 15
+    env:
+      QUILLIT_DIR: ${{ vars.QUILLIT_DIR }}
+    steps:
+      - name: Sync repo on server
+        run: |
+          set -euo pipefail
+          DIR="${QUILLIT_DIR:-$HOME/quillit}"
+          cd "$DIR"
+          git fetch --prune origin
+          git reset --hard origin/main   # gitignored .env / compose.sh / backups are untouched
+          echo "Synced to $(git rev-parse HEAD)"
+
+      - name: Record previous image
+        run: |
+          set -euo pipefail
+          echo "PREV_IMAGE_ID=$(docker image inspect --format '{{.Id}}' quillit-${{ inputs.service }} 2>/dev/null || true)" >> "$GITHUB_ENV"
+
+      - name: Build & restart (no dependents touched)
+        run: |
+          set -euo pipefail
+          DIR="${QUILLIT_DIR:-$HOME/quillit}"
+          cd "$DIR"
+          ./compose.sh build ${{ inputs.service }}
+          ./compose.sh up -d --no-deps ${{ inputs.service }}
+
+      - name: Smoke test
+        run: |
+          set -euo pipefail
+          DIR="${QUILLIT_DIR:-$HOME/quillit}"
+          cd "$DIR"
+          if [ "${{ inputs.service }}" = "ui" ]; then
+            ./compose.sh exec -T ui wget -q -O /dev/null http://localhost:80/
+          else
+            ./compose.sh exec -T ${{ inputs.service }} wget -q -O - http://localhost:${{ inputs.port }}/healthz
+            echo
+          fi
+
+      - name: Roll back on failure
+        if: failure()
+        run: |
+          set -euo pipefail
+          DIR="${QUILLIT_DIR:-$HOME/quillit}"
+          cd "$DIR"
+          if [ -z "${PREV_IMAGE_ID:-}" ]; then
+            echo "::error::No previous ${{ inputs.service }} image recorded — cannot roll back."
+            exit 1
+          fi
+          echo "::warning::${{ inputs.service }} deploy or smoke test failed — rolling back"
+          docker tag "$PREV_IMAGE_ID" quillit-${{ inputs.service }}
+          ./compose.sh up -d --no-deps ${{ inputs.service }}
+          echo "${{ inputs.service }} rolled back to $PREV_IMAGE_ID."
