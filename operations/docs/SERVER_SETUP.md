@@ -2,7 +2,7 @@
 
 Zero-to-production runbook for running Quillit on a self-hosted Linux box, including
 the automated GitHub Actions deploy pipeline. For a quick summary see the
-[README](../README.md#option-2--linux-server-recommended); this doc goes step by step.
+[README](../../README.md#option-2--linux-server-recommended); this doc goes step by step.
 
 ## Contents
 
