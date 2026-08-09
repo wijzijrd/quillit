@@ -208,7 +208,7 @@ backed), `promtail` (ships every running container's logs to Loki), and `grafana
    `-f infra/docker-compose.logging.yml` to its `docker compose ${COMPOSE_FLAGS} "$@"`
    line, so `./compose.sh` includes it on every future invocation.
 
-`ops/promtail-config.yml` uses Docker service discovery (`docker_sd_configs`) against
+`observability/promtail-config.yml` uses Docker service discovery (`docker_sd_configs`) against
 the Docker socket — it needs no fixed list of container names and needs no access
 to `/var/lib/docker/containers`: it pulls logs via the same Docker Engine API that
 `docker logs` uses, over the socket. Each log stream is labeled `service=<compose

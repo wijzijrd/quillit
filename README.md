@@ -12,7 +12,7 @@ quillit/
 ├── cli/     quillit CLI — see cli/README.md to download or build it
 ├── pkg/     Shared Go packages (contentengine: parse/filter/render/export, used by cli/)
 ├── infra/   docker-compose files + Caddyfile
-├── ops/     Loki/Promtail/Grafana log-aggregation config
+├── observability/  Loki/Promtail/Grafana log-aggregation config
 └── setup.sh  (Linux server automated setup)
 ```
 
