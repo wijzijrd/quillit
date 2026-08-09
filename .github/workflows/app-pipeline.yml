@@ -72,6 +72,11 @@ jobs:
     timeout-minutes: 15
     steps:
       # Ephemeral per-run checkout instead of a persistent $HOME/quillit clone.
+      # Lives under $GITHUB_WORKSPACE, not $RUNNER_TEMP: actions/checkout
+      # rejects any `path:` that doesn't resolve under the workspace dir
+      # (confirmed the hard way — https://github.com/wijzijrd/quillit/actions/runs/31317960482).
+      # Still fully ephemeral in effect — fresh checkout every run, removed
+      # by the cleanup step below regardless of success/failure.
       # -p quillit is pinned explicitly everywhere below: Compose otherwise
       # derives the project name from the checkout directory's basename, and
       # a mktemp path's basename isn't "quillit" — an unpinned project name
@@ -80,7 +85,7 @@ jobs:
       - name: Create ephemeral checkout dir
         run: |
           set -euo pipefail
-          DIR=$(mktemp -d "${RUNNER_TEMP}/quillit-${{ inputs.service }}-XXXXXX")
+          DIR=$(mktemp -d "${GITHUB_WORKSPACE}/quillit-${{ inputs.service }}-XXXXXX")
           echo "CHECKOUT_DIR=$DIR" >> "$GITHUB_ENV"
           echo "COMPOSE=docker compose -f infra/docker-compose.yml ${{ vars.QUILLIT_COMPOSE_OVERLAYS }} -p quillit --project-directory . --env-file ${{ vars.QUILLIT_ENV_FILE }}" >> "$GITHUB_ENV"
 

@@ -30,7 +30,7 @@ jobs:
       - name: Create ephemeral checkout dir
         run: |
           set -euo pipefail
-          DIR=$(mktemp -d "${RUNNER_TEMP}/quillit-infra-XXXXXX")
+          DIR=$(mktemp -d "${GITHUB_WORKSPACE}/quillit-infra-XXXXXX")
           echo "CHECKOUT_DIR=$DIR" >> "$GITHUB_ENV"
           echo "COMPOSE=docker compose -f infra/docker-compose.yml ${{ vars.QUILLIT_COMPOSE_OVERLAYS }} -p quillit --project-directory . --env-file ${{ vars.QUILLIT_ENV_FILE }}" >> "$GITHUB_ENV"
 
