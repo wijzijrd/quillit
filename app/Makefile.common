@@ -10,7 +10,7 @@ setup:          ## Copy .env.example → .env (skips if already exists)
 		|| (cp .env.example .env && echo "Created .env — edit $(SETUP_HINT) before running")
 
 dev: check-env  ## Run dev server (loads .env automatically)
-	@export $$(cat .env | xargs) && GOFLAGS=-mod=readonly go run .
+	@export $$(cat .env | xargs) && go run .
 
 swagger:        ## Regenerate Swagger docs
 	swag init --parseDependency --parseInternal
