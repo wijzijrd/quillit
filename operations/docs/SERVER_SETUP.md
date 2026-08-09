@@ -36,9 +36,9 @@ repo, directly on the server.
 
 | Service | Image | Source |
 |---|---|---|
-| `ui` | `quillit-ui` | **Built locally** — `ui/Dockerfile`: `node:22-alpine` build stage → `nginx:alpine` runtime, serving the compiled `dist/` via `ui/nginx.conf`. |
-| `svc` | `quillit-svc` | **Built locally** — `svc/Dockerfile`: `golang:1.26-alpine` build stage (`CGO_ENABLED=0 GOOS=linux go build`) → `alpine:3.21` runtime. |
-| `auth` | `quillit-auth` | **Built locally** — `auth/Dockerfile`: same multi-stage pattern as `svc`. |
+| `ui` | `quillit-ui` | **Built locally** — `app/ui/Dockerfile`: `node:22-alpine` build stage → `nginx:alpine` runtime, serving the compiled `dist/` via `app/ui/nginx.conf`. |
+| `svc` | `quillit-svc` | **Built locally** — `app/svc/Dockerfile`: `golang:1.26-alpine` build stage (`CGO_ENABLED=0 GOOS=linux go build`) → `alpine:3.21` runtime. |
+| `auth` | `quillit-auth` | **Built locally** — `app/auth/Dockerfile`: same multi-stage pattern as `svc`. |
 | `minio` | `minio/minio:latest` | **Pulled** from Docker Hub. |
 | `caddy` | `caddy:alpine` | **Pulled** from Docker Hub — only added when the HTTPS overlay (`infra/docker-compose.caddy.yml`) is used. |
 
@@ -131,7 +131,7 @@ Hardcoded in `infra/docker-compose.yml` (not `.env`-configurable): `PORT` (3000/
 (`http://auth:3002`), `MINIO_ENDPOINT` (`minio:9000`), `MINIO_BUCKET` (`quillit`),
 `MINIO_USE_SSL` (`false`).
 
-> Per-service `svc/.env.example` / `auth/.env.example` / `ui/.env.example` are for
+> Per-service `app/svc/.env.example` / `app/auth/.env.example` / `app/ui/.env.example` are for
 > **native/bare-metal dev only** (Option 3 in the README) — they use different values
 > (e.g. `CORS_ORIGIN=http://localhost:5173` for the Vite dev server) and are unrelated
 > to the Docker Compose deployment described here.
@@ -291,7 +291,7 @@ UFW stays at 22/80/443.
    mkdir -p ~/actions-runner && cd ~/actions-runner
    # paste the download + tar -xzf commands from the GitHub page
    ```
-   Keep this outside `~/quillit` — and specifically outside `~/quillit/svc/`, which is
+   Keep this outside `~/quillit` — and specifically outside `~/quillit/app/svc/`, which is
    this repo's own Go service directory and would collide in name with the runner's
    `svc.sh` installer script.
 3. **Register with the `quillit` label** — the config command GitHub gives you accepts

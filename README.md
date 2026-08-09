@@ -6,9 +6,11 @@ A self-hosted worldbuilding and campaign wiki for tabletop RPGs.
 
 ```
 quillit/
-├── ui/      Vue 3 + Vite frontend
-├── svc/     Go backend API
-├── auth/    Go authentication service
+├── app/
+│   ├── ui/         Vue 3 + Vite frontend
+│   ├── svc/        Go backend API
+│   ├── auth/       Go authentication service
+│   └── messaging/  Go email/notification service
 ├── cli/     quillit CLI — see cli/README.md to download or build it
 ├── pkg/     Shared Go packages (contentengine: parse/filter/render/export, used by cli/)
 ├── infra/   docker-compose files + Caddyfile
@@ -223,25 +225,25 @@ docker compose -f infra/docker-compose.yml --project-directory . up minio -d
 ### 2. Auth service (port 3002)
 
 ```sh
-cd auth
+cd app/auth
 make setup   # copies .env.example → .env
-# Edit auth/.env: set JWT_SECRET to any string (must match svc/.env)
+# Edit app/auth/.env: set JWT_SECRET to any string (must match app/svc/.env)
 make dev
 ```
 
 ### 3. Main API (port 3000)
 
 ```sh
-cd svc
+cd app/svc
 make setup   # copies .env.example → .env
-# Edit svc/.env: set JWT_SECRET (same value as auth/.env)
+# Edit app/svc/.env: set JWT_SECRET (same value as app/auth/.env)
 make dev
 ```
 
 ### 4. Frontend (port 5173)
 
 ```sh
-cd ui
+cd app/ui
 npm install
 npm run dev
 ```
@@ -252,7 +254,7 @@ Open **http://localhost:5173**. The Vite dev server proxies `/api` requests to `
 
 ## Configuration reference
 
-All variables live in `.env` at the repo root (Docker) or in `svc/.env` / `auth/.env` (native dev).
+All variables live in `.env` at the repo root (Docker) or in `app/svc/.env` / `app/auth/.env` (native dev).
 
 | Variable | Default | Description |
 |----------|---------|-------------|

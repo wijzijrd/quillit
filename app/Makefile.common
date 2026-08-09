@@ -1,0 +1,25 @@
+# Shared targets for app/{svc,auth,messaging}. Each service's own Makefile
+# sets BINARY and SETUP_HINT, defines its own check-env, then includes this
+# file — the three services validate .env differently (svc checks JWT_SECRET
+# format, auth/messaging just check the file exists), so check-env stays
+# per-service rather than being parameterized here.
+.PHONY: dev build build-linux setup swagger help
+
+setup:          ## Copy .env.example → .env (skips if already exists)
+	@test -f .env && echo ".env already exists, skipping" \
+		|| (cp .env.example .env && echo "Created .env — edit $(SETUP_HINT) before running")
+
+dev: check-env  ## Run dev server (loads .env automatically)
+	@export $$(cat .env | xargs) && go run .
+
+swagger:        ## Regenerate Swagger docs
+	swag init --parseDependency --parseInternal
+
+build:          ## Compile binary for current OS/arch (local dev)
+	go build -o bin/$(BINARY) .
+
+build-linux:    ## Cross-compile binary for Linux (run before docker compose up --build)
+	CGO_ENABLED=0 GOOS=linux go build -o bin/$(BINARY) .
+
+help:           ## Show this help
+	@grep -hE '^[a-zA-Z_-]+:.*##' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*##"}; {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
