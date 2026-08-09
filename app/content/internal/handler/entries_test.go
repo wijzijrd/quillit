@@ -1,0 +1,286 @@
+package handler
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"mime/multipart"
+	"net/http"
+	"net/http/httptest"
+	"net/textproto"
+	"strings"
+	"sync"
+	"testing"
+
+	"github.com/go-chi/chi/v5"
+
+	"github.com/quillit/content-svc/internal/db"
+)
+
+var errObjectNotFound = errors.New("object not found")
+
+// fakeBlobStore is an in-memory BlobStore for tests — no real MinIO needed.
+type fakeBlobStore struct {
+	mu      sync.Mutex
+	objects map[string][]byte
+}
+
+func newFakeBlobStore() *fakeBlobStore {
+	return &fakeBlobStore{objects: map[string][]byte{}}
+}
+
+func (f *fakeBlobStore) Put(_ context.Context, key, _ string, data []byte) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	cp := make([]byte, len(data))
+	copy(cp, data)
+	f.objects[key] = cp
+	return nil
+}
+
+func (f *fakeBlobStore) Get(_ context.Context, key string) ([]byte, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	data, ok := f.objects[key]
+	if !ok {
+		return nil, errObjectNotFound
+	}
+	return data, nil
+}
+
+func (f *fakeBlobStore) Delete(_ context.Context, key string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	delete(f.objects, key)
+	return nil
+}
+
+func (f *fakeBlobStore) DeletePrefix(_ context.Context, prefix string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for k := range f.objects {
+		if strings.HasPrefix(k, prefix) {
+			delete(f.objects, k)
+		}
+	}
+	return nil
+}
+
+func newTestEntriesHandler(t *testing.T) (*EntriesHandler, *fakeBlobStore) {
+	t.Helper()
+	database, err := db.Open(":memory:")
+	if err != nil {
+		t.Fatalf("db.Open: %v", err)
+	}
+	t.Cleanup(func() { database.Close() })
+	blobs := newFakeBlobStore()
+	return NewEntries(database, "", blobs), blobs
+}
+
+// withChiParam builds a request with a chi URL param set, mimicking what
+// chi's router does before invoking a handler — needed since these tests
+// call handler methods directly rather than through a mounted router.
+func withChiParam(req *http.Request, key, value string) *http.Request {
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add(key, value)
+	return req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+}
+
+func createEntry(t *testing.T, h *EntriesHandler, projectID string, reqBody createEntryRequest) Entry {
+	t.Helper()
+	raw, _ := json.Marshal(reqBody)
+	req := httptest.NewRequest(http.MethodPost, "/content/projects/"+projectID+"/entries", strings.NewReader(string(raw)))
+	req = withChiParam(req, "id", projectID)
+	w := httptest.NewRecorder()
+	h.Create(w, req)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("Create() status = %d, body = %s", w.Code, w.Body.String())
+	}
+	var e Entry
+	if err := json.Unmarshal(w.Body.Bytes(), &e); err != nil {
+		t.Fatalf("decode created entry: %v", err)
+	}
+	return e
+}
+
+func TestCreate_ValidEntry(t *testing.T) {
+	h, blobs := newTestEntriesHandler(t)
+	body := "---\nname: Tom the Innkeeper\ntags: [npc]\n---\n\n:::card motivation\nWants his farm back.\n:::\n"
+
+	e := createEntry(t, h, "proj-1", createEntryRequest{Slug: "tom", DirectoryPath: "characters/npcs", Body: body})
+
+	if e.Title != "Tom the Innkeeper" {
+		t.Errorf("Title = %q, want %q", e.Title, "Tom the Innkeeper")
+	}
+	if len(e.Tags) != 1 || e.Tags[0] != "npc" {
+		t.Errorf("Tags = %v, want [npc]", e.Tags)
+	}
+	if e.Body != body {
+		t.Errorf("Body mismatch")
+	}
+	if _, ok := blobs.objects[bodyKey(e.ID)]; !ok {
+		t.Error("expected body.md to be stored in blob storage")
+	}
+}
+
+func TestCreate_UnknownFacetFailsLoud(t *testing.T) {
+	h, _ := newTestEntriesHandler(t)
+	body := ":::card role\nInnkeeper.\n:::\n"
+	raw, _ := json.Marshal(createEntryRequest{Slug: "tom", Body: body})
+	req := httptest.NewRequest(http.MethodPost, "/content/projects/proj-1/entries", strings.NewReader(string(raw)))
+	req = withChiParam(req, "id", "proj-1")
+	w := httptest.NewRecorder()
+
+	h.Create(w, req)
+
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("status = %d, want %d, body = %s", w.Code, http.StatusUnprocessableEntity, w.Body.String())
+	}
+	var resp map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode error response: %v", err)
+	}
+	if resp["facet"] != "role" {
+		t.Errorf("facet = %v, want %q", resp["facet"], "role")
+	}
+	vocab, ok := resp["vocabulary"].([]any)
+	if !ok || len(vocab) == 0 {
+		t.Errorf("vocabulary = %v, want non-empty list naming the effective vocabulary", resp["vocabulary"])
+	}
+}
+
+func TestList_ScopedByProject(t *testing.T) {
+	h, _ := newTestEntriesHandler(t)
+	createEntry(t, h, "proj-a", createEntryRequest{Slug: "mary", Body: "Mary."})
+	createEntry(t, h, "proj-b", createEntryRequest{Slug: "john", Body: "John."})
+
+	req := httptest.NewRequest(http.MethodGet, "/content/projects/proj-a/entries", nil)
+	req = withChiParam(req, "id", "proj-a")
+	w := httptest.NewRecorder()
+	h.List(w, req)
+
+	var entries []EntryMeta
+	if err := json.Unmarshal(w.Body.Bytes(), &entries); err != nil {
+		t.Fatalf("decode list: %v", err)
+	}
+	if len(entries) != 1 || entries[0].Slug != "mary" {
+		t.Errorf("entries = %+v, want just proj-a's \"mary\"", entries)
+	}
+}
+
+func TestGet_ResolvesBody(t *testing.T) {
+	h, _ := newTestEntriesHandler(t)
+	created := createEntry(t, h, "proj-1", createEntryRequest{Slug: "mary", Body: "Mary the merchant."})
+
+	req := httptest.NewRequest(http.MethodGet, "/content/entries/"+created.ID, nil)
+	req = withChiParam(req, "id", created.ID)
+	w := httptest.NewRecorder()
+	h.Get(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
+	}
+	var e Entry
+	_ = json.Unmarshal(w.Body.Bytes(), &e)
+	if e.Body != "Mary the merchant." {
+		t.Errorf("Body = %q, want %q", e.Body, "Mary the merchant.")
+	}
+}
+
+func TestUpdate_RecompilesLinks(t *testing.T) {
+	h, _ := newTestEntriesHandler(t)
+	mary := createEntry(t, h, "proj-1", createEntryRequest{Slug: "mary", DirectoryPath: "characters/npcs", Body: "Mary."})
+	tom := createEntry(t, h, "proj-1", createEntryRequest{Slug: "tom", DirectoryPath: "characters/npcs", Body: "Tom."})
+
+	newBody := "Tom talks about [[characters/npcs/mary|Mary]] often."
+	patch := updateEntryRequest{Body: &newBody}
+	raw, _ := json.Marshal(patch)
+	req := httptest.NewRequest(http.MethodPatch, "/content/entries/"+tom.ID, strings.NewReader(string(raw)))
+	req = withChiParam(req, "id", tom.ID)
+	w := httptest.NewRecorder()
+	h.Update(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
+	}
+
+	var targetID string
+	var resolved bool
+	err := h.db.QueryRow(`SELECT target_entry_id, resolved FROM entry_links WHERE entry_id = ?`, tom.ID).Scan(&targetID, &resolved)
+	if err != nil {
+		t.Fatalf("expected an entry_links row for tom after update: %v", err)
+	}
+	if targetID != mary.ID || !resolved {
+		t.Errorf("entry_links row = (target=%s, resolved=%v), want (target=%s, resolved=true)", targetID, resolved, mary.ID)
+	}
+}
+
+func TestUploadImage_StoresAtConventionalPath(t *testing.T) {
+	h, blobs := newTestEntriesHandler(t)
+	e := createEntry(t, h, "proj-1", createEntryRequest{Slug: "mary", Body: "Mary."})
+
+	var buf strings.Builder
+	mw := multipart.NewWriter(&buf)
+	// multipart.Writer.CreateFormFile always sets Content-Type:
+	// application/octet-stream; use CreatePart directly so the part carries
+	// a real image content type, matching what a browser upload sends.
+	partHeader := textproto.MIMEHeader{}
+	partHeader.Set("Content-Disposition", `form-data; name="image"; filename="portrait.png"`)
+	partHeader.Set("Content-Type", "image/png")
+	part, err := mw.CreatePart(partHeader)
+	if err != nil {
+		t.Fatalf("CreatePart: %v", err)
+	}
+	if _, err := part.Write([]byte("fake-png-bytes")); err != nil {
+		t.Fatalf("write image bytes: %v", err)
+	}
+	if err := mw.Close(); err != nil {
+		t.Fatalf("close multipart writer: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/content/entries/"+e.ID+"/images", strings.NewReader(buf.String()))
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	req = withChiParam(req, "id", e.ID)
+	w := httptest.NewRecorder()
+	h.UploadImage(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
+	}
+	var resp map[string]string
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	wantPrefix := imagesPrefix(e.ID)
+	if !strings.HasPrefix(resp["key"], wantPrefix) {
+		t.Errorf("key = %q, want prefix %q", resp["key"], wantPrefix)
+	}
+	if !strings.HasSuffix(resp["key"], ".png") {
+		t.Errorf("key = %q, want .png extension", resp["key"])
+	}
+	if _, ok := blobs.objects[resp["key"]]; !ok {
+		t.Error("expected image bytes to be stored in blob storage")
+	}
+}
+
+func TestDelete_RemovesRowAndBlobs(t *testing.T) {
+	h, blobs := newTestEntriesHandler(t)
+	e := createEntry(t, h, "proj-1", createEntryRequest{Slug: "mary", Body: "Mary."})
+
+	req := httptest.NewRequest(http.MethodDelete, "/content/entries/"+e.ID, nil)
+	req = withChiParam(req, "id", e.ID)
+	w := httptest.NewRecorder()
+	h.Delete(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
+	}
+	if _, ok := blobs.objects[bodyKey(e.ID)]; ok {
+		t.Error("expected body.md to be removed from blob storage")
+	}
+	var count int
+	_ = h.db.QueryRow(`SELECT COUNT(*) FROM entries WHERE id = ?`, e.ID).Scan(&count)
+	if count != 0 {
+		t.Errorf("expected entries row to be deleted, count = %d", count)
+	}
+}

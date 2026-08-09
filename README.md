@@ -10,7 +10,8 @@ quillit/
 │   ├── ui/         Vue 3 + Vite frontend
 │   ├── svc/        Go backend API
 │   ├── auth/       Go authentication service
-│   └── messaging/  Go email/notification service
+│   ├── messaging/  Go email/notification service
+│   └── content/    Go content-domain service (entries, links, facets, search)
 ├── cli/     quillit CLI — see cli/README.md to download or build it
 ├── pkg/     Shared Go packages (contentengine: parse/filter/render/export, used by cli/)
 ├── infra/   docker-compose files + Caddyfile
@@ -240,7 +241,16 @@ make setup   # copies .env.example → .env
 make dev
 ```
 
-### 4. Frontend (port 5173)
+### 4. Content service (port 3004)
+
+```sh
+cd app/content
+make setup   # copies .env.example → .env
+# Edit app/content/.env: set JWT_SECRET (same value as app/auth/.env and app/svc/.env)
+make dev
+```
+
+### 5. Frontend (port 5173)
 
 ```sh
 cd app/ui
@@ -254,7 +264,7 @@ Open **http://localhost:5173**. The Vite dev server proxies `/api` requests to `
 
 ## Configuration reference
 
-All variables live in `.env` at the repo root (Docker) or in `app/svc/.env` / `app/auth/.env` (native dev).
+All variables live in `.env` at the repo root (Docker) or in `app/svc/.env` / `app/auth/.env` / `app/content/.env` (native dev).
 
 | Variable | Default | Description |
 |----------|---------|-------------|
@@ -277,6 +287,7 @@ All variables live in `.env` at the repo root (Docker) or in `app/svc/.env` / `a
 Creates a timestamped snapshot in `backups/` containing:
 - `quillit.db` — main SQLite database
 - `quillit-auth.db` — auth SQLite database
+- `quillit-content.db` — content SQLite database
 - `minio-<date>.tar.gz` — all uploaded files and entry bodies
 
 Safe to run while the app is live (SQLite WAL mode).

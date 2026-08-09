@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net/http"
@@ -13,11 +14,13 @@ import (
 
 	"github.com/quillit/content-svc/internal/db"
 	"github.com/quillit/content-svc/internal/handler"
+	"github.com/quillit/content-svc/internal/storage"
 )
 
 func main() {
 	port := env("PORT", "3004")
 	dbPath := env("DB_PATH", "./quillit-content.db")
+	jwtSecret := mustEnv("JWT_SECRET")
 
 	database, err := db.Open(dbPath)
 	if err != nil {
@@ -25,8 +28,24 @@ func main() {
 	}
 	defer database.Close()
 
+	// MinIO blob storage (optional — gracefully skipped if not configured,
+	// matching svc/main.go's pattern; entries.Create/Update fail loud at
+	// request time when it's needed but absent).
+	var blobs handler.BlobStore
+	if os.Getenv("MINIO_ENDPOINT") != "" {
+		store, err := storage.NewMinio()
+		if err != nil {
+			log.Printf("minio: init failed (%v) — blob storage disabled", err)
+		} else if err := store.EnsureBucket(context.Background()); err != nil {
+			log.Printf("minio: bucket init failed (%v) — blob storage disabled", err)
+		} else {
+			blobs = store
+			log.Printf("minio: blob storage enabled")
+		}
+	}
+
 	health := handler.NewHealth(database)
-	smoke := handler.NewSmoke()
+	entries := handler.NewEntries(database, jwtSecret, blobs)
 
 	r := chi.NewRouter()
 	r.Use(middleware.Logger)
@@ -35,10 +54,14 @@ func main() {
 	// Health probe — used by the deploy pipeline & uptime monitors
 	r.Get("/healthz", health.Check)
 
-	// Proves pkg/contentengine imports and runs correctly from inside
-	// this service. Remove once #37+ add real content-engine-backed
-	// endpoints.
-	r.Get("/smoke", smoke.Parse)
+	r.Route("/content", func(r chi.Router) {
+		r.Get("/projects/{id}/entries", entries.List)
+		r.Post("/projects/{id}/entries", entries.Create)
+		r.Get("/entries/{id}", entries.Get)
+		r.Patch("/entries/{id}", entries.Update)
+		r.Delete("/entries/{id}", entries.Delete)
+		r.Post("/entries/{id}/images", entries.UploadImage)
+	})
 
 	addr := fmt.Sprintf(":%s", port)
 	log.Printf("quillit-content-svc listening on %s (HTTP/2 cleartext)", addr)
@@ -51,4 +74,12 @@ func env(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+func mustEnv(key string) string {
+	v := os.Getenv(key)
+	if v == "" {
+		log.Fatalf("env var %s is required", key)
+	}
+	return v
 }
