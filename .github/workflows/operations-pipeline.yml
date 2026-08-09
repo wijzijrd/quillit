@@ -1,0 +1,16 @@
+name: Operations pipeline
+
+# Reusable workflow for operations/ changes. Lint-only, no deploy stage:
+# setup.sh/backup.sh run manually on the server, not from CI.
+
+on:
+  workflow_call: {}
+
+jobs:
+  lint:
+    name: Shellcheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: shellcheck operations/*.sh
+        run: shellcheck -S warning operations/*.sh

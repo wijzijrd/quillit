@@ -1,0 +1,45 @@
+name: Observability pipeline
+
+# Reusable workflow for observability/ changes (Loki/Promtail/Grafana
+# config) and the logging compose overlay.
+
+on:
+  workflow_call: {}
+
+jobs:
+  validate:
+    name: Validate compose config
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: docker compose config (base + logging overlay)
+        run: docker compose -f infra/docker-compose.yml -f infra/docker-compose.logging.yml --project-directory . config >/dev/null
+
+  deploy:
+    name: Restart loki/promtail/grafana
+    needs: validate
+    if: always() && needs.validate.result == 'success'
+    runs-on: [self-hosted, quillit]
+    timeout-minutes: 10
+    env:
+      QUILLIT_DIR: ${{ vars.QUILLIT_DIR }}
+    steps:
+      - name: Sync repo on server
+        run: |
+          set -euo pipefail
+          DIR="${QUILLIT_DIR:-$HOME/quillit}"
+          cd "$DIR"
+          git fetch --prune origin
+          git reset --hard origin/main   # gitignored .env / compose.sh / backups are untouched
+          echo "Synced to $(git rev-parse HEAD)"
+
+      # All three are pulled images (grafana/loki, grafana/promtail,
+      # grafana/grafana) — nothing built from this repo, so no image
+      # rollback here. `compose.sh` no-ops these services if the logging
+      # overlay isn't part of its baked-in -f flags on a given server.
+      - name: Restart loki, promtail, grafana
+        run: |
+          set -euo pipefail
+          DIR="${QUILLIT_DIR:-$HOME/quillit}"
+          cd "$DIR"
+          ./compose.sh up -d --no-deps loki promtail grafana

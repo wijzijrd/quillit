@@ -92,9 +92,10 @@ still open, on branch `fix/deploy-hardening-and-logging` (PR #3):
 
 ### Why the Caddyfile is env-var driven
 
-`.github/workflows/deploy.yml`'s `deploy` job runs `git fetch --prune origin && git
-reset --hard origin/main` on every deploy — anything hand-edited into a tracked file
-gets silently reverted on the next deploy. Caddy resolves `{$VAR}` placeholders from
+Every category pipeline's `deploy` job (`app-pipeline.yml`, `infra-pipeline.yml`,
+`observability-pipeline.yml`) runs `git fetch --prune origin && git reset --hard
+origin/main` on every deploy — anything hand-edited into a tracked file gets silently
+reverted on the next deploy. Caddy resolves `{$VAR}` placeholders from
 the container's environment before parsing its config, so `Caddyfile` can stay generic
 and committed while the actual LAN address lives only in this box's gitignored `.env`
 (`CADDY_HOST`), passed through via `infra/docker-compose.caddy.yml`'s `environment:` key.
@@ -119,16 +120,33 @@ anything, or run its own stack. `pop-os` is already running the full app.
 
 ## Git / CI pipeline
 
-`.github/workflows/deploy.yml` ("Deploy to home server"):
+`.github/workflows/ci.yml` ("CI") orchestrates deploys — it's a thin wrapper around
+one reusable `workflow_call` pipeline per category:
 
-- Triggers on push to `main`, or manual dispatch.
+- Triggers on push to `main`, or manual dispatch (manual dispatch runs every
+  category regardless of what changed).
 - `preflight` (GitHub-hosted) — fails fast if the self-hosted runner (label `quillit`)
-  isn't online, so a deploy never hangs waiting on a powered-off home server.
-- `test` (GitHub-hosted) — `go test ./...` for `svc` and `auth`.
-- `deploy` (runs **on** `pop-os` itself, via the self-hosted runner) — hard-resets the
-  checkout to `origin/main`, rebuilds/restarts via `./compose.sh`, smoke-tests `ui`,
-  `svc /healthz`, `auth /healthz`, and rolls back to the previous commit automatically
-  if any of that fails.
+  isn't online, so a deploy never hangs waiting on a powered-off home server. Every
+  category pipeline below depends on it.
+- `changes` (GitHub-hosted) — a single `dorny/paths-filter` step detects which of
+  `auth`/`svc`/`ui`/`messaging`/`infra`/`observability`/`operations` changed; `ci.yml`
+  only calls the pipelines for components that actually changed (or all of them, on
+  manual dispatch).
+- `app-pipeline.yml` (called once per service: auth, svc, messaging, ui) — `test`
+  (GitHub-hosted: `go test ./...` for the Go services, `vue-tsc --noEmit` + `npm run
+  build` for `ui`) then `deploy` (runs **on** `pop-os` itself, via the self-hosted
+  runner) — hard-resets the checkout to `origin/main`, rebuilds/restarts that one
+  service via `./compose.sh`, smoke-tests it (`/healthz` for auth/svc/messaging, `/`
+  for ui), and rolls back to the previous image automatically if any of that fails. A
+  failing test or deploy for one service never touches the other three.
+- `infra-pipeline.yml` / `observability-pipeline.yml` — validate the relevant
+  `docker compose config`, then (on the self-hosted runner) restart Caddy or
+  Loki/Promtail/Grafana respectively. Both are pulled images, not built from this
+  repo, so there's no image rollback step for them.
+- `operations-pipeline.yml` — lint-only (`shellcheck`) on `operations/*.sh`, no
+  deploy stage.
+- `verify-stack` (runs **on** `pop-os`) — final whole-stack smoke test, gated on
+  `preflight` plus all four app pipelines succeeding.
 - No inbound port is opened for CI — the runner polls GitHub outbound only; UFW stays
   at 22/80/443.
 

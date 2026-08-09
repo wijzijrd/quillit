@@ -304,15 +304,19 @@ git pull
 
 ## Automated deploys (CI/CD)
 
-`.github/workflows/deploy.yml` deploys to the home server on every push to `main`
-(or via the **Run workflow** button). Because a home server may be off, a
-GitHub-hosted **health gate** first checks that the server's runner is online and
-fails fast if it isn't — no half-applied deploys, no jobs stuck in a queue.
+`.github/workflows/ci.yml` orchestrates deploys to the home server on every push to
+`main` (or via the **Run workflow** button). It's a thin wrapper: a `preflight`
+health gate, a single path-filter that detects which components changed, and calls
+into one reusable pipeline per category — `app-pipeline.yml` (auth/svc/messaging/ui,
+one instance per service), `infra-pipeline.yml` (Caddy), `observability-pipeline.yml`
+(Loki/Promtail/Grafana), `operations-pipeline.yml` (lint-only). Because a home server
+may be off, the health gate first checks that the server's runner is online and fails
+fast if it isn't — no half-applied deploys, no jobs stuck in a queue.
 
 A **self-hosted runner** on the server polls GitHub over outbound HTTPS, so nothing
-new is exposed inbound (UFW still only allows 22/80/443). The pipeline pulls `main`
-in the `operations/setup.sh` repo dir, rebuilds, restarts, runs `/healthz` smoke tests, and
-**rolls back** to the previous commit if they fail.
+new is exposed inbound (UFW still only allows 22/80/443). Each app service's pipeline
+pulls `main` in the `operations/setup.sh` repo dir, rebuilds, restarts, runs
+`/healthz` smoke tests, and **rolls back** to the previous commit if they fail.
 
 **One-time setup on the server** (as the deploy user, in the repo dir):
 
