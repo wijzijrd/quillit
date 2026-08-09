@@ -211,9 +211,9 @@ jobs:
           path: ${{ env.CHECKOUT_DIR }}
 
       - name: Whole-stack smoke test
-        working-directory: ${{ env.CHECKOUT_DIR }}
         run: |
           set -euo pipefail
+          cd "$CHECKOUT_DIR"
           echo "UI (internal)..."
           $COMPOSE exec -T ui wget -q -O /dev/null http://localhost:80/
           echo "svc /healthz..."

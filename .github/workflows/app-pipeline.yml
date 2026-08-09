@@ -100,16 +100,16 @@ jobs:
           echo "PREV_IMAGE_ID=$(docker image inspect --format '{{.Id}}' quillit-${{ inputs.service }} 2>/dev/null || true)" >> "$GITHUB_ENV"
 
       - name: Build & restart (no dependents touched)
-        working-directory: ${{ env.CHECKOUT_DIR }}
         run: |
           set -euo pipefail
+          cd "$CHECKOUT_DIR"
           $COMPOSE build ${{ inputs.service }}
           $COMPOSE up -d --no-deps ${{ inputs.service }}
 
       - name: Smoke test
-        working-directory: ${{ env.CHECKOUT_DIR }}
         run: |
           set -euo pipefail
+          cd "$CHECKOUT_DIR"
           if [ "${{ inputs.service }}" = "ui" ]; then
             $COMPOSE exec -T ui wget -q -O /dev/null http://localhost:80/
           else
@@ -119,9 +119,9 @@ jobs:
 
       - name: Roll back on failure
         if: failure()
-        working-directory: ${{ env.CHECKOUT_DIR }}
         run: |
           set -euo pipefail
+          cd "$CHECKOUT_DIR"
           if [ -z "${PREV_IMAGE_ID:-}" ]; then
             echo "::error::No previous ${{ inputs.service }} image recorded — cannot roll back."
             exit 1

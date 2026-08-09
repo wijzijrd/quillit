@@ -45,8 +45,7 @@ jobs:
       # than no-op) if the caddy overlay isn't part of QUILLIT_COMPOSE_OVERLAYS
       # on a given server, since `caddy` wouldn't resolve as a known service.
       - name: Restart caddy
-        working-directory: ${{ env.CHECKOUT_DIR }}
-        run: $COMPOSE up -d --no-deps caddy
+        run: cd "$CHECKOUT_DIR" && $COMPOSE up -d --no-deps caddy
 
       - name: Clean up ephemeral checkout
         if: always()
