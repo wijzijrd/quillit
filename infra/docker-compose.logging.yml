@@ -11,7 +11,7 @@ services:
     image: grafana/loki:3.6.11
     command: -config.file=/etc/loki/loki-config.yml -config.expand-env=true
     volumes:
-      - ./ops/loki-config.yml:/etc/loki/loki-config.yml:ro
+      - ./observability/loki-config.yml:/etc/loki/loki-config.yml:ro
       - loki-data:/loki
     environment:
       LOKI_RETENTION_DAYS: ${LOKI_RETENTION_DAYS:-14}
@@ -23,7 +23,7 @@ services:
                 # default anyway, pinned explicitly rather than relied on.
     command: -config.file=/etc/promtail/promtail-config.yml
     volumes:
-      - ./ops/promtail-config.yml:/etc/promtail/promtail-config.yml:ro
+      - ./observability/promtail-config.yml:/etc/promtail/promtail-config.yml:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
     depends_on:
       - loki
@@ -33,7 +33,7 @@ services:
     image: grafana/grafana:12.4.5
     volumes:
       - grafana-data:/var/lib/grafana
-      - ./ops/grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./observability/grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
     environment:
       GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
