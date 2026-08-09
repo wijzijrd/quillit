@@ -5,7 +5,7 @@ set -euo pipefail
 # Backs up SQLite databases (auth + main) and MinIO blob data.
 # Run from the repo root. Safe to run while services are live (SQLite WAL mode).
 
-REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DATE=$(date +%Y-%m-%d_%H-%M-%S)
 BACKUP_DIR="${REPO_DIR}/backups/${DATE}"
 

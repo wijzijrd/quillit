@@ -2,7 +2,7 @@
 
 Zero-to-production runbook for running Quillit on a self-hosted Linux box, including
 the automated GitHub Actions deploy pipeline. For a quick summary see the
-[README](../README.md#option-2--linux-server-recommended); this doc goes step by step.
+[README](../../README.md#option-2--linux-server-recommended); this doc goes step by step.
 
 ## Contents
 
@@ -208,7 +208,7 @@ backed), `promtail` (ships every running container's logs to Loki), and `grafana
    `-f infra/docker-compose.logging.yml` to its `docker compose ${COMPOSE_FLAGS} "$@"`
    line, so `./compose.sh` includes it on every future invocation.
 
-`ops/promtail-config.yml` uses Docker service discovery (`docker_sd_configs`) against
+`observability/promtail-config.yml` uses Docker service discovery (`docker_sd_configs`) against
 the Docker socket — it needs no fixed list of container names and needs no access
 to `/var/lib/docker/containers`: it pulls logs via the same Docker Engine API that
 `docker logs` uses, over the socket. Each log stream is labeled `service=<compose
@@ -330,8 +330,21 @@ Actions**):
   `deploy.yml` uses it to check whether the runner is online — the default
   `GITHUB_TOKEN` can't list runners, so this step is required for the health gate to
   work.
-- **Variable `QUILLIT_DIR`** *(optional)* — absolute path to the app checkout on the
-  server, only needed if it isn't at `$HOME/quillit`.
+- **Variable `QUILLIT_COMPOSE_OVERLAYS`** *(required for the ephemeral deploy model)*
+  — space-separated `-f` flags for any compose overlays beyond the base
+  `infra/docker-compose.yml`, e.g. `-f infra/docker-compose.caddy.yml -f
+  infra/docker-compose.logging.yml`. Read by the deploy workflows in place of the
+  flags that used to be hardcoded into `compose.sh` at install time — the mechanism
+  that silently broke on the last directory restructure (see `CURRENT_STATE.md`).
+- **Variable `QUILLIT_ENV_FILE`** *(required for the ephemeral deploy model)* —
+  absolute path to the persistent `.env` file on the server, e.g.
+  `/home/<deploy-user>/quillit-secrets/.env`. An ephemeral per-run checkout has no
+  stable location of its own to read secrets from, so this points at a directory
+  that survives outside any checkout.
+- **Variable `QUILLIT_DIR`** *(optional, human-only)* — absolute path to a manual-ops
+  checkout on the server, if you keep one. No longer read by the CI pipeline itself
+  under the ephemeral checkout model — deploys use `QUILLIT_COMPOSE_OVERLAYS` and
+  `QUILLIT_ENV_FILE` above instead.
 
 ## 10. Verify end-to-end
 

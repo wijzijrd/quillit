@@ -12,7 +12,7 @@ warn()    { echo -e "${YELLOW}[!]${NC} $*"; }
 error()   { echo -e "${RED}[x]${NC} $*" >&2; exit 1; }
 prompt()  { echo -e "${BOLD}[?]${NC} $*"; }
 
-REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 # ── 1. OS check ───────────────────────────────────────────────────────────────
 if ! grep -qiE 'ubuntu|debian' /etc/os-release 2>/dev/null; then

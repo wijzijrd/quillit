@@ -2,7 +2,7 @@
 
 Where the self-hosted LAN setup actually stands right now, on the box it's actually
 running on (`pop-os`). This is a status snapshot, not a runbook — for step-by-step
-instructions see [SERVER_SETUP.md](SERVER_SETUP.md) and the [README](../README.md).
+instructions see [SERVER_SETUP.md](SERVER_SETUP.md) and the [README](../../README.md).
 
 ## Architecture at a glance
 
