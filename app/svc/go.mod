@@ -7,11 +7,17 @@ require (
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/gorilla/websocket v1.5.3
 	github.com/minio/minio-go/v7 v7.2.1
+	github.com/quillit/contentengine v0.0.0
 	github.com/swaggo/http-swagger v1.3.4
 	github.com/swaggo/swag v1.16.6
 	golang.org/x/net v0.57.0
+	gopkg.in/yaml.v3 v3.0.1
 	modernc.org/sqlite v1.55.0
 )
+
+// Resolved locally via the repo-root go.work workspace, not published —
+// see that file's comment for the version string this line needs.
+replace github.com/quillit/contentengine => ../../pkg/contentengine
 
 require (
 	github.com/KyleBanks/depth v1.2.1 // indirect
