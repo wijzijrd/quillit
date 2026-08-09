@@ -203,7 +203,7 @@ jobs:
           set -euo pipefail
           DIR=$(mktemp -d "${GITHUB_WORKSPACE}/quillit-verify-stack-XXXXXX")
           echo "CHECKOUT_DIR=$DIR" >> "$GITHUB_ENV"
-          echo "COMPOSE=docker compose -f infra/docker-compose.yml ${{ vars.QUILLIT_COMPOSE_OVERLAYS }} -p quillit --project-directory . --env-file ${{ vars.QUILLIT_ENV_FILE }}" >> "$GITHUB_ENV"
+          echo "COMPOSE=docker compose -f infra/docker-compose.yml ${{ vars.QUILLIT_COMPOSE_OVERLAYS }} -p quillit --env-file ${{ vars.QUILLIT_ENV_FILE }}" >> "$GITHUB_ENV"
 
       - name: Checkout
         uses: actions/checkout@v7
