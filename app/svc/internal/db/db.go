@@ -94,6 +94,11 @@ func migrate(db *sql.DB) error {
 			return fmt.Errorf("schema v6: %w", err)
 		}
 	}
+	if version < 7 {
+		if err := toV7(db); err != nil {
+			return fmt.Errorf("schema v7: %w", err)
+		}
+	}
 	return nil
 }
 
@@ -311,7 +316,7 @@ func toV2(db *sql.DB) error {
 		return err
 	}
 	defer db.Exec("PRAGMA legacy_alter_table=OFF") //nolint:errcheck
-	defer db.Exec("PRAGMA foreign_keys=ON")         //nolint:errcheck
+	defer db.Exec("PRAGMA foreign_keys=ON")        //nolint:errcheck
 
 	tx, err := db.Begin()
 	if err != nil {
@@ -536,6 +541,130 @@ func toV6(db *sql.DB) error {
 		return err
 	}
 	return tx.Commit()
+}
+
+// toV7 adds the CLI-aligned entry model alongside the legacy one: slug/directory_path/
+// project_id on entries, the facets vocabulary, and the compiled wikilink index
+// (entry_links). Additive only — nothing is dropped or backfilled here; that happens
+// once content migration (#34/#35) has run.
+func toV7(db *sql.DB) error {
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if err := addColumnIfMissing(tx, "entries", "slug", "TEXT"); err != nil {
+		return fmt.Errorf("add slug column: %w", err)
+	}
+	if err := addColumnIfMissing(tx, "entries", "directory_path", "TEXT"); err != nil {
+		return fmt.Errorf("add directory_path column: %w", err)
+	}
+	if err := addColumnIfMissing(tx, "entries", "project_id", "TEXT"); err != nil {
+		return fmt.Errorf("add project_id column: %w", err)
+	}
+
+	if _, err := tx.Exec(`
+		CREATE TABLE IF NOT EXISTS facets (
+			name TEXT PRIMARY KEY
+				CHECK (name <> '' AND name NOT GLOB '*[^a-z0-9-]*')
+		)
+	`); err != nil {
+		return fmt.Errorf("create facets: %w", err)
+	}
+
+	if _, err := tx.Exec(`
+		CREATE TABLE IF NOT EXISTS project_facets (
+			project_id TEXT NOT NULL,
+			name       TEXT NOT NULL
+				CHECK (name <> '' AND name NOT GLOB '*[^a-z0-9-]*'),
+			UNIQUE(project_id, name)
+		)
+	`); err != nil {
+		return fmt.Errorf("create project_facets: %w", err)
+	}
+
+	if _, err := tx.Exec(`
+		CREATE TABLE IF NOT EXISTS entry_links (
+			entry_id        TEXT    NOT NULL REFERENCES entries(id) ON DELETE CASCADE,
+			target_path     TEXT    NOT NULL,
+			target_entry_id TEXT,
+			label           TEXT    NOT NULL DEFAULT '',
+			card_facet      TEXT,
+			resolved        INTEGER NOT NULL DEFAULT 0
+		)
+	`); err != nil {
+		return fmt.Errorf("create entry_links: %w", err)
+	}
+
+	if err := seedFacets(tx); err != nil {
+		return fmt.Errorf("seed facets: %w", err)
+	}
+
+	if _, err := tx.Exec(`PRAGMA user_version = 7`); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// seedFacets populates the global facet vocabulary with the CLI defaults plus
+// any quick_view_templates category currently in active use, kebab-cased.
+// Idempotent: INSERT OR IGNORE against the facets.name primary key.
+func seedFacets(tx *sql.Tx) error {
+	for _, name := range []string{"motivation", "description", "history"} {
+		if _, err := tx.Exec(`INSERT OR IGNORE INTO facets (name) VALUES (?)`, name); err != nil {
+			return err
+		}
+	}
+
+	rows, err := tx.Query(`SELECT category FROM quick_view_templates`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	var categories []string
+	for rows.Next() {
+		var category string
+		if err := rows.Scan(&category); err != nil {
+			return err
+		}
+		categories = append(categories, category)
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	for _, category := range categories {
+		name := KebabCase(category)
+		if name == "" {
+			continue
+		}
+		if _, err := tx.Exec(`INSERT OR IGNORE INTO facets (name) VALUES (?)`, name); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// KebabCase lowercases s and collapses runs of non [a-z0-9] characters into a
+// single hyphen, trimming leading/trailing hyphens.
+func KebabCase(s string) string {
+	var b strings.Builder
+	prevHyphen := false
+	for _, r := range strings.ToLower(s) {
+		switch {
+		case r >= 'a' && r <= 'z' || r >= '0' && r <= '9':
+			b.WriteRune(r)
+			prevHyphen = false
+		default:
+			if !prevHyphen && b.Len() > 0 {
+				b.WriteRune('-')
+				prevHyphen = true
+			}
+		}
+	}
+	return strings.TrimRight(b.String(), "-")
 }
 
 // addColumnIfMissing adds a column to a table only when it doesn't already exist.

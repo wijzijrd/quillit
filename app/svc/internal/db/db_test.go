@@ -2,6 +2,8 @@ package db
 
 import (
 	"database/sql"
+	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -81,8 +83,8 @@ func TestOpen_UpgradeFromV1(t *testing.T) {
 	if err := database.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if version != 6 {
-		t.Errorf("expected user_version=6 after full migration, got %d", version)
+	if version != 7 {
+		t.Errorf("expected user_version=7 after full migration, got %d", version)
 	}
 
 	var count int
@@ -170,5 +172,179 @@ func TestOpen_RepairsBrokenV2(t *testing.T) {
 		`INSERT INTO category_default_tags (id, category_id, label, sort_order) VALUES ('tag2','cat1','PC',1)`,
 	); err != nil {
 		t.Errorf("insert into repaired category_default_tags failed: %v", err)
+	}
+}
+
+func hasColumn(t *testing.T, database *sql.DB, table, column string) bool {
+	t.Helper()
+	rows, err := database.Query(fmt.Sprintf("PRAGMA table_info(%s)", table))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var cid int
+		var name, colType string
+		var notNull, pk int
+		var dflt interface{}
+		if err := rows.Scan(&cid, &name, &colType, &notNull, &dflt, &pk); err != nil {
+			t.Fatal(err)
+		}
+		if strings.EqualFold(name, column) {
+			return true
+		}
+	}
+	return false
+}
+
+func tableExists(t *testing.T, database *sql.DB, table string) bool {
+	t.Helper()
+	var name string
+	err := database.QueryRow(`SELECT name FROM sqlite_master WHERE type='table' AND name = ?`, table).Scan(&name)
+	if err == sql.ErrNoRows {
+		return false
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	return true
+}
+
+func upToV6(t *testing.T, database *sql.DB) {
+	t.Helper()
+	for _, step := range []func(*sql.DB) error{toV1, toV2, toV3, toV4, toV5, toV6} {
+		if err := step(database); err != nil {
+			t.Fatalf("migrate up to v6: %v", err)
+		}
+	}
+}
+
+func TestToV7_AddsEntryColumns(t *testing.T) {
+	database := openMemDB(t)
+	defer database.Close()
+	upToV6(t, database)
+
+	if err := toV7(database); err != nil {
+		t.Fatalf("toV7: %v", err)
+	}
+
+	for _, col := range []string{"slug", "directory_path", "project_id"} {
+		if !hasColumn(t, database, "entries", col) {
+			t.Errorf("expected entries.%s to exist after toV7", col)
+		}
+	}
+}
+
+func TestToV7_CreatesFacetAndLinkTables(t *testing.T) {
+	database := openMemDB(t)
+	defer database.Close()
+	upToV6(t, database)
+
+	if err := toV7(database); err != nil {
+		t.Fatalf("toV7: %v", err)
+	}
+
+	for _, table := range []string{"facets", "project_facets", "entry_links"} {
+		if !tableExists(t, database, table) {
+			t.Errorf("expected table %s to exist after toV7", table)
+		}
+	}
+}
+
+func TestToV7_SeedsDefaultFacets(t *testing.T) {
+	database := openMemDB(t)
+	defer database.Close()
+	upToV6(t, database)
+
+	if err := toV7(database); err != nil {
+		t.Fatalf("toV7: %v", err)
+	}
+
+	for _, want := range []string{"motivation", "description", "history"} {
+		var count int
+		if err := database.QueryRow(`SELECT COUNT(*) FROM facets WHERE name = ?`, want).Scan(&count); err != nil {
+			t.Fatal(err)
+		}
+		if count != 1 {
+			t.Errorf("expected default facet %q to be seeded, got count=%d", want, count)
+		}
+	}
+}
+
+func TestToV7_SeedsFacetsFromQuickViewTemplates(t *testing.T) {
+	database := openMemDB(t)
+	defer database.Close()
+	upToV6(t, database)
+
+	if _, err := database.Exec(
+		`INSERT INTO quick_view_templates (category, fields) VALUES ('Ancient Ruins', '[]')`,
+	); err != nil {
+		t.Fatalf("seed quick_view_templates: %v", err)
+	}
+
+	if err := toV7(database); err != nil {
+		t.Fatalf("toV7: %v", err)
+	}
+
+	var count int
+	if err := database.QueryRow(`SELECT COUNT(*) FROM facets WHERE name = ?`, "ancient-ruins").Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Errorf("expected quick_view_templates category to be seeded as kebab-case facet 'ancient-ruins', got count=%d", count)
+	}
+}
+
+func TestToV7_RejectsNonKebabCaseFacetName(t *testing.T) {
+	database := openMemDB(t)
+	defer database.Close()
+	upToV6(t, database)
+
+	if err := toV7(database); err != nil {
+		t.Fatalf("toV7: %v", err)
+	}
+
+	if _, err := database.Exec(`INSERT INTO facets (name) VALUES (?)`, "Not Kebab Case"); err == nil {
+		t.Error("expected inserting a non-kebab-case facet name to fail the CHECK constraint, but it succeeded")
+	}
+}
+
+func TestToV7_Idempotent(t *testing.T) {
+	database := openMemDB(t)
+	defer database.Close()
+	upToV6(t, database)
+
+	if err := toV7(database); err != nil {
+		t.Fatalf("first toV7: %v", err)
+	}
+	if err := toV7(database); err != nil {
+		t.Fatalf("second toV7 (idempotency): %v", err)
+	}
+
+	var count int
+	if err := database.QueryRow(`SELECT COUNT(*) FROM facets WHERE name = 'motivation'`).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Errorf("expected re-running toV7 not to duplicate seeded facets, got count=%d", count)
+	}
+}
+
+func TestOpen_FreshDatabase_MigratesToV7(t *testing.T) {
+	database, err := Open(":memory:")
+	if err != nil {
+		t.Fatalf("Open() failed: %v", err)
+	}
+	defer database.Close()
+
+	var version int
+	if err := database.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil {
+		t.Fatal(err)
+	}
+	if version != 7 {
+		t.Errorf("expected fresh Open() to migrate to user_version=7, got %d", version)
+	}
+	if err := checkForeignKeys(database); err != nil {
+		t.Errorf("checkForeignKeys after fresh Open(): %v", err)
 	}
 }
