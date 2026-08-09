@@ -5,6 +5,7 @@
 go 1.26.3
 
 use (
+	./app/content
 	./app/svc
 	./cli
 	./pkg/contentengine
