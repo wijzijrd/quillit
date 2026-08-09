@@ -13,7 +13,7 @@ quillit/
 ├── pkg/     Shared Go packages (contentengine: parse/filter/render/export, used by cli/)
 ├── infra/   docker-compose files + Caddyfile
 ├── observability/  Loki/Promtail/Grafana log-aggregation config
-└── setup.sh  (Linux server automated setup)
+└── operations/  setup.sh, backup.sh, and server runbooks (SERVER_SETUP.md, CURRENT_STATE.md)
 ```
 
 ---
@@ -61,7 +61,7 @@ docker compose -f infra/docker-compose.yml --project-directory . down
 ```sh
 git clone https://github.com/wijzijrd/quillit.git
 cd quillit
-chmod +x setup.sh && ./setup.sh
+chmod +x operations/setup.sh && ./operations/setup.sh
 ```
 
 The script will:
@@ -269,7 +269,7 @@ All variables live in `.env` at the repo root (Docker) or in `svc/.env` / `auth/
 ## Backup
 
 ```sh
-./backup.sh
+./operations/backup.sh
 ```
 
 Creates a timestamped snapshot in `backups/` containing:
@@ -290,7 +290,7 @@ git pull
 docker compose -f infra/docker-compose.yml --project-directory . up --build -d
 ```
 
-**Linux server (after using `setup.sh`):**
+**Linux server (after using `operations/setup.sh`):**
 
 ```sh
 git pull
@@ -309,7 +309,7 @@ fails fast if it isn't — no half-applied deploys, no jobs stuck in a queue.
 
 A **self-hosted runner** on the server polls GitHub over outbound HTTPS, so nothing
 new is exposed inbound (UFW still only allows 22/80/443). The pipeline pulls `main`
-in the `setup.sh` repo dir, rebuilds, restarts, runs `/healthz` smoke tests, and
+in the `operations/setup.sh` repo dir, rebuilds, restarts, runs `/healthz` smoke tests, and
 **rolls back** to the previous commit if they fail.
 
 **One-time setup on the server** (as the deploy user, in the repo dir):
@@ -326,7 +326,7 @@ in the `setup.sh` repo dir, rebuilds, restarts, runs `/healthz` smoke tests, and
 Health endpoints (`GET /healthz` on `svc` and `auth`) also make good targets for an
 uptime monitor such as [Uptime Kuma](https://github.com/louislam/uptime-kuma).
 
-See **[docs/SERVER_SETUP.md](docs/SERVER_SETUP.md)** for the full zero-to-production
+See **[operations/docs/SERVER_SETUP.md](operations/docs/SERVER_SETUP.md)** for the full zero-to-production
 runbook (OS prep, Docker, UFW, HTTPS, and the exact runner install/registration steps).
 
 ---
