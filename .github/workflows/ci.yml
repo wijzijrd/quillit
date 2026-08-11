@@ -103,7 +103,7 @@ jobs:
       # matching the old workflow's "manual = deploy everything" behavior,
       # and skipping this step (rather than letting it run and possibly
       # error with no base ref) keeps the `changes` job itself green.
-      - uses: dorny/paths-filter@v3
+      - uses: dorny/paths-filter@v4
         id: filter
         if: github.event_name == 'push'
         with:
