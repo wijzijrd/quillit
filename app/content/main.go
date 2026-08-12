@@ -46,6 +46,7 @@ func main() {
 
 	health := handler.NewHealth(database)
 	entries := handler.NewEntries(database, jwtSecret, blobs)
+	renderer := handler.NewRender(database, blobs)
 	facets := handler.NewFacets(database)
 
 	r := chi.NewRouter()
@@ -62,6 +63,7 @@ func main() {
 		r.Patch("/entries/{id}", entries.Update)
 		r.Delete("/entries/{id}", entries.Delete)
 		r.Post("/entries/{id}/images", entries.UploadImage)
+		r.Get("/entries/{id}/render", renderer.Render)
 
 		r.Get("/facets", facets.ListGlobal)
 		r.Post("/facets", facets.CreateGlobal)
