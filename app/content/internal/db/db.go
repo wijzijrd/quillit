@@ -34,6 +34,11 @@ func migrate(db *sql.DB) error {
 			return fmt.Errorf("schema v1: %w", err)
 		}
 	}
+	if version < 2 {
+		if err := toV2(db); err != nil {
+			return fmt.Errorf("schema v2: %w", err)
+		}
+	}
 	return nil
 }
 
@@ -62,4 +67,97 @@ func toV1(db *sql.DB) error {
 		return err
 	}
 	return tx.Commit()
+}
+
+// toV2 adds the entry-domain tables this service owns per
+// docs/web-refactor-spec.md §4/§7.2 (#37): entries, entry_links, and the
+// facet vocabulary (facets + project_facets) entry writes validate
+// against. Body is deliberately not a column here — it lives in MinIO at
+// entries/{id}/body.md, with title/tags on this table as denormalized
+// copies of the body's frontmatter, kept in sync on every write.
+func toV2(db *sql.DB) error {
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.Exec(`
+		CREATE TABLE IF NOT EXISTS entries (
+			id             TEXT PRIMARY KEY,
+			project_id     TEXT NOT NULL,
+			slug           TEXT NOT NULL
+				CHECK (slug <> '' AND slug NOT GLOB '*[^a-z0-9-]*'),
+			directory_path TEXT NOT NULL DEFAULT '',
+			title          TEXT NOT NULL DEFAULT '',
+			tags           TEXT NOT NULL DEFAULT '[]',
+			owner_user_id  TEXT,
+			created_at     INTEGER NOT NULL,
+			updated_at     INTEGER NOT NULL,
+			UNIQUE(project_id, directory_path, slug)
+		)
+	`); err != nil {
+		return fmt.Errorf("create entries: %w", err)
+	}
+	if _, err := tx.Exec(`CREATE INDEX IF NOT EXISTS idx_entries_project ON entries(project_id)`); err != nil {
+		return fmt.Errorf("create entries project index: %w", err)
+	}
+
+	if _, err := tx.Exec(`
+		CREATE TABLE IF NOT EXISTS entry_links (
+			entry_id        TEXT    NOT NULL REFERENCES entries(id) ON DELETE CASCADE,
+			target_path     TEXT    NOT NULL,
+			target_entry_id TEXT,
+			label           TEXT    NOT NULL DEFAULT '',
+			card_facet      TEXT,
+			resolved        INTEGER NOT NULL DEFAULT 0
+		)
+	`); err != nil {
+		return fmt.Errorf("create entry_links: %w", err)
+	}
+	if _, err := tx.Exec(`CREATE INDEX IF NOT EXISTS idx_entry_links_entry ON entry_links(entry_id)`); err != nil {
+		return fmt.Errorf("create entry_links entry index: %w", err)
+	}
+
+	if _, err := tx.Exec(`
+		CREATE TABLE IF NOT EXISTS facets (
+			name TEXT PRIMARY KEY
+				CHECK (name <> '' AND name NOT GLOB '*[^a-z0-9-]*')
+		)
+	`); err != nil {
+		return fmt.Errorf("create facets: %w", err)
+	}
+
+	if _, err := tx.Exec(`
+		CREATE TABLE IF NOT EXISTS project_facets (
+			project_id TEXT NOT NULL,
+			name       TEXT NOT NULL
+				CHECK (name <> '' AND name NOT GLOB '*[^a-z0-9-]*'),
+			UNIQUE(project_id, name)
+		)
+	`); err != nil {
+		return fmt.Errorf("create project_facets: %w", err)
+	}
+
+	if err := seedFacets(tx); err != nil {
+		return fmt.Errorf("seed facets: %w", err)
+	}
+
+	if _, err := tx.Exec(`PRAGMA user_version = 2`); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// seedFacets populates the global facet vocabulary with the CLI defaults
+// (docs/cli-spec.md), matching svc's pre-migration seed (svc/internal/db/db.go
+// seedFacets) minus the quick_view_templates backfill — content starts fresh,
+// with no legacy quick-view data to carry forward.
+func seedFacets(tx *sql.Tx) error {
+	for _, name := range []string{"motivation", "description", "history"} {
+		if _, err := tx.Exec(`INSERT OR IGNORE INTO facets (name) VALUES (?)`, name); err != nil {
+			return err
+		}
+	}
+	return nil
 }

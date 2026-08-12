@@ -13,8 +13,8 @@ func TestOpen_FreshDatabase(t *testing.T) {
 	if err := database.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatalf("read schema version: %v", err)
 	}
-	if version != 1 {
-		t.Errorf("user_version = %d, want 1", version)
+	if version != 2 {
+		t.Errorf("user_version = %d, want 2", version)
 	}
 
 	var count int
@@ -23,6 +23,44 @@ func TestOpen_FreshDatabase(t *testing.T) {
 	}
 	if count != 1 {
 		t.Errorf("expected 1 schema_meta row, got %d", count)
+	}
+}
+
+func TestOpen_SeedsGlobalFacets(t *testing.T) {
+	database, err := Open(":memory:")
+	if err != nil {
+		t.Fatalf("Open() failed: %v", err)
+	}
+	defer database.Close()
+
+	for _, name := range []string{"motivation", "description", "history"} {
+		var count int
+		if err := database.QueryRow(`SELECT COUNT(*) FROM facets WHERE name = ?`, name).Scan(&count); err != nil {
+			t.Fatalf("count facets(%s): %v", name, err)
+		}
+		if count != 1 {
+			t.Errorf("facet %q: expected 1 row, got %d", name, count)
+		}
+	}
+}
+
+func TestOpen_EntriesUniqueSlugPerDirectory(t *testing.T) {
+	database, err := Open(":memory:")
+	if err != nil {
+		t.Fatalf("Open() failed: %v", err)
+	}
+	defer database.Close()
+
+	insert := `INSERT INTO entries (id, project_id, slug, directory_path, created_at, updated_at) VALUES (?, ?, ?, ?, 0, 0)`
+	if _, err := database.Exec(insert, "e1", "proj-a", "mary", "characters/npcs"); err != nil {
+		t.Fatalf("first insert failed: %v", err)
+	}
+	if _, err := database.Exec(insert, "e2", "proj-a", "mary", "characters/npcs"); err == nil {
+		t.Error("expected UNIQUE constraint violation for duplicate (project_id, directory_path, slug), got nil")
+	}
+	// Same slug, different project — allowed.
+	if _, err := database.Exec(insert, "e3", "proj-b", "mary", "characters/npcs"); err != nil {
+		t.Errorf("insert into different project should succeed: %v", err)
 	}
 }
 

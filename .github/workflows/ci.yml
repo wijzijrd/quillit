@@ -90,6 +90,7 @@ jobs:
       svc: ${{ steps.filter.outputs.svc }}
       ui: ${{ steps.filter.outputs.ui }}
       messaging: ${{ steps.filter.outputs.messaging }}
+      content: ${{ steps.filter.outputs.content }}
       infra: ${{ steps.filter.outputs.infra }}
       observability: ${{ steps.filter.outputs.observability }}
       operations: ${{ steps.filter.outputs.operations }}
@@ -119,6 +120,10 @@ jobs:
               - 'infra/docker-compose.yml'
             messaging:
               - 'app/messaging/**'
+              - 'infra/docker-compose.yml'
+            content:
+              - 'app/content/**'
+              - 'pkg/contentengine/**'
               - 'infra/docker-compose.yml'
             infra:
               - 'infra/docker-compose.caddy.yml'
@@ -165,6 +170,15 @@ jobs:
       service: ui
       port: 80
 
+  app-content:
+    name: App pipeline — content
+    needs: [preflight, changes]
+    if: always() && needs.preflight.result == 'success' && (needs.changes.outputs.content == 'true' || github.event_name == 'workflow_dispatch')
+    uses: ./.github/workflows/app-pipeline.yml
+    with:
+      service: content
+      port: 3004
+
   infra:
     name: Infra pipeline
     needs: [preflight, changes]
@@ -185,7 +199,7 @@ jobs:
 
   verify-stack:
     name: Final whole-stack smoke test
-    needs: [preflight, app-auth, app-svc, app-messaging, app-ui]
+    needs: [preflight, app-auth, app-svc, app-messaging, app-ui, app-content]
     # Runs whenever preflight passed and no attempted app pipeline failed —
     # skipped components (not touched by this push) don't block it, since a
     # skipped job's result is "skipped", not "failure".
@@ -224,6 +238,9 @@ jobs:
           echo
           echo "messaging /healthz..."
           $COMPOSE exec -T messaging wget -q -O - http://localhost:3003/healthz
+          echo
+          echo "content /healthz..."
+          $COMPOSE exec -T content wget -q -O - http://localhost:3004/healthz
           echo
           echo "All health checks passed."
 

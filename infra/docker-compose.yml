@@ -66,6 +66,14 @@ services:
     environment:
       PORT: 3004
       DB_PATH: /data/quillit-content.db
+      JWT_SECRET: ${JWT_SECRET}
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_USER}
+      MINIO_SECRET_KEY: ${MINIO_PASSWORD}
+      MINIO_BUCKET: quillit
+      MINIO_USE_SSL: "false"
+    depends_on:
+      - minio
     restart: unless-stopped
 
   minio:

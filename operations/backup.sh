@@ -38,6 +38,15 @@ $COMPOSE_CMD exec -T auth sh -c \
 AUTH_CONTAINER=$($COMPOSE_CMD ps -q auth)
 docker cp "${AUTH_CONTAINER}:/data/quillit-auth.db.bak" "${BACKUP_DIR}/quillit-auth.db"
 
+# ── SQLite: content ───────────────────────────────────────────────────────────
+info "Backing up quillit-content.db..."
+$COMPOSE_CMD exec -T content sh -c \
+    'sqlite3 /data/quillit-content.db ".backup /data/quillit-content.db.bak"' 2>/dev/null \
+    || $COMPOSE_CMD exec -T content cp /data/quillit-content.db /data/quillit-content.db.bak
+
+CONTENT_CONTAINER=$($COMPOSE_CMD ps -q content)
+docker cp "${CONTENT_CONTAINER}:/data/quillit-content.db.bak" "${BACKUP_DIR}/quillit-content.db"
+
 # ── MinIO data ────────────────────────────────────────────────────────────────
 info "Backing up MinIO data..."
 # Get the Docker Compose project name (defaults to directory name)
