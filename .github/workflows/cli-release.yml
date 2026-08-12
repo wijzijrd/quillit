@@ -153,7 +153,7 @@ jobs:
         working-directory: dist
         run: cat *.sha256 > checksums.txt
 
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ needs.prepare.outputs.tag }}
           name: quillit CLI ${{ needs.prepare.outputs.version }}
