@@ -3,8 +3,12 @@ package handler
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
+	"net/http"
+	"regexp"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/quillit/contentengine/parse"
 )
 
@@ -69,4 +73,211 @@ func validateFacetBlocks(blocks []parse.Block, vocabulary map[string]bool, sorte
 		}
 	}
 	return nil
+}
+
+// ── HTTP endpoints ──────────────────────────────────────────────────────────
+//
+// Facet vocabulary management (docs/web-refactor-spec.md §7.2, CLI-aligned
+// per docs/cli-spec.md §7 "config add/rm --facet"): global facets and each
+// project's extra_facets analogue (project_facets). Removal never touches
+// entry bodies — entries still using a removed facet fail loud at their next
+// save (validateFacets, above), matching CLI `config rm` semantics; the
+// delete response carries a reminder rather than the endpoint scanning
+// bodies for usage.
+
+var kebabRe = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
+
+// isKebabName reports whether name is lowercase, digits, and hyphens only —
+// docs/cli-spec.md §7: "Facet names: lowercase, digits, hyphens (kebab-case)
+// — keeps directive parsing unambiguous."
+func isKebabName(name string) bool {
+	return kebabRe.MatchString(name)
+}
+
+type FacetsHandler struct {
+	db *sql.DB
+}
+
+func NewFacets(db *sql.DB) *FacetsHandler {
+	return &FacetsHandler{db: db}
+}
+
+type facetRequest struct {
+	Name string `json:"name"`
+}
+
+type facetResponse struct {
+	Name    string `json:"name"`
+	Added   bool   `json:"added"`
+	Message string `json:"message,omitempty"`
+}
+
+// ListGlobal godoc
+// @Summary  List global facets
+// @Tags     facets
+// @Produce  json
+// @Success  200  {array}  string
+// @Router   /content/facets [get]
+func (h *FacetsHandler) ListGlobal(w http.ResponseWriter, r *http.Request) {
+	names, err := queryFacetNames(r.Context(), h.db, `SELECT name FROM facets ORDER BY name`)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "db error")
+		return
+	}
+	writeJSON(w, http.StatusOK, names)
+}
+
+// CreateGlobal godoc
+// @Summary  Add a global facet
+// @Description  Duplicate names (already in the global vocabulary) are a no-op, not an error.
+// @Tags     facets
+// @Accept   json
+// @Produce  json
+// @Success  200  {object}  facetResponse
+// @Success  201  {object}  facetResponse
+// @Failure  400  {object}  ErrorResponse
+// @Router   /content/facets [post]
+func (h *FacetsHandler) CreateGlobal(w http.ResponseWriter, r *http.Request) {
+	var req facetRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "bad request")
+		return
+	}
+	if !isKebabName(req.Name) {
+		writeError(w, http.StatusBadRequest, "facet name must be lowercase letters, digits, and hyphens (kebab-case)")
+		return
+	}
+
+	res, err := h.db.ExecContext(r.Context(), `INSERT OR IGNORE INTO facets (name) VALUES (?)`, req.Name)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "db error")
+		return
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		writeJSON(w, http.StatusOK, facetResponse{Name: req.Name, Added: false, Message: "facet already exists in the global vocabulary"})
+		return
+	}
+	writeJSON(w, http.StatusCreated, facetResponse{Name: req.Name, Added: true})
+}
+
+// DeleteGlobal godoc
+// @Summary  Remove a global facet
+// @Description  Doesn't touch entry bodies — entries still using the facet fail loud at their next save.
+// @Tags     facets
+// @Produce  json
+// @Param    name  path  string  true  "Facet name"
+// @Success  200   {object}  facetResponse
+// @Router   /content/facets/{name} [delete]
+func (h *FacetsHandler) DeleteGlobal(w http.ResponseWriter, r *http.Request) {
+	name := chi.URLParam(r, "name")
+	if _, err := h.db.ExecContext(r.Context(), `DELETE FROM facets WHERE name = ?`, name); err != nil {
+		writeError(w, http.StatusInternalServerError, "db error")
+		return
+	}
+	writeJSON(w, http.StatusOK, facetResponse{
+		Name:    name,
+		Message: "removed from the global vocabulary — entry bodies are untouched; any entry still using this facet will fail validation at its next save or render",
+	})
+}
+
+// ListEffectiveForProject godoc
+// @Summary  List a project's effective facet vocabulary
+// @Description  The union of global facets and this project's own facets — what entry-write validation and the editor's facet picker consume.
+// @Tags     facets
+// @Produce  json
+// @Param    id   path  string  true  "Project ID"
+// @Success  200  {array}  string
+// @Router   /content/projects/{id}/facets [get]
+func (h *FacetsHandler) ListEffectiveForProject(w http.ResponseWriter, r *http.Request) {
+	projectID := chi.URLParam(r, "id")
+	_, sorted, err := effectiveFacetVocabulary(r.Context(), h.db, projectID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "db error")
+		return
+	}
+	if sorted == nil {
+		sorted = []string{}
+	}
+	writeJSON(w, http.StatusOK, sorted)
+}
+
+// CreateForProject godoc
+// @Summary  Add a project facet
+// @Description  A no-op, not an error, if name is already in the project's effective vocabulary (global or project-scoped).
+// @Tags     facets
+// @Accept   json
+// @Produce  json
+// @Param    id    path  string  true  "Project ID"
+// @Success  200   {object}  facetResponse
+// @Success  201   {object}  facetResponse
+// @Failure  400   {object}  ErrorResponse
+// @Router   /content/projects/{id}/facets [post]
+func (h *FacetsHandler) CreateForProject(w http.ResponseWriter, r *http.Request) {
+	projectID := chi.URLParam(r, "id")
+	var req facetRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "bad request")
+		return
+	}
+	if !isKebabName(req.Name) {
+		writeError(w, http.StatusBadRequest, "facet name must be lowercase letters, digits, and hyphens (kebab-case)")
+		return
+	}
+
+	vocab, _, err := effectiveFacetVocabulary(r.Context(), h.db, projectID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "db error")
+		return
+	}
+	if vocab[req.Name] {
+		writeJSON(w, http.StatusOK, facetResponse{Name: req.Name, Added: false, Message: "facet already in this project's effective vocabulary"})
+		return
+	}
+
+	if _, err := h.db.ExecContext(r.Context(), `INSERT OR IGNORE INTO project_facets (project_id, name) VALUES (?, ?)`, projectID, req.Name); err != nil {
+		writeError(w, http.StatusInternalServerError, "db error")
+		return
+	}
+	writeJSON(w, http.StatusCreated, facetResponse{Name: req.Name, Added: true})
+}
+
+// DeleteForProject godoc
+// @Summary  Remove a project facet
+// @Description  Doesn't touch entry bodies — entries still using the facet fail loud at their next save. Only removes from this project's own facets; a facet inherited from the global vocabulary is unaffected.
+// @Tags     facets
+// @Produce  json
+// @Param    id    path  string  true  "Project ID"
+// @Param    name  path  string  true  "Facet name"
+// @Success  200   {object}  facetResponse
+// @Router   /content/projects/{id}/facets/{name} [delete]
+func (h *FacetsHandler) DeleteForProject(w http.ResponseWriter, r *http.Request) {
+	projectID := chi.URLParam(r, "id")
+	name := chi.URLParam(r, "name")
+	if _, err := h.db.ExecContext(r.Context(), `DELETE FROM project_facets WHERE project_id = ? AND name = ?`, projectID, name); err != nil {
+		writeError(w, http.StatusInternalServerError, "db error")
+		return
+	}
+	writeJSON(w, http.StatusOK, facetResponse{
+		Name:    name,
+		Message: "removed from this project's facets — entry bodies are untouched; any entry still using this facet will fail validation at its next save or render",
+	})
+}
+
+func queryFacetNames(ctx context.Context, db *sql.DB, query string, args ...any) ([]string, error) {
+	rows, err := db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	names := []string{}
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return nil, err
+		}
+		names = append(names, name)
+	}
+	return names, rows.Err()
 }
