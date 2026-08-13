@@ -99,6 +99,11 @@ func migrate(db *sql.DB) error {
 			return fmt.Errorf("schema v7: %w", err)
 		}
 	}
+	if version < 8 {
+		if err := toV8(db); err != nil {
+			return fmt.Errorf("schema v8: %w", err)
+		}
+	}
 	return nil
 }
 
@@ -605,6 +610,123 @@ func toV7(db *sql.DB) error {
 		return err
 	}
 	return tx.Commit()
+}
+
+// toV8 completes the content migration cutover (issues #34/#35,
+// docs/web-refactor-spec.md §4.8/§5): the legacy entry-domain tables/columns
+// are retired now that every entry has been converted to markdown and
+// imported into the quillit/content service's own database (run via
+// cmd/migrate-cutover — see that tool's doc comment; this migration must
+// only ship after a cutover run against production has been verified).
+// content — not svc — now wholly owns entries (spec §7.2/§10.11: one
+// domain per entry, no split-save consistency problem).
+//
+// campaigns/players/player_notes/entry_shares are dropped alongside the
+// entries tables refactor-spec §4.8 names explicitly: none of them have any
+// purpose independent of the entries table they scoped access to, and
+// their API surface (/api/campaigns/*, /api/share/*) is separately listed
+// for removal in spec §6.2.
+func toV8(db *sql.DB) error {
+	// FK constraints can't be toggled inside a transaction; disable outside.
+	// legacy_alter_table=ON prevents SQLite from rewriting OTHER tables'
+	// REFERENCES clauses when we rename chat_messages below.
+	if _, err := db.Exec("PRAGMA foreign_keys=OFF"); err != nil {
+		return err
+	}
+	if _, err := db.Exec("PRAGMA legacy_alter_table=ON"); err != nil {
+		return err
+	}
+	defer db.Exec("PRAGMA legacy_alter_table=OFF") //nolint:errcheck
+	defer db.Exec("PRAGMA foreign_keys=ON")        //nolint:errcheck
+
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	// Single idempotency guard for the whole migration, checked once up
+	// front: entries is the last legacy table dropped below, so its
+	// presence means toV8 hasn't run yet. chat_messages always exists
+	// post-v6 regardless of whether toV8 has already run, so checking it
+	// (as an earlier draft of this migration did) can't distinguish "not
+	// yet migrated" from "already migrated" — entries is the table whose
+	// existence actually tracks that.
+	entriesStillLegacy := tableExists8(tx, "entries")
+
+	if entriesStillLegacy {
+		// chat_messages.entry_id referenced entries(id) ON DELETE SET NULL.
+		// entries is dropped below, so the FK must go with it — the column and
+		// its historical values survive (a message's card_title/card_body
+		// already hold the snapshot that's actually displayed; entry_id was
+		// only ever an optional back-reference).
+		if _, err := tx.Exec(`ALTER TABLE chat_messages RENAME TO chat_messages_v7`); err != nil {
+			return fmt.Errorf("rename chat_messages: %w", err)
+		}
+		if _, err := tx.Exec(`
+			CREATE TABLE chat_messages (
+				id         TEXT    PRIMARY KEY,
+				session_id TEXT    NOT NULL REFERENCES game_sessions(id) ON DELETE CASCADE,
+				project_id TEXT    NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+				sender_id  TEXT    NOT NULL,
+				type       TEXT    NOT NULL DEFAULT 'text',
+				body       TEXT    NOT NULL DEFAULT '',
+				entry_id   TEXT,
+				card_title TEXT    NOT NULL DEFAULT '',
+				card_body  TEXT    NOT NULL DEFAULT '',
+				created_at INTEGER NOT NULL
+			)
+		`); err != nil {
+			return fmt.Errorf("recreate chat_messages: %w", err)
+		}
+		if _, err := tx.Exec(`
+			INSERT INTO chat_messages (id, session_id, project_id, sender_id, type, body, entry_id, card_title, card_body, created_at)
+			SELECT id, session_id, project_id, sender_id, type, body, entry_id, card_title, card_body, created_at
+			FROM chat_messages_v7
+		`); err != nil {
+			return fmt.Errorf("copy chat_messages: %w", err)
+		}
+		if _, err := tx.Exec(`DROP TABLE chat_messages_v7`); err != nil {
+			return fmt.Errorf("drop chat_messages_v7: %w", err)
+		}
+		if _, err := tx.Exec(`
+			CREATE INDEX IF NOT EXISTS idx_chat_messages_session ON chat_messages(session_id, created_at)
+		`); err != nil {
+			return fmt.Errorf("recreate idx_chat_messages_session: %w", err)
+		}
+	}
+
+	// Legacy entry-domain tables (refactor-spec §4.8's full removal list,
+	// plus entry_shares/facets/project_facets/entry_links — see doc comment
+	// above). Order doesn't affect correctness (foreign_keys is OFF) — child
+	// tables listed before entries purely for a readable diff. DROP TABLE IF
+	// EXISTS makes this loop idempotent on its own (independent of
+	// entriesStillLegacy), so it always runs unconditionally.
+	dropTables := []string{
+		"annotations", "entry_relations", "member_folder_entries", "member_entry_meta",
+		"member_folders", "entry_shares", "entry_links",
+		"category_default_tags", "project_global_categories", "categories",
+		"quick_view_templates", "players", "player_notes", "campaigns",
+		"project_facets", "facets", "entries",
+	}
+	for _, table := range dropTables {
+		if _, err := tx.Exec(fmt.Sprintf("DROP TABLE IF EXISTS %s", table)); err != nil {
+			return fmt.Errorf("drop %s: %w", table, err)
+		}
+	}
+
+	if _, err := tx.Exec(`PRAGMA user_version = 8`); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// tableExists8 is toV8's own existence check (tx-scoped, unlike the
+// test-only tableExists helper in db_test.go).
+func tableExists8(tx *sql.Tx, table string) bool {
+	var name string
+	err := tx.QueryRow(`SELECT name FROM sqlite_master WHERE type='table' AND name = ?`, table).Scan(&name)
+	return err == nil
 }
 
 // seedFacets populates the global facet vocabulary with the CLI defaults plus
