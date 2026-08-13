@@ -37,12 +37,18 @@ func TestOpen_FreshDatabase(t *testing.T) {
 		t.Errorf("checkForeignKeys after fresh Open(): %v", err)
 	}
 
-	var count int
-	if err := database.QueryRow(`SELECT COUNT(*) FROM categories`).Scan(&count); err != nil {
-		t.Fatalf("count categories: %v", err)
+	var version int
+	if err := database.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil {
+		t.Fatal(err)
 	}
-	if count != 6 {
-		t.Errorf("expected 6 seeded categories, got %d", count)
+	if version != 8 {
+		t.Errorf("expected fresh Open() to migrate to user_version=8, got %d", version)
+	}
+
+	for _, table := range []string{"entries", "categories", "annotations", "campaigns", "quick_view_templates"} {
+		if tableExists(t, database, table) {
+			t.Errorf("expected table %q to not exist after a fresh Open() at v8", table)
+		}
 	}
 }
 
@@ -83,8 +89,8 @@ func TestOpen_UpgradeFromV1(t *testing.T) {
 	if err := database.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if version != 7 {
-		t.Errorf("expected user_version=7 after full migration, got %d", version)
+	if version != 8 {
+		t.Errorf("expected user_version=8 after full migration, got %d", version)
 	}
 
 	var count int
@@ -166,12 +172,6 @@ func TestOpen_RepairsBrokenV2(t *testing.T) {
 	}
 	if err := checkForeignKeys(database); err != nil {
 		t.Errorf("checkForeignKeys after repair: %v", err)
-	}
-
-	if _, err := database.Exec(
-		`INSERT INTO category_default_tags (id, category_id, label, sort_order) VALUES ('tag2','cat1','PC',1)`,
-	); err != nil {
-		t.Errorf("insert into repaired category_default_tags failed: %v", err)
 	}
 }
 
@@ -347,7 +347,7 @@ func TestToV7_Idempotent(t *testing.T) {
 	}
 }
 
-func TestOpen_FreshDatabase_MigratesToV7(t *testing.T) {
+func TestOpen_FreshDatabase_MigratesToV8(t *testing.T) {
 	database, err := Open(":memory:")
 	if err != nil {
 		t.Fatalf("Open() failed: %v", err)
@@ -358,8 +358,8 @@ func TestOpen_FreshDatabase_MigratesToV7(t *testing.T) {
 	if err := database.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if version != 7 {
-		t.Errorf("expected fresh Open() to migrate to user_version=7, got %d", version)
+	if version != 8 {
+		t.Errorf("expected fresh Open() to migrate to user_version=8, got %d", version)
 	}
 	if err := checkForeignKeys(database); err != nil {
 		t.Errorf("checkForeignKeys after fresh Open(): %v", err)

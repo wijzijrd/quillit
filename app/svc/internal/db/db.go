@@ -35,12 +35,6 @@ func Open(path string) (*sql.DB, error) {
 	if err := checkForeignKeys(database); err != nil {
 		return nil, fmt.Errorf("migrate: %w", err)
 	}
-	if err = seedCategories(database); err != nil {
-		return nil, fmt.Errorf("seed categories: %w", err)
-	}
-	if err = migrateNPCToCharacters(database); err != nil {
-		return nil, fmt.Errorf("migrate npc: %w", err)
-	}
 	return database, nil
 }
 
@@ -815,55 +809,3 @@ func addColumnIfMissing(tx *sql.Tx, table, column, definition string) error {
 	return err
 }
 
-func seedCategories(db *sql.DB) error {
-	var count int
-	if err := db.QueryRow(`SELECT COUNT(*) FROM categories`).Scan(&count); err != nil {
-		return err
-	}
-	if count > 0 {
-		return nil
-	}
-	now := time.Now().Unix()
-	type catSeed struct {
-		name  string
-		icon  string
-		color string
-		tags  []string
-	}
-	seeds := []catSeed{
-		{"Characters", "User", "#4a7a9b", []string{"NPC", "PC", "Deity", "Monster", "Ally", "Enemy"}},
-		{"Location", "MapPin", "#5a8a5a", []string{"City", "Dungeon", "Wilderness", "Landmark", "Region"}},
-		{"Faction", "Shield", "#8a5a9b", []string{"Guild", "Government", "Religion", "Criminal", "Military"}},
-		{"Event", "CalendarDays", "#9b7a3a", []string{"Battle", "Ceremony", "Discovery", "Betrayal", "Plot Thread"}},
-		{"Item", "Package", "#9b5a5a", []string{"Weapon", "Armour", "Artefact", "Consumable", "Key Item"}},
-		{"Lore", "BookMarked", "#6a7a9b", []string{"History", "Mythology", "Religion", "Plot Thread", "Rumour"}},
-	}
-	tx, err := db.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	for i, s := range seeds {
-		catID := newDBID()
-		if _, err := tx.Exec(
-			`INSERT INTO categories (id, name, icon, color, sort_order, project_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'global', ?, ?)`,
-			catID, s.name, s.icon, s.color, i, now, now,
-		); err != nil {
-			return err
-		}
-		for j, label := range s.tags {
-			if _, err := tx.Exec(
-				`INSERT INTO category_default_tags (id, category_id, label, sort_order) VALUES (?, ?, ?, ?)`,
-				newDBID(), catID, label, j,
-			); err != nil {
-				return err
-			}
-		}
-	}
-	return tx.Commit()
-}
-
-func migrateNPCToCharacters(db *sql.DB) error {
-	_, err := db.Exec(`UPDATE entries SET category = 'Characters' WHERE category = 'NPC'`)
-	return err
-}
