@@ -9,9 +9,13 @@
 // comment for why this calls content's HTTP API instead of writing to its
 // database directly.
 //
-// It never writes to svc's own database or deletes anything from MinIO.
-// svc's legacy entries table (and the handlers/tables issue #35 lists for
-// removal) are dropped separately, by schema migration v8
+// It never modifies entry or content-migration data in svc's own database, and
+// never deletes anything from MinIO (except via explicit -cleanup, which is
+// scoped to confirmed-imported entries only). However, db.Open() itself runs an
+// idempotent schema-bootstrap step (the legacy NPC→Characters category fixup)
+// as a side effect — this is effectively a no-op once already converged, but
+// technically a write. svc's legacy entries table (and the handlers/tables
+// issue #35 lists for removal) are dropped separately, by schema migration v8
 // (internal/db/db.go toV8) and the handler-removal changes in this same
 // plan's Part 2/3 — deploy those only after this tool has been run against
 // production and the result has been spot-checked against content's API
@@ -21,9 +25,10 @@
 //
 //	go run ./cmd/migrate-cutover -svc-db /path/to/quillit.db -content-url http://localhost:3004 -apply
 //
-// Run it against the LIVE svc database (read-only — this tool never
-// mutates it) with a reachable MinIO and a running content service. Omit
-// -apply to print the plan without creating anything.
+// Run it against the LIVE svc database with a reachable MinIO and a running
+// content service. The tool does not write to entry/migration data, but
+// db.Open() may run schema-bootstrap writes as a side effect. Omit -apply to
+// print the plan without creating anything.
 package main
 
 import (
@@ -40,7 +45,7 @@ import (
 )
 
 func main() {
-	dbPath := flag.String("svc-db", "", "path to svc's LIVE quillit.db (required; read-only, never written to)")
+	dbPath := flag.String("svc-db", "", "path to svc's LIVE quillit.db (required; this tool never modifies entry/migration data, but db.Open() runs idempotent schema-bootstrap as a side effect)")
 	contentURL := flag.String("content-url", "http://localhost:3004", "base URL of the running quillit/content service")
 	useMinio := flag.Bool("minio", true, "resolve body_key-backed entry bodies from MinIO (set false only if no entry has a body_key)")
 	apply := flag.Bool("apply", false, "actually create entries in content (default: dry-run, prints the plan only)")
@@ -125,12 +130,10 @@ func run(dbPath, contentURL string, useMinio, apply, force, cleanup bool) error 
 		if minioStore == nil {
 			return fmt.Errorf("-cleanup requires -minio (need a MinIO client to delete legacy body.html objects)")
 		}
+		targets := cleanupTargets(results)
 		var deleted, deleteErrs int
-		for _, r := range results {
-			if r.Status != "imported" {
-				continue // never delete the legacy body for an entry that isn't confirmed present in content
-			}
-			key := fmt.Sprintf("entries/%s/body.html", r.EntryID)
+		for _, id := range targets {
+			key := fmt.Sprintf("entries/%s/body.html", id)
 			if err := minioStore.Delete(context.Background(), key); err != nil {
 				deleteErrs++
 				fmt.Fprintf(os.Stderr, "migrate-cutover: delete %s: %v\n", key, err)
@@ -144,6 +147,20 @@ func run(dbPath, contentURL string, useMinio, apply, force, cleanup bool) error 
 		}
 	}
 	return nil
+}
+
+// cleanupTargets returns the entry ids whose legacy body.html is safe to
+// delete: only entries this exact run's Cutover confirmed as "imported" —
+// never derived from the earlier dry-run report alone, since that doesn't
+// confirm content actually has the entry.
+func cleanupTargets(results []migrate.CutoverResult) []string {
+	var ids []string
+	for _, r := range results {
+		if r.Status == "imported" {
+			ids = append(ids, r.EntryID)
+		}
+	}
+	return ids
 }
 
 type minioFetcher struct{ store *storage.MinioStore }
