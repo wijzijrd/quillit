@@ -3,7 +3,6 @@ package handler
 import (
 	"context"
 	"crypto/rand"
-	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"net/http"
