@@ -7,7 +7,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
+	"net/url"
 )
 
 // ErrAlreadyExists means content already has an entry at the requested
@@ -46,8 +48,8 @@ func (c *ContentClient) CreateEntry(ctx context.Context, projectID, slug, direct
 		return fmt.Errorf("marshal request: %w", err)
 	}
 
-	url := fmt.Sprintf("%s/content/projects/%s/entries", c.BaseURL, projectID)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(payload))
+	reqURL := fmt.Sprintf("%s/content/projects/%s/entries", c.BaseURL, url.PathEscape(projectID))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, reqURL, bytes.NewReader(payload))
 	if err != nil {
 		return fmt.Errorf("build request: %w", err)
 	}
@@ -59,7 +61,7 @@ func (c *ContentClient) CreateEntry(ctx context.Context, projectID, slug, direct
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		return fmt.Errorf("POST %s: %w", url, err)
+		return fmt.Errorf("POST %s: %w", reqURL, err)
 	}
 	defer resp.Body.Close()
 
@@ -69,7 +71,8 @@ func (c *ContentClient) CreateEntry(ctx context.Context, projectID, slug, direct
 	case http.StatusConflict:
 		return ErrAlreadyExists
 	default:
-		return fmt.Errorf("POST %s: unexpected status %d", url, resp.StatusCode)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<10))
+		return fmt.Errorf("POST %s: unexpected status %d: %s", reqURL, resp.StatusCode, body)
 	}
 }
 
@@ -77,7 +80,7 @@ func (c *ContentClient) CreateEntry(ctx context.Context, projectID, slug, direct
 type CutoverResult struct {
 	EntryID string
 	Path    string // directoryPath + "/" + slug, or just slug at project root
-	Status  string // "imported" | "skipped-failed" | "error"
+	Status  string // "imported" | "skipped-failed" | "skipped-no-project" | "error"
 	Err     string `json:",omitempty"`
 }
 
@@ -105,6 +108,10 @@ func Cutover(ctx context.Context, database *sql.DB, blobs BlobFetcher, importer 
 
 		if e.Status == "failed" {
 			results = append(results, CutoverResult{EntryID: e.EntryID, Path: path, Status: "skipped-failed", Err: e.ParseError})
+			continue
+		}
+		if e.ProjectID == "" {
+			results = append(results, CutoverResult{EntryID: e.EntryID, Path: path, Status: "skipped-no-project", Err: "entry has no project (empty campaign_ids under the legacy model — no equivalent in the target model)"})
 			continue
 		}
 

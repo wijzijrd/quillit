@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 )
 
 var ErrNotFound = errors.New("entry not found")
@@ -29,8 +30,8 @@ type Client struct {
 }
 
 func (c *Client) Get(ctx context.Context, entryID string) (Entry, error) {
-	url := fmt.Sprintf("%s/content/entries/%s", c.BaseURL, entryID)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	reqURL := fmt.Sprintf("%s/content/entries/%s", c.BaseURL, url.PathEscape(entryID))
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
 	if err != nil {
 		return Entry{}, fmt.Errorf("build request: %w", err)
 	}
@@ -41,7 +42,7 @@ func (c *Client) Get(ctx context.Context, entryID string) (Entry, error) {
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		return Entry{}, fmt.Errorf("GET %s: %w", url, err)
+		return Entry{}, fmt.Errorf("GET %s: %w", reqURL, err)
 	}
 	defer resp.Body.Close()
 
@@ -49,7 +50,7 @@ func (c *Client) Get(ctx context.Context, entryID string) (Entry, error) {
 		return Entry{}, ErrNotFound
 	}
 	if resp.StatusCode != http.StatusOK {
-		return Entry{}, fmt.Errorf("GET %s: unexpected status %d", url, resp.StatusCode)
+		return Entry{}, fmt.Errorf("GET %s: unexpected status %d", reqURL, resp.StatusCode)
 	}
 
 	var e Entry

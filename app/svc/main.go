@@ -11,6 +11,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
@@ -48,7 +49,7 @@ func main() {
 	admin := handler.NewAdmin(database, jwtSecret, authURL)
 	projects := handler.NewProjects(database, jwtSecret)
 	settings := handler.NewSettings(database, jwtSecret)
-	content := &contentclient.Client{BaseURL: contentURL}
+	content := &contentclient.Client{BaseURL: contentURL, HTTP: &http.Client{Timeout: 5 * time.Second}}
 	// Shared in-process WebSocket hub for Game Mode chat (single-instance only).
 	hub := ws.NewHub()
 	gameSessions := handler.NewGameSessions(database, jwtSecret, hub)

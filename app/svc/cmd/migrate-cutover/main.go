@@ -92,10 +92,13 @@ func run(dbPath, contentURL string, useMinio, apply, force, cleanup bool) error 
 	if err != nil {
 		return fmt.Errorf("conversion pass: %w", err)
 	}
-	var failed int
+	var failed, noProject int
 	for _, e := range report.Entries {
-		if e.Status == "failed" {
+		switch {
+		case e.Status == "failed":
 			failed++
+		case e.ProjectID == "":
+			noProject++
 		}
 	}
 	if failed > 0 && !force {
@@ -103,8 +106,8 @@ func run(dbPath, contentURL string, useMinio, apply, force, cleanup bool) error 
 	}
 
 	if !apply {
-		fmt.Printf("migrate-cutover: dry run — %d entries would be created in content at %s (%d would be skipped as failed). Pass -apply to actually run.\n",
-			len(report.Entries)-failed, contentURL, failed)
+		fmt.Printf("migrate-cutover: dry run — %d entries would be created in content at %s (%d would be skipped as failed, %d would be skipped as having no project). Pass -apply to actually run.\n",
+			len(report.Entries)-failed-noProject, contentURL, failed, noProject)
 		return nil
 	}
 
@@ -114,19 +117,21 @@ func run(dbPath, contentURL string, useMinio, apply, force, cleanup bool) error 
 		return fmt.Errorf("cutover: %w", err)
 	}
 
-	var imported, skipped, errored int
+	var imported, skipped, skippedNoProject, errored int
 	for _, r := range results {
 		switch r.Status {
 		case "imported":
 			imported++
 		case "skipped-failed":
 			skipped++
+		case "skipped-no-project":
+			skippedNoProject++
 		case "error":
 			errored++
 			fmt.Fprintf(os.Stderr, "migrate-cutover: entry %s (%s): %s\n", r.EntryID, r.Path, r.Err)
 		}
 	}
-	fmt.Printf("migrate-cutover: %d imported, %d skipped (failed conversion), %d errored.\n", imported, skipped, errored)
+	fmt.Printf("migrate-cutover: %d imported, %d skipped (failed conversion), %d skipped (no project), %d errored.\n", imported, skipped, skippedNoProject, errored)
 	if errored > 0 {
 		return fmt.Errorf("%d entries failed to import — fix and rerun with -apply (safe: already-imported entries return 409 and are counted as imported, not retried destructively)", errored)
 	}

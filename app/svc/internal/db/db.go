@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
@@ -677,7 +678,11 @@ func toV8(db *sql.DB) error {
 		// entries is dropped below, so the FK must go with it — the column and
 		// its historical values survive (a message's card_title/card_body
 		// already hold the snapshot that's actually displayed; entry_id was
-		// only ever an optional back-reference).
+		// only ever an optional back-reference) — note that after the content
+		// cutover (#35) every pre-existing value in this column is a dangling
+		// reference to an id that no longer exists anywhere; card_title/
+		// card_body's snapshot is what keeps old messages displayable, not
+		// this column.
 		if _, err := tx.Exec(`ALTER TABLE chat_messages RENAME TO chat_messages_v7`); err != nil {
 			return fmt.Errorf("rename chat_messages: %w", err)
 		}
@@ -727,6 +732,17 @@ func toV8(db *sql.DB) error {
 		"quick_view_templates", "players", "player_notes", "campaigns",
 		"project_facets", "facets", "entries",
 	}
+
+	// Forensic record: if this migration ever runs somewhere unexpected
+	// (e.g. against a database that wasn't actually cut over), this log line
+	// is the only trace an operator has of how much data was just destroyed.
+	if entriesStillLegacy {
+		var entryCount int
+		if err := tx.QueryRow(`SELECT COUNT(*) FROM entries`).Scan(&entryCount); err == nil {
+			log.Printf("toV8: dropping %d legacy entry-domain tables (entries: %d rows) — see docs/superpowers/plans/2026-08-12-issue-35-content-cutover.md for the required pre-cutover sequencing", len(dropTables)+1, entryCount)
+		}
+	}
+
 	for _, table := range dropTables {
 		if _, err := tx.Exec(fmt.Sprintf("DROP TABLE IF EXISTS %s", table)); err != nil {
 			return fmt.Errorf("drop %s: %w", table, err)

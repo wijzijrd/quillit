@@ -33,6 +33,24 @@ func TestContentClient_CreateEntry_Success(t *testing.T) {
 	}
 }
 
+func TestContentClient_CreateEntry_EscapesProjectIDInPath(t *testing.T) {
+	var gotPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.EscapedPath()
+		w.WriteHeader(http.StatusCreated)
+	}))
+	defer srv.Close()
+
+	c := &ContentClient{BaseURL: srv.URL}
+	err := c.CreateEntry(context.Background(), "weird/id x", "mary", "", "body")
+	if err != nil {
+		t.Fatalf("CreateEntry: %v", err)
+	}
+	if want := "/content/projects/weird%2Fid%20x/entries"; gotPath != want {
+		t.Errorf("path = %q, want %q", gotPath, want)
+	}
+}
+
 func TestContentClient_CreateEntry_ConflictIsAlreadyExists(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusConflict)
@@ -116,6 +134,25 @@ func TestCutover_ImportsCleanAndFlaggedSkipsFailed(t *testing.T) {
 	}
 	if len(f.calls) != 2 {
 		t.Errorf("expected importer called exactly twice, got %d", len(f.calls))
+	}
+}
+
+func TestCutover_NoProjectEntrySkippedDistinctly(t *testing.T) {
+	database := openTestDB(t)
+	// campaign_ids "[]" -> no project under the legacy model (personal/
+	// session-note entry); body is clean so it wouldn't fail conversion.
+	insertEntry(t, database, "e1", "Mary", "Characters", "<p>An innkeeper.</p>", "", "[]", "[]", "{}")
+
+	f := &fakeImporter{}
+	results, err := Cutover(context.Background(), database, nil, f)
+	if err != nil {
+		t.Fatalf("Cutover: %v", err)
+	}
+	if len(results) != 1 || results[0].Status != "skipped-no-project" {
+		t.Errorf("expected a no-project entry to be skipped distinctly, got %+v", results)
+	}
+	if len(f.calls) != 0 {
+		t.Errorf("expected importer not called for a no-project entry, got %d calls", len(f.calls))
 	}
 }
 

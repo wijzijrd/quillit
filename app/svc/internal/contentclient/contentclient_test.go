@@ -30,6 +30,26 @@ func TestClient_Get_Success(t *testing.T) {
 	}
 }
 
+func TestClient_Get_EscapesEntryIDInPath(t *testing.T) {
+	var gotPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.EscapedPath()
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"id": "weird/id x", "projectId": "proj-1", "title": "Mary", "body": "# Mary\n",
+		})
+	}))
+	defer srv.Close()
+
+	c := &Client{BaseURL: srv.URL}
+	_, err := c.Get(context.Background(), "weird/id x")
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if want := "/content/entries/weird%2Fid%20x"; gotPath != want {
+		t.Errorf("path = %q, want %q", gotPath, want)
+	}
+}
+
 func TestClient_Get_NotFound(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
