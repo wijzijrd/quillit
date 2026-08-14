@@ -78,7 +78,7 @@ func TestOpen_UpgradeFromV1(t *testing.T) {
 		t.Fatalf("seed v1 category_default_tags: %v", err)
 	}
 
-	if err := migrate(database); err != nil {
+	if err := migrate(database, latestSchemaVersion); err != nil {
 		t.Fatalf("migrate from v1 failed: %v", err)
 	}
 	if err := checkForeignKeys(database); err != nil {
@@ -167,7 +167,7 @@ func TestOpen_RepairsBrokenV2(t *testing.T) {
 		t.Fatal("expected simulated corruption to fail foreign_key_check, but it passed")
 	}
 
-	if err := migrate(database); err != nil {
+	if err := migrate(database, latestSchemaVersion); err != nil {
 		t.Fatalf("migrate() did not repair the broken schema: %v", err)
 	}
 	if err := checkForeignKeys(database); err != nil {
@@ -431,5 +431,47 @@ func TestToV8_Idempotent(t *testing.T) {
 	}
 	if err := toV8(database); err != nil {
 		t.Fatalf("second toV8 (idempotency): %v", err)
+	}
+}
+
+func TestOpenLegacy_MigratesToV7Only(t *testing.T) {
+	database, err := OpenLegacy(":memory:")
+	if err != nil {
+		t.Fatalf("OpenLegacy() failed: %v", err)
+	}
+	defer database.Close()
+
+	var version int
+	if err := database.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil {
+		t.Fatal(err)
+	}
+	if version != 7 {
+		t.Errorf("expected OpenLegacy() to stop at user_version=7, got %d", version)
+	}
+
+	for _, table := range []string{"entries", "annotations", "categories"} {
+		if !tableExists(t, database, table) {
+			t.Errorf("expected table %q to still exist after OpenLegacy() (must not reach v8)", table)
+		}
+	}
+
+	if err := checkForeignKeys(database); err != nil {
+		t.Errorf("checkForeignKeys after OpenLegacy(): %v", err)
+	}
+}
+
+func TestOpen_StillReachesV8(t *testing.T) {
+	database, err := Open(":memory:")
+	if err != nil {
+		t.Fatalf("Open() failed: %v", err)
+	}
+	defer database.Close()
+
+	var version int
+	if err := database.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil {
+		t.Fatal(err)
+	}
+	if version != 8 {
+		t.Errorf("expected Open() to still reach user_version=8, got %d — this test guards against the OpenLegacy refactor accidentally capping Open() too", version)
 	}
 }

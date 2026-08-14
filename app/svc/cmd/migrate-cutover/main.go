@@ -11,24 +11,29 @@
 //
 // It never modifies entry or content-migration data in svc's own database, and
 // never deletes anything from MinIO (except via explicit -cleanup, which is
-// scoped to confirmed-imported entries only). However, db.Open() itself runs an
-// idempotent schema-bootstrap step (the legacy NPC→Characters category fixup)
-// as a side effect — this is effectively a no-op once already converged, but
-// technically a write. svc's legacy entries table (and the handlers/tables
-// issue #35 lists for removal) are dropped separately, by schema migration v8
-// (internal/db/db.go toV8) and the handler-removal changes in this same
-// plan's Part 2/3 — deploy those only after this tool has been run against
-// production and the result has been spot-checked against content's API
-// (e.g. GET /content/projects/{id}/entries for a few known projects).
+// scoped to confirmed-imported entries only). It opens svc's database via
+// db.OpenLegacy(), which caps migration at schema v7 — the last version with
+// the legacy entries/annotations/etc. tables intact — instead of db.Open(),
+// which would migrate on to v8 and drop those tables before this tool ever
+// reads a row from them. Against an already-v7-or-later production database,
+// OpenLegacy() runs no migration at all: every migration step is a no-op once
+// the schema is already at or past the version it would apply. svc's legacy
+// entries table (and the handlers/tables issue #35 lists for removal) are
+// dropped separately, by schema migration v8 (internal/db/db.go toV8) and the
+// handler-removal changes in this same plan's Part 2/3 — deploy those only
+// after this tool has been run against production and the result has been
+// spot-checked against content's API (e.g. GET /content/projects/{id}/entries
+// for a few known projects).
 //
 // Usage:
 //
 //	go run ./cmd/migrate-cutover -svc-db /path/to/quillit.db -content-url http://localhost:3004 -apply
 //
 // Run it against the LIVE svc database with a reachable MinIO and a running
-// content service. The tool does not write to entry/migration data, but
-// db.Open() may run schema-bootstrap writes as a side effect. Omit -apply to
-// print the plan without creating anything.
+// content service. The tool does not write to entry/migration data — it opens
+// the database with db.OpenLegacy(), which performs no migration at all
+// against an already-current-version database. Omit -apply to print the plan
+// without creating anything.
 package main
 
 import (
@@ -45,7 +50,7 @@ import (
 )
 
 func main() {
-	dbPath := flag.String("svc-db", "", "path to svc's LIVE quillit.db (required; this tool never modifies entry/migration data, but db.Open() runs idempotent schema-bootstrap as a side effect)")
+	dbPath := flag.String("svc-db", "", "path to svc's LIVE quillit.db (required; this tool never modifies entry/migration data — it opens the database with db.OpenLegacy(), which performs no migration at all against an already-current-version database)")
 	contentURL := flag.String("content-url", "http://localhost:3004", "base URL of the running quillit/content service")
 	useMinio := flag.Bool("minio", true, "resolve body_key-backed entry bodies from MinIO (set false only if no entry has a body_key)")
 	apply := flag.Bool("apply", false, "actually create entries in content (default: dry-run, prints the plan only)")
@@ -66,7 +71,7 @@ func main() {
 }
 
 func run(dbPath, contentURL string, useMinio, apply, force, cleanup bool) error {
-	database, err := db.Open(dbPath)
+	database, err := db.OpenLegacy(dbPath)
 	if err != nil {
 		return fmt.Errorf("open database: %w", err)
 	}

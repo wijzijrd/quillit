@@ -17,7 +17,31 @@ func newDBID() string {
 	return hex.EncodeToString(b)
 }
 
+// latestSchemaVersion is the newest schema Open() migrates to.
+const latestSchemaVersion = 8
+
+// legacySchemaVersion is the last schema version with the legacy
+// entry-domain tables (entries, annotations, categories, etc.) intact —
+// the version OpenLegacy() caps at. toV8 (issues #34/#35) drops them.
+const legacySchemaVersion = 7
+
 func Open(path string) (*sql.DB, error) {
+	return open(path, latestSchemaVersion)
+}
+
+// OpenLegacy opens path and migrates it only up to legacySchemaVersion,
+// never past it. Exists solely for the one-time content-migration tools
+// (cmd/migrate-content, cmd/migrate-cutover, via internal/migrate) that
+// must read the legacy entries/annotations/etc. tables before cutover:
+// calling the normal Open() (which always migrates to latestSchemaVersion)
+// against a database that hasn't been cut over yet would drop that data
+// via toV8 before the tool ever reads a row of it. Never use this for the
+// live service — only Open() is safe there.
+func OpenLegacy(path string) (*sql.DB, error) {
+	return open(path, legacySchemaVersion)
+}
+
+func open(path string, maxVersion int) (*sql.DB, error) {
 	database, err := sql.Open("sqlite", path)
 	if err != nil {
 		return nil, fmt.Errorf("open db: %w", err)
@@ -29,7 +53,7 @@ func Open(path string) (*sql.DB, error) {
 	if _, err = database.Exec("PRAGMA foreign_keys=ON"); err != nil {
 		return nil, fmt.Errorf("enable foreign keys: %w", err)
 	}
-	if err = migrate(database); err != nil {
+	if err = migrate(database, maxVersion); err != nil {
 		return nil, fmt.Errorf("migrate: %w", err)
 	}
 	if err := checkForeignKeys(database); err != nil {
@@ -53,47 +77,47 @@ func checkForeignKeys(db *sql.DB) error {
 	return rows.Err()
 }
 
-func migrate(db *sql.DB) error {
+func migrate(db *sql.DB, maxVersion int) error {
 	var version int
 	if err := db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
 		return fmt.Errorf("read schema version: %w", err)
 	}
-	if version < 1 {
+	if version < 1 && maxVersion >= 1 {
 		if err := toV1(db); err != nil {
 			return fmt.Errorf("schema v1: %w", err)
 		}
 	}
-	if version < 2 {
+	if version < 2 && maxVersion >= 2 {
 		if err := toV2(db); err != nil {
 			return fmt.Errorf("schema v2: %w", err)
 		}
 	}
-	if version < 3 {
+	if version < 3 && maxVersion >= 3 {
 		if err := toV3(db); err != nil {
 			return fmt.Errorf("schema v3: %w", err)
 		}
 	}
-	if version < 4 {
+	if version < 4 && maxVersion >= 4 {
 		if err := toV4(db); err != nil {
 			return fmt.Errorf("schema v4: %w", err)
 		}
 	}
-	if version < 5 {
+	if version < 5 && maxVersion >= 5 {
 		if err := toV5(db); err != nil {
 			return fmt.Errorf("schema v5: %w", err)
 		}
 	}
-	if version < 6 {
+	if version < 6 && maxVersion >= 6 {
 		if err := toV6(db); err != nil {
 			return fmt.Errorf("schema v6: %w", err)
 		}
 	}
-	if version < 7 {
+	if version < 7 && maxVersion >= 7 {
 		if err := toV7(db); err != nil {
 			return fmt.Errorf("schema v7: %w", err)
 		}
 	}
-	if version < 8 {
+	if version < 8 && maxVersion >= 8 {
 		if err := toV8(db); err != nil {
 			return fmt.Errorf("schema v8: %w", err)
 		}

@@ -43,7 +43,7 @@ func main() {
 }
 
 func run(dbPath, outPath string, useMinio bool) error {
-	database, err := db.Open(dbPath)
+	database, err := db.OpenLegacy(dbPath)
 	if err != nil {
 		return fmt.Errorf("open database: %w", err)
 	}

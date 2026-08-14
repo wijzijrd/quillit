@@ -12,9 +12,9 @@ import (
 
 func openTestDB(t *testing.T) *sql.DB {
 	t.Helper()
-	database, err := db.Open(":memory:")
+	database, err := db.OpenLegacy(":memory:")
 	if err != nil {
-		t.Fatalf("db.Open: %v", err)
+		t.Fatalf("db.OpenLegacy: %v", err)
 	}
 	t.Cleanup(func() { database.Close() })
 	return database
