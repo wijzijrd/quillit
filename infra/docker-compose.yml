@@ -42,6 +42,7 @@ services:
       PORT: 3000
       DB_PATH: /data/quillit.db
       AUTH_SERVICE_URL: http://auth:3002
+      CONTENT_SERVICE_URL: http://content:3004
       JWT_SECRET: ${JWT_SECRET}
       COOKIE_SECURE: ${COOKIE_SECURE:-false}
       CORS_ORIGIN: ${CORS_ORIGIN}
