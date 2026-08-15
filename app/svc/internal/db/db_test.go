@@ -37,12 +37,18 @@ func TestOpen_FreshDatabase(t *testing.T) {
 		t.Errorf("checkForeignKeys after fresh Open(): %v", err)
 	}
 
-	var count int
-	if err := database.QueryRow(`SELECT COUNT(*) FROM categories`).Scan(&count); err != nil {
-		t.Fatalf("count categories: %v", err)
+	var version int
+	if err := database.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil {
+		t.Fatal(err)
 	}
-	if count != 6 {
-		t.Errorf("expected 6 seeded categories, got %d", count)
+	if version != 8 {
+		t.Errorf("expected fresh Open() to migrate to user_version=8, got %d", version)
+	}
+
+	for _, table := range []string{"entries", "categories", "annotations", "campaigns", "quick_view_templates"} {
+		if tableExists(t, database, table) {
+			t.Errorf("expected table %q to not exist after a fresh Open() at v8", table)
+		}
 	}
 }
 
@@ -72,7 +78,7 @@ func TestOpen_UpgradeFromV1(t *testing.T) {
 		t.Fatalf("seed v1 category_default_tags: %v", err)
 	}
 
-	if err := migrate(database); err != nil {
+	if err := migrate(database, latestSchemaVersion); err != nil {
 		t.Fatalf("migrate from v1 failed: %v", err)
 	}
 	if err := checkForeignKeys(database); err != nil {
@@ -83,8 +89,8 @@ func TestOpen_UpgradeFromV1(t *testing.T) {
 	if err := database.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if version != 7 {
-		t.Errorf("expected user_version=7 after full migration, got %d", version)
+	if version != 8 {
+		t.Errorf("expected user_version=8 after full migration, got %d", version)
 	}
 
 	var count int
@@ -161,17 +167,11 @@ func TestOpen_RepairsBrokenV2(t *testing.T) {
 		t.Fatal("expected simulated corruption to fail foreign_key_check, but it passed")
 	}
 
-	if err := migrate(database); err != nil {
+	if err := migrate(database, latestSchemaVersion); err != nil {
 		t.Fatalf("migrate() did not repair the broken schema: %v", err)
 	}
 	if err := checkForeignKeys(database); err != nil {
 		t.Errorf("checkForeignKeys after repair: %v", err)
-	}
-
-	if _, err := database.Exec(
-		`INSERT INTO category_default_tags (id, category_id, label, sort_order) VALUES ('tag2','cat1','PC',1)`,
-	); err != nil {
-		t.Errorf("insert into repaired category_default_tags failed: %v", err)
 	}
 }
 
@@ -216,6 +216,23 @@ func upToV6(t *testing.T, database *sql.DB) {
 		if err := step(database); err != nil {
 			t.Fatalf("migrate up to v6: %v", err)
 		}
+	}
+}
+
+func upToV7(t *testing.T, database *sql.DB) {
+	t.Helper()
+	for _, step := range []func(*sql.DB) error{toV1, toV2, toV3, toV4, toV5, toV6, toV7} {
+		if err := step(database); err != nil {
+			t.Fatalf("migrate up to v7: %v", err)
+		}
+	}
+}
+
+// mustExec runs a write query and fails the test immediately if it errors.
+func mustExec(t *testing.T, database *sql.DB, query string, args ...any) {
+	t.Helper()
+	if _, err := database.Exec(query, args...); err != nil {
+		t.Fatalf("exec %q: %v", query, err)
 	}
 }
 
@@ -330,7 +347,7 @@ func TestToV7_Idempotent(t *testing.T) {
 	}
 }
 
-func TestOpen_FreshDatabase_MigratesToV7(t *testing.T) {
+func TestOpen_FreshDatabase_MigratesToV8(t *testing.T) {
 	database, err := Open(":memory:")
 	if err != nil {
 		t.Fatalf("Open() failed: %v", err)
@@ -341,10 +358,120 @@ func TestOpen_FreshDatabase_MigratesToV7(t *testing.T) {
 	if err := database.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if version != 7 {
-		t.Errorf("expected fresh Open() to migrate to user_version=7, got %d", version)
+	if version != 8 {
+		t.Errorf("expected fresh Open() to migrate to user_version=8, got %d", version)
 	}
 	if err := checkForeignKeys(database); err != nil {
 		t.Errorf("checkForeignKeys after fresh Open(): %v", err)
+	}
+}
+
+func TestToV8_DropsLegacyEntryDomainTables(t *testing.T) {
+	database := openMemDB(t)
+	defer database.Close()
+	upToV7(t, database)
+
+	now := time.Now().Unix()
+	// Minimal cross-linked fixture so DROP has something real to remove and
+	// chat_messages has a live entry_id to prove the FK rework doesn't lose data.
+	mustExec(t, database, `INSERT INTO projects VALUES ('proj-1','Test','campaign','user1',?)`, now)
+	mustExec(t, database, `INSERT INTO entries (id,title,category,body,created_at,updated_at) VALUES ('e1','Mary','Lore','body',?,?)`, now, now)
+	mustExec(t, database, `INSERT INTO annotations (id,entry_id,text,created_at,updated_at) VALUES ('a1','e1','secret',?,?)`, now, now)
+	mustExec(t, database, `INSERT INTO game_sessions (id,project_id,status,started_by,started_at) VALUES ('gs1','proj-1','running','user1',?)`, now)
+	mustExec(t, database, `INSERT INTO chat_messages (id,session_id,project_id,sender_id,type,body,entry_id,card_title,card_body,created_at) VALUES ('m1','gs1','proj-1','user1','note_card','','e1','Mary','snapshot',?)`, now)
+
+	if err := toV8(database); err != nil {
+		t.Fatalf("toV8: %v", err)
+	}
+
+	dropped := []string{
+		"entries", "annotations", "quick_view_templates", "categories",
+		"category_default_tags", "project_global_categories", "entry_relations",
+		"member_folders", "member_folder_entries", "member_entry_meta",
+		"entry_shares", "campaigns", "players", "player_notes",
+		"facets", "project_facets", "entry_links",
+	}
+	for _, table := range dropped {
+		if tableExists(t, database, table) {
+			t.Errorf("expected table %q to be dropped by toV8", table)
+		}
+	}
+
+	if !tableExists(t, database, "chat_messages") {
+		t.Fatal("chat_messages must survive toV8")
+	}
+	var cardTitle, entryID string
+	if err := database.QueryRow(`SELECT card_title, entry_id FROM chat_messages WHERE id = 'm1'`).Scan(&cardTitle, &entryID); err != nil {
+		t.Fatalf("chat_messages row lost during toV8: %v", err)
+	}
+	if cardTitle != "Mary" || entryID != "e1" {
+		t.Errorf("chat_messages data corrupted: card_title=%q entry_id=%q", cardTitle, entryID)
+	}
+
+	if err := checkForeignKeys(database); err != nil {
+		t.Errorf("checkForeignKeys after toV8: %v", err)
+	}
+
+	var version int
+	if err := database.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil {
+		t.Fatal(err)
+	}
+	if version != 8 {
+		t.Errorf("expected user_version=8, got %d", version)
+	}
+}
+
+func TestToV8_Idempotent(t *testing.T) {
+	database := openMemDB(t)
+	defer database.Close()
+	upToV7(t, database)
+
+	if err := toV8(database); err != nil {
+		t.Fatalf("first toV8: %v", err)
+	}
+	if err := toV8(database); err != nil {
+		t.Fatalf("second toV8 (idempotency): %v", err)
+	}
+}
+
+func TestOpenLegacy_MigratesToV7Only(t *testing.T) {
+	database, err := OpenLegacy(":memory:")
+	if err != nil {
+		t.Fatalf("OpenLegacy() failed: %v", err)
+	}
+	defer database.Close()
+
+	var version int
+	if err := database.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil {
+		t.Fatal(err)
+	}
+	if version != 7 {
+		t.Errorf("expected OpenLegacy() to stop at user_version=7, got %d", version)
+	}
+
+	for _, table := range []string{"entries", "annotations", "categories"} {
+		if !tableExists(t, database, table) {
+			t.Errorf("expected table %q to still exist after OpenLegacy() (must not reach v8)", table)
+		}
+	}
+
+	if err := checkForeignKeys(database); err != nil {
+		t.Errorf("checkForeignKeys after OpenLegacy(): %v", err)
+	}
+}
+
+func TestOpen_StillReachesV8(t *testing.T) {
+	database, err := Open(":memory:")
+	if err != nil {
+		t.Fatalf("Open() failed: %v", err)
+	}
+	defer database.Close()
+
+	var version int
+	if err := database.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil {
+		t.Fatal(err)
+	}
+	if version != 8 {
+		t.Errorf("expected Open() to still reach user_version=8, got %d — this test guards against the OpenLegacy refactor accidentally capping Open() too", version)
 	}
 }

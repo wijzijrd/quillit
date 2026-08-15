@@ -10,6 +10,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/gorilla/websocket"
+	"github.com/quillit/svc/internal/contentclient"
 	"github.com/quillit/svc/internal/middleware"
 	"github.com/quillit/svc/internal/ws"
 )
@@ -21,16 +22,16 @@ type ChatWSHandler struct {
 	db         *sql.DB
 	jwtSecret  []byte
 	hub        *ws.Hub
-	entries    *EntriesHandler
+	content    *contentclient.Client
 	corsOrigin string
 }
 
-func NewChatWS(db *sql.DB, jwtSecret string, hub *ws.Hub, entries *EntriesHandler, corsOrigin string) *ChatWSHandler {
+func NewChatWS(db *sql.DB, jwtSecret string, hub *ws.Hub, content *contentclient.Client, corsOrigin string) *ChatWSHandler {
 	return &ChatWSHandler{
 		db:         db,
 		jwtSecret:  []byte(jwtSecret),
 		hub:        hub,
-		entries:    entries,
+		content:    content,
 		corsOrigin: corsOrigin,
 	}
 }
@@ -173,17 +174,14 @@ func (h *ChatWSHandler) handleInbound(ctx context.Context, projectID, sessionID,
 		if in.EntryID == "" {
 			return
 		}
-		entry, err := h.entries.fetchResolved(ctx, in.EntryID)
+		entry, err := h.content.Get(ctx, in.EntryID)
 		if err != nil {
 			return
 		}
-		// fetchResolved (shared with GET /api/entries/{id}) has no project
-		// filter and returns any entry by id. Broadcasting fans a single-reader
-		// gap out to the whole room, so scope it here: only share entries that
-		// belong to this session's project (linkage lives in campaign_ids, the
-		// JSON array of project ids an entry is filed under — see share.go).
-		// A miss is rejected to the sender alone, not broadcast.
-		if !entryInProject(entry, projectID) {
+		// content's entries are scoped to exactly one project (spec §4.2) —
+		// simpler than the old campaign_ids array-intersection check this
+		// replaces. A miss is rejected to the sender alone, not broadcast.
+		if entry.ProjectID != projectID {
 			h.hub.SendTo(client, shareCardRejectedPayload)
 			return
 		}
@@ -199,23 +197,6 @@ func (h *ChatWSHandler) handleInbound(ctx context.Context, projectID, sessionID,
 			CardBody:  entry.Body,
 		})
 	}
-}
-
-// entryInProject reports whether entry is filed under projectID. An entry's
-// project membership is its campaign_ids JSON array (projects replaced the old
-// campaigns; the column name is unchanged). A malformed/empty array means the
-// entry belongs to no project and is never shareable into a room.
-func entryInProject(entry Entry, projectID string) bool {
-	var ids []string
-	if err := json.Unmarshal(entry.CampaignIDs, &ids); err != nil {
-		return false
-	}
-	for _, id := range ids {
-		if id == projectID {
-			return true
-		}
-	}
-	return false
 }
 
 // persistAndBroadcast inserts msg (filling in id/createdAt), then broadcasts the

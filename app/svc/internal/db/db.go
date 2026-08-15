@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
@@ -17,7 +18,31 @@ func newDBID() string {
 	return hex.EncodeToString(b)
 }
 
+// latestSchemaVersion is the newest schema Open() migrates to.
+const latestSchemaVersion = 8
+
+// legacySchemaVersion is the last schema version with the legacy
+// entry-domain tables (entries, annotations, categories, etc.) intact —
+// the version OpenLegacy() caps at. toV8 (issues #34/#35) drops them.
+const legacySchemaVersion = 7
+
 func Open(path string) (*sql.DB, error) {
+	return open(path, latestSchemaVersion)
+}
+
+// OpenLegacy opens path and migrates it only up to legacySchemaVersion,
+// never past it. Exists solely for the one-time content-migration tools
+// (cmd/migrate-content, cmd/migrate-cutover, via internal/migrate) that
+// must read the legacy entries/annotations/etc. tables before cutover:
+// calling the normal Open() (which always migrates to latestSchemaVersion)
+// against a database that hasn't been cut over yet would drop that data
+// via toV8 before the tool ever reads a row of it. Never use this for the
+// live service — only Open() is safe there.
+func OpenLegacy(path string) (*sql.DB, error) {
+	return open(path, legacySchemaVersion)
+}
+
+func open(path string, maxVersion int) (*sql.DB, error) {
 	database, err := sql.Open("sqlite", path)
 	if err != nil {
 		return nil, fmt.Errorf("open db: %w", err)
@@ -29,17 +54,11 @@ func Open(path string) (*sql.DB, error) {
 	if _, err = database.Exec("PRAGMA foreign_keys=ON"); err != nil {
 		return nil, fmt.Errorf("enable foreign keys: %w", err)
 	}
-	if err = migrate(database); err != nil {
+	if err = migrate(database, maxVersion); err != nil {
 		return nil, fmt.Errorf("migrate: %w", err)
 	}
 	if err := checkForeignKeys(database); err != nil {
 		return nil, fmt.Errorf("migrate: %w", err)
-	}
-	if err = seedCategories(database); err != nil {
-		return nil, fmt.Errorf("seed categories: %w", err)
-	}
-	if err = migrateNPCToCharacters(database); err != nil {
-		return nil, fmt.Errorf("migrate npc: %w", err)
 	}
 	return database, nil
 }
@@ -59,44 +78,49 @@ func checkForeignKeys(db *sql.DB) error {
 	return rows.Err()
 }
 
-func migrate(db *sql.DB) error {
+func migrate(db *sql.DB, maxVersion int) error {
 	var version int
 	if err := db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
 		return fmt.Errorf("read schema version: %w", err)
 	}
-	if version < 1 {
+	if version < 1 && maxVersion >= 1 {
 		if err := toV1(db); err != nil {
 			return fmt.Errorf("schema v1: %w", err)
 		}
 	}
-	if version < 2 {
+	if version < 2 && maxVersion >= 2 {
 		if err := toV2(db); err != nil {
 			return fmt.Errorf("schema v2: %w", err)
 		}
 	}
-	if version < 3 {
+	if version < 3 && maxVersion >= 3 {
 		if err := toV3(db); err != nil {
 			return fmt.Errorf("schema v3: %w", err)
 		}
 	}
-	if version < 4 {
+	if version < 4 && maxVersion >= 4 {
 		if err := toV4(db); err != nil {
 			return fmt.Errorf("schema v4: %w", err)
 		}
 	}
-	if version < 5 {
+	if version < 5 && maxVersion >= 5 {
 		if err := toV5(db); err != nil {
 			return fmt.Errorf("schema v5: %w", err)
 		}
 	}
-	if version < 6 {
+	if version < 6 && maxVersion >= 6 {
 		if err := toV6(db); err != nil {
 			return fmt.Errorf("schema v6: %w", err)
 		}
 	}
-	if version < 7 {
+	if version < 7 && maxVersion >= 7 {
 		if err := toV7(db); err != nil {
 			return fmt.Errorf("schema v7: %w", err)
+		}
+	}
+	if version < 8 && maxVersion >= 8 {
+		if err := toV8(db); err != nil {
+			return fmt.Errorf("schema v8: %w", err)
 		}
 	}
 	return nil
@@ -607,6 +631,138 @@ func toV7(db *sql.DB) error {
 	return tx.Commit()
 }
 
+// toV8 completes the content migration cutover (issues #34/#35,
+// docs/web-refactor-spec.md §4.8/§5): the legacy entry-domain tables/columns
+// are retired now that every entry has been converted to markdown and
+// imported into the quillit/content service's own database (run via
+// cmd/migrate-cutover — see that tool's doc comment; this migration must
+// only ship after a cutover run against production has been verified).
+// content — not svc — now wholly owns entries (spec §7.2/§10.11: one
+// domain per entry, no split-save consistency problem).
+//
+// campaigns/players/player_notes/entry_shares are dropped alongside the
+// entries tables refactor-spec §4.8 names explicitly: none of them have any
+// purpose independent of the entries table they scoped access to, and
+// their API surface (/api/campaigns/*, /api/share/*) is separately listed
+// for removal in spec §6.2.
+func toV8(db *sql.DB) error {
+	// FK constraints can't be toggled inside a transaction; disable outside.
+	// legacy_alter_table=ON prevents SQLite from rewriting OTHER tables'
+	// REFERENCES clauses when we rename chat_messages below.
+	if _, err := db.Exec("PRAGMA foreign_keys=OFF"); err != nil {
+		return err
+	}
+	if _, err := db.Exec("PRAGMA legacy_alter_table=ON"); err != nil {
+		return err
+	}
+	defer db.Exec("PRAGMA legacy_alter_table=OFF") //nolint:errcheck
+	defer db.Exec("PRAGMA foreign_keys=ON")        //nolint:errcheck
+
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	// Single idempotency guard for the whole migration, checked once up
+	// front: entries is the last legacy table dropped below, so its
+	// presence means toV8 hasn't run yet. chat_messages always exists
+	// post-v6 regardless of whether toV8 has already run, so checking it
+	// (as an earlier draft of this migration did) can't distinguish "not
+	// yet migrated" from "already migrated" — entries is the table whose
+	// existence actually tracks that.
+	entriesStillLegacy := tableExists8(tx, "entries")
+
+	if entriesStillLegacy {
+		// chat_messages.entry_id referenced entries(id) ON DELETE SET NULL.
+		// entries is dropped below, so the FK must go with it — the column and
+		// its historical values survive (a message's card_title/card_body
+		// already hold the snapshot that's actually displayed; entry_id was
+		// only ever an optional back-reference) — note that after the content
+		// cutover (#35) every pre-existing value in this column is a dangling
+		// reference to an id that no longer exists anywhere; card_title/
+		// card_body's snapshot is what keeps old messages displayable, not
+		// this column.
+		if _, err := tx.Exec(`ALTER TABLE chat_messages RENAME TO chat_messages_v7`); err != nil {
+			return fmt.Errorf("rename chat_messages: %w", err)
+		}
+		if _, err := tx.Exec(`
+			CREATE TABLE chat_messages (
+				id         TEXT    PRIMARY KEY,
+				session_id TEXT    NOT NULL REFERENCES game_sessions(id) ON DELETE CASCADE,
+				project_id TEXT    NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+				sender_id  TEXT    NOT NULL,
+				type       TEXT    NOT NULL DEFAULT 'text',
+				body       TEXT    NOT NULL DEFAULT '',
+				entry_id   TEXT,
+				card_title TEXT    NOT NULL DEFAULT '',
+				card_body  TEXT    NOT NULL DEFAULT '',
+				created_at INTEGER NOT NULL
+			)
+		`); err != nil {
+			return fmt.Errorf("recreate chat_messages: %w", err)
+		}
+		if _, err := tx.Exec(`
+			INSERT INTO chat_messages (id, session_id, project_id, sender_id, type, body, entry_id, card_title, card_body, created_at)
+			SELECT id, session_id, project_id, sender_id, type, body, entry_id, card_title, card_body, created_at
+			FROM chat_messages_v7
+		`); err != nil {
+			return fmt.Errorf("copy chat_messages: %w", err)
+		}
+		if _, err := tx.Exec(`DROP TABLE chat_messages_v7`); err != nil {
+			return fmt.Errorf("drop chat_messages_v7: %w", err)
+		}
+		if _, err := tx.Exec(`
+			CREATE INDEX IF NOT EXISTS idx_chat_messages_session ON chat_messages(session_id, created_at)
+		`); err != nil {
+			return fmt.Errorf("recreate idx_chat_messages_session: %w", err)
+		}
+	}
+
+	// Legacy entry-domain tables (refactor-spec §4.8's full removal list,
+	// plus entry_shares/facets/project_facets/entry_links — see doc comment
+	// above). Order doesn't affect correctness (foreign_keys is OFF) — child
+	// tables listed before entries purely for a readable diff. DROP TABLE IF
+	// EXISTS makes this loop idempotent on its own (independent of
+	// entriesStillLegacy), so it always runs unconditionally.
+	dropTables := []string{
+		"annotations", "entry_relations", "member_folder_entries", "member_entry_meta",
+		"member_folders", "entry_shares", "entry_links",
+		"category_default_tags", "project_global_categories", "categories",
+		"quick_view_templates", "players", "player_notes", "campaigns",
+		"project_facets", "facets", "entries",
+	}
+
+	// Forensic record: if this migration ever runs somewhere unexpected
+	// (e.g. against a database that wasn't actually cut over), this log line
+	// is the only trace an operator has of how much data was just destroyed.
+	if entriesStillLegacy {
+		var entryCount int
+		if err := tx.QueryRow(`SELECT COUNT(*) FROM entries`).Scan(&entryCount); err == nil {
+			log.Printf("toV8: dropping %d legacy entry-domain tables (entries: %d rows) — see docs/superpowers/plans/2026-08-12-issue-35-content-cutover.md for the required pre-cutover sequencing", len(dropTables)+1, entryCount)
+		}
+	}
+
+	for _, table := range dropTables {
+		if _, err := tx.Exec(fmt.Sprintf("DROP TABLE IF EXISTS %s", table)); err != nil {
+			return fmt.Errorf("drop %s: %w", table, err)
+		}
+	}
+
+	if _, err := tx.Exec(`PRAGMA user_version = 8`); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// tableExists8 is toV8's own existence check (tx-scoped, unlike the
+// test-only tableExists helper in db_test.go).
+func tableExists8(tx *sql.Tx, table string) bool {
+	var name string
+	err := tx.QueryRow(`SELECT name FROM sqlite_master WHERE type='table' AND name = ?`, table).Scan(&name)
+	return err == nil
+}
+
 // seedFacets populates the global facet vocabulary with the CLI defaults plus
 // any quick_view_templates category currently in active use, kebab-cased.
 // Idempotent: INSERT OR IGNORE against the facets.name primary key.
@@ -693,55 +849,3 @@ func addColumnIfMissing(tx *sql.Tx, table, column, definition string) error {
 	return err
 }
 
-func seedCategories(db *sql.DB) error {
-	var count int
-	if err := db.QueryRow(`SELECT COUNT(*) FROM categories`).Scan(&count); err != nil {
-		return err
-	}
-	if count > 0 {
-		return nil
-	}
-	now := time.Now().Unix()
-	type catSeed struct {
-		name  string
-		icon  string
-		color string
-		tags  []string
-	}
-	seeds := []catSeed{
-		{"Characters", "User", "#4a7a9b", []string{"NPC", "PC", "Deity", "Monster", "Ally", "Enemy"}},
-		{"Location", "MapPin", "#5a8a5a", []string{"City", "Dungeon", "Wilderness", "Landmark", "Region"}},
-		{"Faction", "Shield", "#8a5a9b", []string{"Guild", "Government", "Religion", "Criminal", "Military"}},
-		{"Event", "CalendarDays", "#9b7a3a", []string{"Battle", "Ceremony", "Discovery", "Betrayal", "Plot Thread"}},
-		{"Item", "Package", "#9b5a5a", []string{"Weapon", "Armour", "Artefact", "Consumable", "Key Item"}},
-		{"Lore", "BookMarked", "#6a7a9b", []string{"History", "Mythology", "Religion", "Plot Thread", "Rumour"}},
-	}
-	tx, err := db.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	for i, s := range seeds {
-		catID := newDBID()
-		if _, err := tx.Exec(
-			`INSERT INTO categories (id, name, icon, color, sort_order, project_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'global', ?, ?)`,
-			catID, s.name, s.icon, s.color, i, now, now,
-		); err != nil {
-			return err
-		}
-		for j, label := range s.tags {
-			if _, err := tx.Exec(
-				`INSERT INTO category_default_tags (id, category_id, label, sort_order) VALUES (?, ?, ?, ?)`,
-				newDBID(), catID, label, j,
-			); err != nil {
-				return err
-			}
-		}
-	}
-	return tx.Commit()
-}
-
-func migrateNPCToCharacters(db *sql.DB) error {
-	_, err := db.Exec(`UPDATE entries SET category = 'Characters' WHERE category = 'NPC'`)
-	return err
-}

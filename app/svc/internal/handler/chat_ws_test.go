@@ -4,17 +4,21 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	_ "modernc.org/sqlite"
 
+	"github.com/quillit/svc/internal/contentclient"
 	"github.com/quillit/svc/internal/handler"
 	"github.com/quillit/svc/internal/ws"
 )
 
-// setupChatWSDB builds an in-memory DB with the columns fetchResolved's
-// entrySelect reads plus a chat_messages sink, seeded with one entry filed under
-// proj1 and one filed under proj2.
+// setupChatWSDB builds an in-memory DB with just the chat_messages sink that
+// persistAndBroadcast writes to. Entry data itself no longer lives in svc's
+// DB — it's fetched from the content service via contentclient — so this
+// schema no longer needs an entries table (see setupContentStub).
 func setupChatWSDB(t *testing.T) *sql.DB {
 	t.Helper()
 	db, err := sql.Open("sqlite", ":memory:")
@@ -23,21 +27,6 @@ func setupChatWSDB(t *testing.T) *sql.DB {
 	}
 	db.SetMaxOpenConns(1)
 	schema := `
-	CREATE TABLE entries (
-		id TEXT PRIMARY KEY,
-		title TEXT NOT NULL DEFAULT '',
-		category TEXT NOT NULL DEFAULT 'Lore',
-		body TEXT NOT NULL DEFAULT '',
-		body_key TEXT,
-		visibility TEXT NOT NULL DEFAULT 'private',
-		campaign_ids TEXT NOT NULL DEFAULT '[]',
-		linked_entries TEXT NOT NULL DEFAULT '[]',
-		tags TEXT NOT NULL DEFAULT '[]',
-		quick_view_data TEXT NOT NULL DEFAULT '{}',
-		created_at INTEGER NOT NULL DEFAULT 0,
-		updated_at INTEGER NOT NULL DEFAULT 0,
-		owner_user_id TEXT
-	);
 	CREATE TABLE chat_messages (
 		id TEXT PRIMARY KEY,
 		session_id TEXT NOT NULL,
@@ -54,28 +43,48 @@ func setupChatWSDB(t *testing.T) *sql.DB {
 	if _, err := db.Exec(schema); err != nil {
 		t.Fatal(err)
 	}
-	// entryHere belongs to proj1 (the session's project); entryElsewhere belongs
-	// to proj2 and must never be shareable into proj1's room.
-	if _, err := db.Exec(
-		`INSERT INTO entries (id,title,body,campaign_ids) VALUES ('entryHere','Local Lore','local body','["proj1"]')`,
-	); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec(
-		`INSERT INTO entries (id,title,body,campaign_ids) VALUES ('entryElsewhere','Foreign Secret','secret body','["proj2"]')`,
-	); err != nil {
-		t.Fatal(err)
-	}
 	return db
 }
 
-// newChatWSFixture wires a ChatWSHandler over db plus a client registered in
-// proj1's room, ready to receive broadcasts/rejections via TryRecv.
+// setupContentStub starts an httptest.Server standing in for the content
+// service's GET /content/entries/{id} endpoint, seeded with one entry filed
+// under proj1 and one filed under proj2 — mirroring the old DB-seeded
+// fixture's entryHere/entryElsewhere but served over HTTP the way
+// contentclient.Client.Get expects (see contentclient_test.go for the same
+// response shape). Unknown ids 404. The server is closed via t.Cleanup.
+func setupContentStub(t *testing.T) *httptest.Server {
+	t.Helper()
+	entries := map[string]map[string]any{
+		"entryHere": {
+			"id": "entryHere", "projectId": "proj1",
+			"title": "Local Lore", "body": "local body",
+		},
+		"entryElsewhere": {
+			"id": "entryElsewhere", "projectId": "proj2",
+			"title": "Foreign Secret", "body": "secret body",
+		},
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		id := r.URL.Path[len("/content/entries/"):]
+		entry, ok := entries[id]
+		if !ok {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(entry)
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+// newChatWSFixture wires a ChatWSHandler over db and a contentclient.Client
+// pointed at a content-service stub, plus a client registered in proj1's
+// room, ready to receive broadcasts/rejections via TryRecv.
 func newChatWSFixture(t *testing.T, db *sql.DB) (*handler.ChatWSHandler, *ws.Client) {
 	t.Helper()
 	hub := ws.NewHub()
-	entries := handler.NewEntries(db, "test-secret")
-	h := handler.NewChatWS(db, "test-secret", hub, entries, "")
+	content := &contentclient.Client{BaseURL: setupContentStub(t).URL}
+	h := handler.NewChatWS(db, "test-secret", hub, content, "")
 	client := ws.NewClient(hub, "proj1", "user1", nil, nil)
 	hub.OpenRoomAndRegister("proj1", "s1", client)
 	return h, client
