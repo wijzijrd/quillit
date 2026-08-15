@@ -48,6 +48,7 @@ func main() {
 	entries := handler.NewEntries(database, jwtSecret, blobs)
 	renderer := handler.NewRender(database, blobs)
 	facets := handler.NewFacets(database)
+	links := handler.NewLinks(database, blobs)
 
 	r := chi.NewRouter()
 	r.Use(middleware.Logger)
@@ -64,6 +65,7 @@ func main() {
 		r.Delete("/entries/{id}", entries.Delete)
 		r.Post("/entries/{id}/images", entries.UploadImage)
 		r.Get("/entries/{id}/render", renderer.Render)
+		r.Get("/entries/{id}/links", links.GetForEntry)
 
 		r.Get("/facets", facets.ListGlobal)
 		r.Post("/facets", facets.CreateGlobal)
@@ -71,6 +73,7 @@ func main() {
 		r.Get("/projects/{id}/facets", facets.ListEffectiveForProject)
 		r.Post("/projects/{id}/facets", facets.CreateForProject)
 		r.Delete("/projects/{id}/facets/{name}", facets.DeleteForProject)
+		r.Post("/projects/{id}/compile", links.CompileProject)
 	})
 
 	addr := fmt.Sprintf(":%s", port)
