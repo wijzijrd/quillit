@@ -65,6 +65,78 @@
       </div>
     </section>
 
+    <!-- Facets -->
+    <section class="pv-section">
+      <h2 class="pv-section-title">Facets</h2>
+      <p class="pv-note">
+        Facets are the card-block vocabulary used in entries (e.g. <code>:::card npc</code>).
+        Global facets are available to every project; this project can add its own on top.
+      </p>
+
+      <div class="facet-group">
+        <div class="facet-group-header">
+          <span class="facet-group-label facet-group-label-global">Global</span>
+          <span class="facet-group-hint">Available to every project</span>
+        </div>
+        <div class="facet-chips">
+          <span v-for="f in facets.global" :key="f" class="facet-chip facet-chip-global">
+            {{ f }}
+            <button
+              v-if="isEditor"
+              class="facet-chip-remove"
+              @click="removeGlobalFacet(f)"
+              :title="`Remove global facet '${f}'`"
+            >×</button>
+          </span>
+          <p class="pv-empty" v-if="!facets.global.length && facetsLoaded">No global facets yet.</p>
+        </div>
+        <form v-if="isEditor" class="facet-add-form" @submit.prevent="addGlobalFacet">
+          <input
+            class="facet-add-input"
+            v-model="newGlobalFacet"
+            placeholder="new-facet-name"
+            @input="globalFacetError = ''"
+          />
+          <button class="pv-btn" type="submit">Add</button>
+        </form>
+        <p class="facet-error" v-if="globalFacetError">{{ globalFacetError }}</p>
+      </div>
+
+      <div class="facet-group">
+        <div class="facet-group-header">
+          <span class="facet-group-label facet-group-label-project">Project-specific</span>
+          <span class="facet-group-hint">Only available in this project</span>
+        </div>
+        <div class="facet-chips">
+          <span v-for="f in projectOnlyFacets" :key="f" class="facet-chip facet-chip-project">
+            {{ f }}
+            <button
+              v-if="isEditor"
+              class="facet-chip-remove"
+              @click="removeProjectFacet(f)"
+              :title="`Remove project facet '${f}'`"
+            >×</button>
+          </span>
+          <p class="pv-empty" v-if="!projectOnlyFacets.length && facetsLoaded">No project-specific facets yet.</p>
+        </div>
+        <form v-if="isEditor" class="facet-add-form" @submit.prevent="addProjectFacet">
+          <input
+            class="facet-add-input"
+            v-model="newProjectFacet"
+            placeholder="new-facet-name"
+            @input="projectFacetError = ''"
+          />
+          <button class="pv-btn" type="submit">Add</button>
+        </form>
+        <p class="facet-error" v-if="projectFacetError">{{ projectFacetError }}</p>
+      </div>
+
+      <div class="facet-notice" v-if="facetNotice">
+        <span>{{ facetNotice }}</span>
+        <button class="facet-notice-dismiss" @click="facetNotice = ''" title="Dismiss">×</button>
+      </div>
+    </section>
+
     <!-- Game Mode -->
     <section class="pv-section">
       <h2 class="pv-section-title">Game Mode</h2>
@@ -83,13 +155,16 @@ import { useRoute, RouterLink } from 'vue-router'
 import { useProjectStore } from '../stores/useProjectStore'
 import { useMemberStore } from '../stores/useMemberStore'
 import { useAuthStore } from '../stores/useAuthStore'
+import { useFacetsStore } from '../stores/useFacetsStore'
 import { apiErrorMessage } from '../api/client'
 import { inviteLink as buildInviteLink } from '../utils/links'
+import { isKebabCase } from '../utils/facets'
 
 const route = useRoute()
 const projectStore = useProjectStore()
 const memberStore = useMemberStore()
 const auth = useAuthStore()
+const facets = useFacetsStore()
 
 const projectId = computed(() => route.params.projectId)
 const project = computed(() => projectStore.projects.find(p => p.id === projectId.value) ?? null)
@@ -99,6 +174,14 @@ const searchResults = ref([])
 const inviteLink = ref('')
 const error = ref('')
 let searchTimer = null
+
+const facetsLoaded = ref(false)
+const newGlobalFacet = ref('')
+const newProjectFacet = ref('')
+const globalFacetError = ref('')
+const projectFacetError = ref('')
+const facetNotice = ref('')
+const projectOnlyFacets = computed(() => facets.projectOnlyFacets(projectId.value))
 
 const typeLabel = computed(() => {
   const type = project.value?.type
@@ -115,6 +198,8 @@ const isEditor = computed(() => {
 onMounted(async () => {
   await Promise.all([projectStore.fetchProjects(), projectStore.fetchTypes()])
   members.value = await projectStore.fetchMembers(projectId.value)
+  await Promise.all([facets.fetchGlobal(), facets.fetchForProject(projectId.value)])
+  facetsLoaded.value = true
 })
 
 function onSearch() {
@@ -166,6 +251,64 @@ async function generateLink() {
 
 function copyLink() {
   navigator.clipboard.writeText(inviteLink.value).catch(() => {})
+}
+
+function facetWarning(name: string): string {
+  return `Delete facet "${name}"?\n\nEntry bodies are left untouched — any entry with a :::card block still referencing "${name}" will fail validation at its next save or render.`
+}
+
+async function addGlobalFacet() {
+  const name = newGlobalFacet.value.trim()
+  if (!name) return
+  if (!isKebabCase(name)) {
+    globalFacetError.value = 'Facet names must be lowercase letters, digits, and hyphens (kebab-case), e.g. "ancient-ruins".'
+    return
+  }
+  globalFacetError.value = ''
+  try {
+    const res = await facets.createGlobal(name)
+    newGlobalFacet.value = ''
+    facetNotice.value = res.added ? '' : (res.message ?? '')
+  } catch (e: unknown) {
+    globalFacetError.value = apiErrorMessage(e, 'Could not add facet')
+  }
+}
+
+async function removeGlobalFacet(name: string) {
+  if (!confirm(facetWarning(name))) return
+  try {
+    const res = await facets.deleteGlobal(name)
+    facetNotice.value = res.message ?? `Removed "${name}".`
+  } catch (e: unknown) {
+    facetNotice.value = apiErrorMessage(e, 'Could not remove facet')
+  }
+}
+
+async function addProjectFacet() {
+  const name = newProjectFacet.value.trim()
+  if (!name) return
+  if (!isKebabCase(name)) {
+    projectFacetError.value = 'Facet names must be lowercase letters, digits, and hyphens (kebab-case), e.g. "ancient-ruins".'
+    return
+  }
+  projectFacetError.value = ''
+  try {
+    const res = await facets.createForProject(projectId.value, name)
+    newProjectFacet.value = ''
+    facetNotice.value = res.added ? '' : (res.message ?? '')
+  } catch (e: unknown) {
+    projectFacetError.value = apiErrorMessage(e, 'Could not add facet')
+  }
+}
+
+async function removeProjectFacet(name: string) {
+  if (!confirm(facetWarning(name))) return
+  try {
+    const res = await facets.deleteForProject(projectId.value, name)
+    facetNotice.value = res.message ?? `Removed "${name}".`
+  } catch (e: unknown) {
+    facetNotice.value = apiErrorMessage(e, 'Could not remove facet')
+  }
 }
 </script>
 
@@ -251,4 +394,50 @@ function copyLink() {
   text-decoration: none;
 }
 .pv-error { font-size: var(--text-sm); color: var(--destructive); margin: 0; }
+
+.facet-group { display: flex; flex-direction: column; gap: var(--space-xs); }
+.facet-group-header { display: flex; align-items: baseline; gap: var(--space-sm); }
+.facet-group-label {
+  font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.08em;
+  font-weight: 600; color: var(--foreground);
+}
+.facet-group-label-global { color: var(--primary); }
+.facet-group-label-project { color: var(--secondary-foreground, var(--foreground)); }
+.facet-group-hint { font-size: var(--text-xs); color: var(--muted-foreground); }
+.facet-chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; min-height: 1.6em; }
+.facet-chip {
+  display: inline-flex; align-items: center; gap: 4px;
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: 12px; padding: 3px 10px; font-size: var(--text-xs);
+  color: var(--foreground);
+}
+.facet-chip-global { border-color: var(--secondary); }
+.facet-chip-project {
+  background: color-mix(in srgb, var(--secondary) 30%, var(--card));
+}
+.facet-chip-remove {
+  background: none; border: none; cursor: pointer; color: var(--muted-foreground);
+  padding: 0; line-height: 1; font-size: 1em; transition: color var(--transition);
+}
+.facet-chip-remove:hover { color: var(--destructive); }
+.facet-add-form { display: flex; gap: var(--space-sm); }
+.facet-add-input {
+  flex: 1; max-width: 260px; background: var(--muted); border: 1px solid var(--border);
+  border-radius: var(--radius); color: var(--foreground); font-family: var(--font-body);
+  font-size: var(--text-sm); height: var(--h-md); padding: 0 var(--space-sm); outline: none;
+  transition: border-color var(--transition); box-sizing: border-box;
+}
+.facet-add-input:focus { border-color: var(--secondary); }
+.facet-error { font-size: var(--text-xs); color: var(--destructive); margin: 0; }
+.facet-notice {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--space-sm);
+  background: color-mix(in srgb, var(--secondary) 25%, var(--card));
+  border: 1px solid var(--secondary); border-radius: var(--radius);
+  padding: var(--space-xs) var(--space-sm); font-size: var(--text-xs); color: var(--foreground);
+}
+.facet-notice-dismiss {
+  background: none; border: none; cursor: pointer; color: var(--muted-foreground);
+  padding: 0; line-height: 1; font-size: 1.1em; flex-shrink: 0;
+}
+.facet-notice-dismiss:hover { color: var(--foreground); }
 </style>
