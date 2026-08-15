@@ -50,6 +50,7 @@ func main() {
 	projects := handler.NewProjects(database, jwtSecret)
 	settings := handler.NewSettings(database, jwtSecret)
 	content := &contentclient.Client{BaseURL: contentURL, HTTP: &http.Client{Timeout: 5 * time.Second}}
+	contentFacets := handler.NewContentFacets(contentURL)
 	// Shared in-process WebSocket hub for Game Mode chat (single-instance only).
 	hub := ws.NewHub()
 	gameSessions := handler.NewGameSessions(database, jwtSecret, hub)
@@ -93,6 +94,14 @@ func main() {
 		r.Delete("/api/projects/{id}/members/{userId}", projects.RemoveMember)
 		r.Post("/api/projects/{id}/invite", projects.CreateInvite)
 		r.Delete("/api/projects/{id}/invite/{token}", projects.RevokeInvite)
+
+		// Facet vocabulary (proxied to the content service — issue #50)
+		r.Get("/api/content/facets", contentFacets.ListGlobal)
+		r.Post("/api/content/facets", contentFacets.CreateGlobal)
+		r.Delete("/api/content/facets/{name}", contentFacets.DeleteGlobal)
+		r.Get("/api/content/projects/{id}/facets", contentFacets.ListForProject)
+		r.Post("/api/content/projects/{id}/facets", contentFacets.CreateForProject)
+		r.Delete("/api/content/projects/{id}/facets/{name}", contentFacets.DeleteForProject)
 
 		// Game Mode: live session control-plane + chat history
 		r.Post("/api/projects/{projectId}/session/start", gameSessions.Start)
