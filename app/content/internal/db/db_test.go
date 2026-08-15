@@ -13,8 +13,8 @@ func TestOpen_FreshDatabase(t *testing.T) {
 	if err := database.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatalf("read schema version: %v", err)
 	}
-	if version != 2 {
-		t.Errorf("user_version = %d, want 2", version)
+	if version != 3 {
+		t.Errorf("user_version = %d, want 3", version)
 	}
 
 	var count int
@@ -23,6 +23,27 @@ func TestOpen_FreshDatabase(t *testing.T) {
 	}
 	if count != 1 {
 		t.Errorf("expected 1 schema_meta row, got %d", count)
+	}
+}
+
+func TestOpen_CreatesSearchIndex(t *testing.T) {
+	database, err := Open(":memory:")
+	if err != nil {
+		t.Fatalf("Open() failed: %v", err)
+	}
+	defer database.Close()
+
+	if _, err := database.Exec(`INSERT INTO entries_fts (entry_id, title, tags, body) VALUES (?, ?, ?, ?)`,
+		"e1", "Tom the Innkeeper", "npc", "Runs the tavern."); err != nil {
+		t.Fatalf("insert into entries_fts failed: %v", err)
+	}
+
+	var entryID string
+	if err := database.QueryRow(`SELECT entry_id FROM entries_fts WHERE entries_fts MATCH 'tavern'`).Scan(&entryID); err != nil {
+		t.Fatalf("FTS5 MATCH query failed: %v", err)
+	}
+	if entryID != "e1" {
+		t.Errorf("entry_id = %q, want %q", entryID, "e1")
 	}
 }
 
