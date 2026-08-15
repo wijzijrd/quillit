@@ -1,14 +1,12 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { api } from '../api/client'
-import type { Folder, SessionNote, SharedNote } from '../types'
+import type { Folder, SessionNote } from '../types'
 
 export const useMemberStore = defineStore('member', () => {
-  const sharedNotes = ref<SharedNote[]>([])
   const folders = ref<Folder[]>([])
   const sessionNotes = ref<SessionNote[]>([])
 
-  async function fetchSharedNotes() { sharedNotes.value = await api('/member/shared') }
   async function fetchFolders() { folders.value = await api('/member/folders') }
 
   async function createFolder(payload: Partial<Folder>): Promise<Folder> {
@@ -78,8 +76,8 @@ export const useMemberStore = defineStore('member', () => {
   }
 
   return {
-    sharedNotes, folders, sessionNotes,
-    fetchSharedNotes, fetchFolders, createFolder, updateFolder, deleteFolder,
+    folders, sessionNotes,
+    fetchFolders, createFolder, updateFolder, deleteFolder,
     addToFolder, removeFromFolder, upsertEntryMeta,
     fetchSessionNotes, createSessionNote, updateSessionNote, deleteSessionNote,
     searchUsers, fetchEntryShares, addShares, removeShare,

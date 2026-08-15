@@ -21,18 +21,6 @@
           {{ v.label }}
         </label>
       </div>
-      <!-- Player picker for Shared visibility -->
-      <div class="player-picker" v-if="draftVisibility === 'shared' && campaign.players.length > 0">
-        <p class="picker-label">Share with:</p>
-        <label v-for="p in campaign.players" :key="p.id" class="player-check">
-          <input type="checkbox" :value="p.id" v-model="draftSharedWith" />
-          {{ p.name }}
-        </label>
-      </div>
-      <div class="player-picker player-picker--empty" v-else-if="draftVisibility === 'shared' && campaign.players.length === 0">
-        <p class="picker-label">No players yet — add them in <RouterLink to="/players">Players</RouterLink>.</p>
-      </div>
-
       <div class="form-actions">
         <button class="btn-save" @click="saveAnnotation" :disabled="!draftText.trim()">Save</button>
         <button class="btn-cancel" @click="emit('cancel')">Cancel</button>
@@ -74,13 +62,6 @@
               {{ v.label }}
             </label>
           </div>
-          <div class="player-picker" v-if="editVisibility === 'shared' && campaign.players.length > 0">
-            <p class="picker-label">Share with:</p>
-            <label v-for="p in campaign.players" :key="p.id" class="player-check">
-              <input type="checkbox" :value="p.id" v-model="editSharedWith" />
-              {{ p.name }}
-            </label>
-          </div>
           <div class="form-actions">
             <button class="btn-save" @click="saveEdit(ann.id)">Save</button>
             <button class="btn-cancel" @click="editingId = null">Cancel</button>
@@ -94,9 +75,7 @@
 
 <script setup lang="ts">
 import { ref, computed } from 'vue'
-import { RouterLink } from 'vue-router'
 import { useAnnotationsStore } from '../stores/useAnnotationsStore'
-import { useCampaignStore } from '../stores/useCampaignStore'
 
 const props = defineProps<{
   entryId?: string
@@ -107,7 +86,6 @@ const props = defineProps<{
 const emit = defineEmits(['apply-annotation', 'remove-annotation', 'cancel'])
 
 const annotations = useAnnotationsStore()
-const campaign = useCampaignStore()
 
 const VISIBILITIES = [
   { value: 'gm',     label: '🔒 Private' },
@@ -118,11 +96,9 @@ const VISIBILITY_LABELS: Record<string, string> = { gm: 'Private', shared: 'Shar
 
 const draftText = ref('')
 const draftVisibility = ref('gm')
-const draftSharedWith = ref<string[]>([])
 const editingId = ref<string | null>(null)
 const editText = ref('')
 const editVisibility = ref('gm')
-const editSharedWith = ref<string[]>([])
 
 const visibleAnnotations = computed(() => {
   const list = annotations.getByEntry(props.entryId)
@@ -134,26 +110,22 @@ function saveAnnotation() {
   const id = annotations.createAnnotation(props.entryId, {
     text: draftText.value.trim(),
     visibility: draftVisibility.value,
-    sharedWith: draftVisibility.value === 'shared' ? [...draftSharedWith.value] : [],
   })
   emit('apply-annotation', { id, visibility: draftVisibility.value })
   draftText.value = ''
   draftVisibility.value = 'gm'
-  draftSharedWith.value = []
 }
 
-function startEdit(ann: { id: string; text: string; visibility: string; sharedWith?: string[] }) {
+function startEdit(ann: { id: string; text: string; visibility: string }) {
   editingId.value = ann.id
   editText.value = ann.text
   editVisibility.value = ann.visibility
-  editSharedWith.value = ann.sharedWith ? [...ann.sharedWith] : []
 }
 
 function saveEdit(id: string) {
   annotations.updateAnnotation(id, {
     text: editText.value.trim(),
     visibility: editVisibility.value,
-    sharedWith: editVisibility.value === 'shared' ? [...editSharedWith.value] : [],
   })
   editingId.value = null
 }
@@ -306,27 +278,4 @@ function remove(id: string) {
   line-height: 1.5;
   white-space: pre-wrap;
 }
-
-.player-picker {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-.player-picker--empty { font-size: 0.82em; color: var(--muted-foreground); }
-.player-picker--empty a { color: var(--primary); }
-.picker-label {
-  font-size: 0.75em;
-  color: var(--muted-foreground);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-}
-.player-check {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 0.84em;
-  color: var(--muted-foreground);
-  cursor: pointer;
-}
-.player-check input { accent-color: var(--primary); cursor: pointer; }
 </style>

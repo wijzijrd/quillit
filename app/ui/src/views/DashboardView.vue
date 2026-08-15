@@ -140,7 +140,6 @@ import { resolveIcon } from '../utils/categoryIcons'
 import { useEntriesStore } from '../stores/useEntriesStore'
 import { useCategoriesStore } from '../stores/useCategoriesStore'
 import { useAnnotationsStore } from '../stores/useAnnotationsStore'
-import { useCampaignStore } from '../stores/useCampaignStore'
 import { useProjectStore } from '../stores/useProjectStore'
 import { useAuthStore } from '../stores/useAuthStore'
 import { useUIStore } from '../stores/useUIStore'
@@ -152,7 +151,6 @@ const router = useRouter()
 const entries = useEntriesStore()
 const cats = useCategoriesStore()
 const annotations = useAnnotationsStore()
-const campaign = useCampaignStore()
 const projectStore = useProjectStore()
 const auth = useAuthStore()
 const ui = useUIStore()
@@ -245,7 +243,6 @@ function exportData() {
     exportedAt: Date.now(),
     entries: entries.entries,
     annotations: annotations.annotations,
-    campaigns: campaign.campaigns,
   }
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
   const url = URL.createObjectURL(blob)
