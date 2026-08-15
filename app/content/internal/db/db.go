@@ -39,6 +39,11 @@ func migrate(db *sql.DB) error {
 			return fmt.Errorf("schema v2: %w", err)
 		}
 	}
+	if version < 3 {
+		if err := toV3(db); err != nil {
+			return fmt.Errorf("schema v3: %w", err)
+		}
+	}
 	return nil
 }
 
@@ -144,6 +149,48 @@ func toV2(db *sql.DB) error {
 	}
 
 	if _, err := tx.Exec(`PRAGMA user_version = 2`); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// toV3 adds entries_fts, the FTS5 search index behind #43's search/wikilink-
+// autocomplete endpoint (docs/web-refactor-spec.md §7.2: "A search index
+// (FTS5 over title/tags/body) is added in content's DB alongside").
+//
+// entry_id is UNINDEXED (a lookup key, not searchable text) and deliberately
+// the only per-row identifier stored here — project_id, slug, and
+// directory_path live only on entries and are joined in at query time
+// (internal/handler/search.go), so a rename that doesn't touch the body
+// never leaves this index holding a stale path. title/tags/body, by
+// contrast, only ever change in step with a body write, so refreshing this
+// row exactly when entry_links is recompiled (handler.refreshSearchIndex,
+// called alongside recompileLinks) keeps them consistent by construction —
+// no triggers: this codebase's existing convention for keeping derived data
+// in sync on write is an explicit call in the same transaction as the write
+// (see recompileLinks in internal/handler/links.go); grep confirms neither
+// content nor svc use SQL triggers anywhere, so search follows suit rather
+// than introducing a new pattern for one feature.
+func toV3(db *sql.DB) error {
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.Exec(`
+		CREATE VIRTUAL TABLE IF NOT EXISTS entries_fts USING fts5(
+			entry_id UNINDEXED,
+			title,
+			tags,
+			body,
+			tokenize = 'unicode61'
+		)
+	`); err != nil {
+		return fmt.Errorf("create entries_fts: %w", err)
+	}
+
+	if _, err := tx.Exec(`PRAGMA user_version = 3`); err != nil {
 		return err
 	}
 	return tx.Commit()

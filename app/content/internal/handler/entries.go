@@ -229,13 +229,18 @@ func (h *EntriesHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := tx.Commit(); err != nil {
+	var tags []string
+	_ = json.Unmarshal(tagsJSON, &tags)
+
+	if err := refreshSearchIndex(r.Context(), tx, id, title, tags, parsed); err != nil {
 		writeError(w, http.StatusInternalServerError, "db error")
 		return
 	}
 
-	var tags []string
-	_ = json.Unmarshal(tagsJSON, &tags)
+	if err := tx.Commit(); err != nil {
+		writeError(w, http.StatusInternalServerError, "db error")
+		return
+	}
 	writeJSON(w, http.StatusCreated, Entry{
 		EntryMeta: EntryMeta{
 			ID: id, ProjectID: projectID, Slug: req.Slug, DirectoryPath: req.DirectoryPath,
@@ -344,6 +349,10 @@ func (h *EntriesHandler) Update(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, "db error")
 			return
 		}
+		if err := refreshSearchIndex(r.Context(), tx, id, title, tags, parsed); err != nil {
+			writeError(w, http.StatusInternalServerError, "db error")
+			return
+		}
 	}
 
 	if err := tx.Commit(); err != nil {
@@ -373,6 +382,11 @@ func (h *EntriesHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	if h.blobs != nil {
 		_ = h.blobs.Delete(r.Context(), bodyKey(id))
 		_ = h.blobs.DeletePrefix(r.Context(), imagesPrefix(id))
+	}
+
+	if err := deleteSearchIndex(r.Context(), h.db, id); err != nil {
+		writeError(w, http.StatusInternalServerError, "db error")
+		return
 	}
 
 	if _, err := h.db.ExecContext(r.Context(), "DELETE FROM entries WHERE id = ?", id); err != nil {

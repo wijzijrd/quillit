@@ -49,6 +49,7 @@ func main() {
 	renderer := handler.NewRender(database, blobs)
 	facets := handler.NewFacets(database)
 	links := handler.NewLinks(database, blobs)
+	search := handler.NewSearch(database)
 
 	r := chi.NewRouter()
 	r.Use(middleware.Logger)
@@ -66,6 +67,8 @@ func main() {
 		r.Post("/entries/{id}/images", entries.UploadImage)
 		r.Get("/entries/{id}/render", renderer.Render)
 		r.Get("/entries/{id}/links", links.GetForEntry)
+
+		r.Get("/projects/{id}/search", search.Search)
 
 		r.Get("/facets", facets.ListGlobal)
 		r.Post("/facets", facets.CreateGlobal)
