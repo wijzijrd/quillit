@@ -269,6 +269,9 @@ async function addGlobalFacet() {
     const res = await facets.createGlobal(name)
     newGlobalFacet.value = ''
     facetNotice.value = res.added ? '' : (res.message ?? '')
+    // A global add changes every project's effective vocabulary — refresh so
+    // projectOnlyFacets (effective minus global) stays correct, not stale.
+    await facets.fetchForProject(projectId.value)
   } catch (e: unknown) {
     globalFacetError.value = apiErrorMessage(e, 'Could not add facet')
   }
@@ -279,6 +282,10 @@ async function removeGlobalFacet(name: string) {
   try {
     const res = await facets.deleteGlobal(name)
     facetNotice.value = res.message ?? `Removed "${name}".`
+    // Same staleness concern as addGlobalFacet: re-sync the effective list so
+    // a facet that was only global (never this project's own) doesn't get
+    // misclassified as "project-specific" once it drops out of `global`.
+    await facets.fetchForProject(projectId.value)
   } catch (e: unknown) {
     facetNotice.value = apiErrorMessage(e, 'Could not remove facet')
   }
