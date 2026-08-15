@@ -29,19 +29,6 @@ export interface DefaultTag {
   label: string
 }
 
-export interface Campaign {
-  id: string
-  name: string
-  players: Player[]
-}
-
-export interface Player {
-  id: string
-  name: string
-  token: string
-  campaignId?: string
-}
-
 export interface Project {
   id: string
   name: string
@@ -123,12 +110,6 @@ export interface SessionNote {
   category: string
   visibility: string
   tags: string[]
-}
-
-export interface SharedNote {
-  id: string
-  entryId: string
-  title: string
 }
 
 export type GameSessionStatus = 'running' | 'stopped'

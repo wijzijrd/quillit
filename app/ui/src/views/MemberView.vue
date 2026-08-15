@@ -5,13 +5,6 @@
       <div class="sb-section">
         <button
           class="sb-item"
-          :class="{ active: activeSection === 'shared' }"
-          @click="activeSection = 'shared'"
-        >
-          <Share2 :size="14" /> All shared notes
-        </button>
-        <button
-          class="sb-item"
           :class="{ active: activeSection === 'session' }"
           @click="activeSection = 'session'"
         >
@@ -54,31 +47,8 @@
 
     <!-- Main panel -->
     <main class="member-main">
-      <!-- All shared notes -->
-      <template v-if="activeSection === 'shared'">
-        <div class="panel-header">
-          <h2>Shared with me</h2>
-          <span class="entry-count">{{ member.sharedNotes.length }} notes</span>
-        </div>
-        <div class="entry-list">
-          <div
-            v-for="entry in member.sharedNotes"
-            :key="entry.id"
-            class="entry-row"
-            :class="{ active: activeEntryId === entry.id }"
-            @click="selectEntry(entry)"
-          >
-            <span class="er-cat">{{ entry.category }}</span>
-            <span class="er-title">{{ entry.title }}</span>
-          </div>
-          <p class="empty-msg" v-if="member.sharedNotes.length === 0 && loaded">
-            No notes have been shared with you yet.
-          </p>
-        </div>
-      </template>
-
       <!-- Session notes -->
-      <template v-else-if="activeSection === 'session'">
+      <template v-if="activeSection === 'session'">
         <div class="panel-header">
           <h2>Session Notes</h2>
           <button class="btn-sm-primary" @click="createSessionNote">+ New note</button>
@@ -159,12 +129,12 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
-import { Share2, FileText, FolderPlus, Folder, Check, Pin } from 'lucide-vue-next'
+import { FileText, FolderPlus, Folder, Check, Pin } from 'lucide-vue-next'
 import { useMemberStore } from '../stores/useMemberStore'
 
 const member = useMemberStore()
 
-const activeSection = ref('shared')
+const activeSection = ref('session')
 const activeEntryId = ref(null)
 const activeEntry = ref(null)
 const loaded = ref(false)
@@ -184,7 +154,6 @@ const activeFolderName = computed(() => {
 
 onMounted(async () => {
   await Promise.all([
-    member.fetchSharedNotes(),
     member.fetchFolders(),
     member.fetchSessionNotes(),
   ])

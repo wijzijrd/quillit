@@ -67,20 +67,8 @@ This starts `quillit-auth-svc` (:3002), `quillit-svc` (:3000), and `quillit-ui` 
 |--------|------|-------------|
 | GET/POST | `/api/entries` | List / create entries |
 | GET/PATCH/DELETE | `/api/entries/:id` | Get / update / delete entry |
-| GET/POST | `/api/campaigns` | List / create campaigns |
-| PATCH/DELETE | `/api/campaigns/:id` | Update / delete campaign |
-| POST | `/api/campaigns/:id/players` | Add player |
-| DELETE | `/api/campaigns/:id/players/:playerId` | Remove player |
 | GET/POST | `/api/annotations` | List / create annotations |
 | PATCH/DELETE | `/api/annotations/:id` | Update / delete annotation |
 | GET | `/api/quickview` | List quick-view templates |
 | PUT/DELETE | `/api/quickview/:category` | Upsert / delete template |
 | POST | `/api/migrate/import` | Bulk import (clears existing data) |
-
-### Player routes (public — token-based, no session)
-
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/api/share/:token` | Public entries for this player |
-| GET/POST | `/api/share/:token/notes` | Player's notes |
-| PATCH/DELETE | `/api/share/:token/notes/:noteId` | Edit / delete note |
