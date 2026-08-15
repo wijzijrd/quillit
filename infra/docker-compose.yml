@@ -34,7 +34,8 @@ services:
 
   svc:
     build:
-      context: ../app/svc
+      context: ..
+      dockerfile: app/svc/Dockerfile
     image: quillit-svc
     volumes:
       - svc-data:/data
