@@ -29,7 +29,7 @@
     </header>
 
     <section class="recent-section">
-      <h2>{{ searchResults ? 'Search Results' : 'Recently Updated' }}</h2>
+      <h2>{{ searching ? 'Searching…' : searchResults ? 'Search Results' : 'Recently Updated' }}</h2>
       <div class="recent-list">
         <template v-if="searchResults">
           <RouterLink
@@ -40,14 +40,16 @@
             @click="ui.setActiveEntry(entry.id)"
           >
             <component
-              :is="resolveIcon(cats.categoryFor(entry.category)?.icon ?? '')"
+              :is="resolveIcon(cats.categoryFor(categoryOf(entry.id))?.icon ?? '')"
               :size="14"
               class="ri-cat"
-              :style="{ color: cats.categoryFor(entry.category)?.color ?? 'var(--muted-foreground)' }"
+              :style="{ color: cats.categoryFor(categoryOf(entry.id))?.color ?? 'var(--muted-foreground)' }"
             />
             <span class="ri-title">{{ entry.title }}</span>
+            <span class="ri-project-badge" v-if="projectStore.projects.length > 1">{{ projectNameFor(entry.projectId) }}</span>
+            <span class="ri-match-badge" v-if="matchedInBody(entry)">Matched in content</span>
           </RouterLink>
-          <p v-if="searchResults.length === 0" class="no-recent">No entries match your search.</p>
+          <p v-if="searchResults.length === 0 && !searching" class="no-recent">No entries match your search.</p>
         </template>
         <template v-else>
           <RouterLink
@@ -132,12 +134,13 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, watch, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { RouterLink } from 'vue-router'
 import { Download, Upload, Search } from 'lucide-vue-next'
 import { resolveIcon } from '../utils/categoryIcons'
 import { useEntriesStore } from '../stores/useEntriesStore'
+import type { EntrySearchResult } from '../stores/useEntriesStore'
 import { useCategoriesStore } from '../stores/useCategoriesStore'
 import { useAnnotationsStore } from '../stores/useAnnotationsStore'
 import { useProjectStore } from '../stores/useProjectStore'
@@ -145,6 +148,9 @@ import { useAuthStore } from '../stores/useAuthStore'
 import { useUIStore } from '../stores/useUIStore'
 import { api } from '../api/client'
 import { inviteLink } from '../utils/links'
+
+/** Debounce for the dashboard search input — matches SearchOverlay.vue. */
+const SEARCH_DEBOUNCE_MS = 300
 
 const route = useRoute()
 const router = useRouter()
@@ -178,9 +184,64 @@ const recent = computed(() =>
   [...entries.entries].sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 8)
 )
 
-const searchResults = computed(() =>
-  searchQuery.value.trim() ? entries.search(searchQuery.value).slice(0, 12) : null
-)
+// Real full-text search against content-svc (issue #51), replacing the old
+// client-side `.filter()` over the cached entry list. The search endpoint is
+// project-scoped, but this dashboard search has always covered every
+// project the user belongs to, so useEntriesStore.searchRemote() fans out
+// one request per project and merges the results — see its doc comment.
+const searchResults = ref<EntrySearchResult[] | null>(null)
+const searching = ref(false)
+const appliedSearchQuery = ref('')
+let searchDebounceTimer: ReturnType<typeof setTimeout> | null = null
+let searchSeq = 0
+
+watch(searchQuery, (value) => {
+  if (searchDebounceTimer) clearTimeout(searchDebounceTimer)
+  const trimmed = value.trim()
+  if (!trimmed) {
+    searchResults.value = null
+    searching.value = false
+    return
+  }
+  searching.value = true
+  searchDebounceTimer = setTimeout(() => runSearch(trimmed), SEARCH_DEBOUNCE_MS)
+})
+
+async function runSearch(q: string) {
+  const seq = ++searchSeq
+  const projectIds = projectStore.projects.map(p => p.id)
+  const results = await entries.searchRemote(q, projectIds)
+  if (seq !== searchSeq) return // superseded by a newer search
+  searchResults.value = results.slice(0, 20)
+  appliedSearchQuery.value = q
+  searching.value = false
+}
+
+/** Category comes from the locally-cached full entry — search hits don't carry it. */
+function categoryOf(entryId: string): string {
+  return entries.getById(entryId)?.category ?? ''
+}
+
+function projectNameFor(projectId: string): string {
+  return projectStore.projects.find(p => p.id === projectId)?.name ?? ''
+}
+
+/**
+ * The search endpoint returns no snippet/match-offset (see SearchResult in
+ * app/content/internal/handler/search.go — id/projectId/slug/directoryPath/
+ * title/tags only, no body), so a real highlighted snippet isn't available
+ * without an extra per-result fetch of the full entry body. Rather than pay
+ * that N+1 cost, this infers "matched in body" from what IS on the result:
+ * if the query text doesn't appear in the title or tags, FTS must have
+ * matched it in the body.
+ */
+function matchedInBody(entry: EntrySearchResult): boolean {
+  const q = appliedSearchQuery.value.toLowerCase()
+  if (!q) return false
+  const inTitle = entry.title.toLowerCase().includes(q)
+  const inTags = entry.tags?.some(t => t.toLowerCase().includes(q))
+  return !inTitle && !inTags
+}
 
 function displayRole(role, roleLabels) {
   if (!roleLabels) return role
@@ -315,6 +376,16 @@ async function handleImport(e) {
 .recent-item:hover { background: var(--muted); }
 .ri-cat { width: 20px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; }
 .ri-title { color: var(--foreground); font-size: 0.95em; }
+.ri-project-badge {
+  font-size: 0.68em; text-transform: uppercase; letter-spacing: 0.06em;
+  background: var(--muted); color: var(--muted-foreground);
+  border-radius: 4px; padding: 2px 6px; margin-left: auto; flex-shrink: 0;
+}
+.ri-match-badge {
+  font-size: 0.68em; letter-spacing: 0.02em;
+  background: var(--secondary); color: var(--primary);
+  border-radius: 4px; padding: 2px 6px; flex-shrink: 0;
+}
 .no-recent { color: var(--muted-foreground); font-size: 0.9em; padding: 8px 14px; }
 .no-recent a { color: var(--primary); }
 
