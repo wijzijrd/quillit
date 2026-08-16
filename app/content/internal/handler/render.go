@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -62,17 +63,6 @@ func (h *RenderHandler) Render(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, "blob storage not configured")
 		return
 	}
-	data, err := h.blobs.Get(r.Context(), bodyKey(id))
-	if err != nil {
-		writeError(w, http.StatusNotFound, "entry body not found")
-		return
-	}
-
-	parsed, err := parse.Parse(data)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
-	}
 
 	view, ok := parseView(r)
 	if !ok {
@@ -86,18 +76,9 @@ func (h *RenderHandler) Render(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	filtered, err := filter.Filter(parsed, view, sortedVocab)
-	if err != nil {
-		var uf filter.UnknownFacet
-		if errors.As(err, &uf) {
-			writeJSON(w, http.StatusUnprocessableEntity, map[string]any{
-				"error":      "unknown facet",
-				"facet":      uf.Name,
-				"vocabulary": uf.Vocabulary,
-			})
-			return
-		}
-		writeError(w, http.StatusUnprocessableEntity, err.Error())
+	filtered, ferr := loadAndFilterEntry(r.Context(), h.blobs, m, view, sortedVocab)
+	if ferr != nil {
+		ferr.write(w)
 		return
 	}
 
@@ -111,6 +92,58 @@ func (h *RenderHandler) Render(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte(fragment))
+}
+
+// entryFilterError is the (status, body) pair loadAndFilterEntry can
+// produce — kept as one type so its two response shapes (a plain {"error":
+// msg} vs. filter.UnknownFacet's structured {"error", "facet", "vocabulary"}
+// body) are written the same way everywhere it's returned, instead of each
+// caller re-deriving which shape applies.
+type entryFilterError struct {
+	status       int
+	unknownFacet *filter.UnknownFacet
+	msg          string
+}
+
+func (e *entryFilterError) write(w http.ResponseWriter) {
+	if e.unknownFacet != nil {
+		writeJSON(w, e.status, map[string]any{
+			"error":      "unknown facet",
+			"facet":      e.unknownFacet.Name,
+			"vocabulary": e.unknownFacet.Vocabulary,
+		})
+		return
+	}
+	writeError(w, e.status, e.msg)
+}
+
+// loadAndFilterEntry fetches m's body and applies parse -> filter — the
+// step /render and /export (export.go) both need, given an already-fetched
+// EntryMeta (the caller owns the meta-lookup 404, since /render's "id" and
+// /export's main-vs-bundled ids have different not-found messaging) and an
+// already-computed facet vocabulary (so a bundled export can reuse the main
+// entry's vocabulary instead of recomputing it per entry). Consolidated
+// here so the unknown-facet 422 handling isn't duplicated between handlers.
+func loadAndFilterEntry(ctx context.Context, blobs BlobStore, m EntryMeta, view filter.View, vocab []string) (*filter.FilteredEntry, *entryFilterError) {
+	data, err := blobs.Get(ctx, bodyKey(m.ID))
+	if err != nil {
+		return nil, &entryFilterError{status: http.StatusNotFound, msg: "entry body not found"}
+	}
+
+	parsed, err := parse.Parse(data)
+	if err != nil {
+		return nil, &entryFilterError{status: http.StatusBadRequest, msg: err.Error()}
+	}
+
+	filtered, err := filter.Filter(parsed, view, vocab)
+	if err != nil {
+		var uf filter.UnknownFacet
+		if errors.As(err, &uf) {
+			return nil, &entryFilterError{status: http.StatusUnprocessableEntity, unknownFacet: &uf}
+		}
+		return nil, &entryFilterError{status: http.StatusUnprocessableEntity, msg: err.Error()}
+	}
+	return filtered, nil
 }
 
 // parseView reads view/card/quick query params into a filter.View. ok is
