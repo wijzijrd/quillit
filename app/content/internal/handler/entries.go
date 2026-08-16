@@ -151,13 +151,21 @@ func (h *EntriesHandler) Get(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *EntriesHandler) fetchResolved(ctx context.Context, id string) (Entry, error) {
-	m, err := scanEntryMeta(h.db.QueryRowContext(ctx, entryMetaSelect+" WHERE id = ?", id))
+	return fetchResolvedEntry(ctx, h.db, h.blobs, id)
+}
+
+// fetchResolvedEntry loads id's metadata plus its resolved body — the
+// package-level form of EntriesHandler.fetchResolved, factored out so other
+// handler types (assign.go's AssignHandler) that also need to return a full
+// Entry after a mutation don't duplicate this lookup.
+func fetchResolvedEntry(ctx context.Context, db *sql.DB, blobs BlobStore, id string) (Entry, error) {
+	m, err := scanEntryMeta(db.QueryRowContext(ctx, entryMetaSelect+" WHERE id = ?", id))
 	if err != nil {
 		return Entry{}, err
 	}
 	e := Entry{EntryMeta: m}
-	if h.blobs != nil {
-		if data, err := h.blobs.Get(ctx, bodyKey(id)); err == nil {
+	if blobs != nil {
+		if data, err := blobs.Get(ctx, bodyKey(id)); err == nil {
 			e.Body = string(data)
 		}
 	}

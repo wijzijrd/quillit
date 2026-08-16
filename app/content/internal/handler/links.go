@@ -63,6 +63,17 @@ func splitEntryPath(path string) (dir, slug string) {
 	return path[:idx], path[idx+1:]
 }
 
+// joinEntryPath is splitEntryPath's inverse: builds an entry's path from its
+// directory_path and slug, per the same §4.1 convention. A blank dir
+// (project-root entry) yields the bare slug. Used by assign.go to compute
+// an entry's old/new path around a directory move.
+func joinEntryPath(dir, slug string) string {
+	if dir == "" {
+		return slug
+	}
+	return strings.TrimRight(dir, "/") + "/" + slug
+}
+
 func nullStr(s string) any {
 	if s == "" {
 		return nil
