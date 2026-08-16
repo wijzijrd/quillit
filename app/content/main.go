@@ -62,6 +62,7 @@ func main() {
 	facets := handler.NewFacets(database, jwtSecret, checker)
 	links := handler.NewLinks(database, blobs, jwtSecret, checker)
 	search := handler.NewSearch(database, jwtSecret, checker)
+	assign := handler.NewAssign(database, blobs, jwtSecret, checker)
 	internal := handler.NewInternal(database)
 
 	r := chi.NewRouter()
@@ -80,6 +81,7 @@ func main() {
 		r.Post("/entries/{id}/images", entries.UploadImage)
 		r.Get("/entries/{id}/render", renderer.Render)
 		r.Get("/entries/{id}/links", links.GetForEntry)
+		r.Post("/entries/{id}/assign", assign.Assign)
 
 		r.Get("/projects/{id}/search", search.Search)
 
