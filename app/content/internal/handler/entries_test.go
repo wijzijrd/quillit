@@ -14,8 +14,27 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/quillit/content-svc/internal/authz"
 	"github.com/quillit/content-svc/internal/db"
 )
+
+// testUserID is the caller identity every shared test-request builder in
+// this package injects by default (via withTestCaller). Handler tests use
+// authz.AllowAll as their default Checker (see newTestEntriesHandler etc.),
+// so any non-empty caller id would do — what matters for most tests is
+// just "some authenticated caller," with the specific rejection paths
+// (unauthenticated / non-member) exercised by their own dedicated tests
+// using an explicit authz.Static checker instead.
+const testUserID = "test-user"
+
+// withTestCaller injects testUserID into req's context — the auth every
+// content handler now requires (#44's WithTestCallerID, defined in
+// helpers.go). Folded into withChiParam/withChiParams below since these
+// tests call handler methods directly, bypassing any router or middleware
+// that would otherwise supply it.
+func withTestCaller(req *http.Request) *http.Request {
+	return req.WithContext(WithTestCallerID(req.Context(), testUserID))
+}
 
 var errObjectNotFound = errors.New("object not found")
 
@@ -68,22 +87,34 @@ func (f *fakeBlobStore) DeletePrefix(_ context.Context, prefix string) error {
 
 func newTestEntriesHandler(t *testing.T) (*EntriesHandler, *fakeBlobStore) {
 	t.Helper()
+	return newTestEntriesHandlerWithChecker(t, authz.AllowAll{})
+}
+
+func newTestEntriesHandlerWithChecker(t *testing.T, checker authz.Checker) (*EntriesHandler, *fakeBlobStore) {
+	t.Helper()
 	database, err := db.Open(":memory:")
 	if err != nil {
 		t.Fatalf("db.Open: %v", err)
 	}
 	t.Cleanup(func() { database.Close() })
 	blobs := newFakeBlobStore()
-	return NewEntries(database, "", blobs), blobs
+	return NewEntries(database, "", blobs, checker), blobs
 }
 
 // withChiParam builds a request with a chi URL param set, mimicking what
 // chi's router does before invoking a handler — needed since these tests
-// call handler methods directly rather than through a mounted router.
+// call handler methods directly rather than through a mounted router. It
+// also injects a default test caller identity (withTestCaller) — every
+// handler now requires authentication (#44), and virtually every direct
+// handler-method test in this package sets exactly one chi param
+// immediately before invoking the handler, so this is the natural place
+// for that default. Tests that need a specific caller identity or that
+// exercise rejection (unauthenticated/non-member) build their own request
+// context explicitly instead of using this helper.
 func withChiParam(req *http.Request, key, value string) *http.Request {
 	rctx := chi.NewRouteContext()
 	rctx.URLParams.Add(key, value)
-	return req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+	return withTestCaller(req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx)))
 }
 
 func createEntry(t *testing.T, h *EntriesHandler, projectID string, reqBody createEntryRequest) Entry {
@@ -282,5 +313,116 @@ func TestDelete_RemovesRowAndBlobs(t *testing.T) {
 	_ = h.db.QueryRow(`SELECT COUNT(*) FROM entries WHERE id = ?`, e.ID).Scan(&count)
 	if count != 0 {
 		t.Errorf("expected entries row to be deleted, count = %d", count)
+	}
+}
+
+// ── Auth (#44) ───────────────────────────────────────────────────────────
+//
+// These prove entries.go's endpoints reject unauthenticated and non-member
+// requests consistently, not just that member requests succeed (already
+// exercised implicitly by every test above, all of which go through
+// withChiParam/withTestCaller against an AllowAll checker).
+
+func TestList_RejectsUnauthenticatedRequest(t *testing.T) {
+	h, _ := newTestEntriesHandler(t)
+	req := httptest.NewRequest(http.MethodGet, "/content/projects/proj-1/entries", nil)
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("id", "proj-1")
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx)) // no caller injected
+	w := httptest.NewRecorder()
+	h.List(w, req)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want %d, body = %s", w.Code, http.StatusUnauthorized, w.Body.String())
+	}
+}
+
+func TestList_RejectsNonProjectMember(t *testing.T) {
+	h, _ := newTestEntriesHandlerWithChecker(t, authz.Static{Members: map[string]map[string]bool{
+		testUserID: {"proj-a": true},
+	}})
+	req := httptest.NewRequest(http.MethodGet, "/content/projects/proj-b/entries", nil)
+	req = withChiParam(req, "id", "proj-b") // testUserID is only a member of proj-a
+	w := httptest.NewRecorder()
+	h.List(w, req)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want %d, body = %s", w.Code, http.StatusForbidden, w.Body.String())
+	}
+}
+
+func TestCreate_RejectsUnauthenticatedRequest(t *testing.T) {
+	h, _ := newTestEntriesHandler(t)
+	raw, _ := json.Marshal(createEntryRequest{Slug: "tom", Body: "Tom."})
+	req := httptest.NewRequest(http.MethodPost, "/content/projects/proj-1/entries", strings.NewReader(string(raw)))
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("id", "proj-1")
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+	w := httptest.NewRecorder()
+	h.Create(w, req)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want %d, body = %s", w.Code, http.StatusUnauthorized, w.Body.String())
+	}
+}
+
+func TestGet_RejectsNonProjectMember(t *testing.T) {
+	h, _ := newTestEntriesHandler(t)
+	e := createEntry(t, h, "proj-1", createEntryRequest{Slug: "mary", Body: "Mary."})
+
+	denied := NewEntries(h.db, "", h.blobs, authz.Static{}) // empty Static: no one is a member of anything
+	req := httptest.NewRequest(http.MethodGet, "/content/entries/"+e.ID, nil)
+	req = withChiParam(req, "id", e.ID)
+	w := httptest.NewRecorder()
+	denied.Get(w, req)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want %d, body = %s", w.Code, http.StatusForbidden, w.Body.String())
+	}
+}
+
+func TestUpdate_RejectsNonProjectMember(t *testing.T) {
+	h, _ := newTestEntriesHandler(t)
+	e := createEntry(t, h, "proj-1", createEntryRequest{Slug: "mary", Body: "Mary."})
+
+	denied := NewEntries(h.db, "", h.blobs, authz.Static{})
+	newBody := "Mary, updated."
+	raw, _ := json.Marshal(updateEntryRequest{Body: &newBody})
+	req := httptest.NewRequest(http.MethodPatch, "/content/entries/"+e.ID, strings.NewReader(string(raw)))
+	req = withChiParam(req, "id", e.ID)
+	w := httptest.NewRecorder()
+	denied.Update(w, req)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want %d, body = %s", w.Code, http.StatusForbidden, w.Body.String())
+	}
+}
+
+func TestDelete_RejectsNonProjectMember(t *testing.T) {
+	h, blobs := newTestEntriesHandler(t)
+	e := createEntry(t, h, "proj-1", createEntryRequest{Slug: "mary", Body: "Mary."})
+
+	denied := NewEntries(h.db, "", blobs, authz.Static{})
+	req := httptest.NewRequest(http.MethodDelete, "/content/entries/"+e.ID, nil)
+	req = withChiParam(req, "id", e.ID)
+	w := httptest.NewRecorder()
+	denied.Delete(w, req)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want %d, body = %s", w.Code, http.StatusForbidden, w.Body.String())
+	}
+
+	var count int
+	_ = h.db.QueryRow(`SELECT COUNT(*) FROM entries WHERE id = ?`, e.ID).Scan(&count)
+	if count != 1 {
+		t.Error("entry was deleted despite the caller not being a project member")
+	}
+}
+
+func TestUploadImage_RejectsNonProjectMember(t *testing.T) {
+	h, blobs := newTestEntriesHandler(t)
+	e := createEntry(t, h, "proj-1", createEntryRequest{Slug: "mary", Body: "Mary."})
+
+	denied := NewEntries(h.db, "", blobs, authz.Static{})
+	req := httptest.NewRequest(http.MethodPost, "/content/entries/"+e.ID+"/images", strings.NewReader(""))
+	req = withChiParam(req, "id", e.ID)
+	w := httptest.NewRecorder()
+	denied.UploadImage(w, req)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want %d, body = %s", w.Code, http.StatusForbidden, w.Body.String())
 	}
 }

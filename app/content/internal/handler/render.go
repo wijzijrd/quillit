@@ -13,6 +13,7 @@ import (
 	"github.com/quillit/contentengine/parse"
 	"github.com/quillit/contentengine/render"
 
+	"github.com/quillit/content-svc/internal/authz"
 	contentresolver "github.com/quillit/content-svc/internal/resolver"
 )
 
@@ -21,12 +22,14 @@ import (
 // Nothing else in the web app may re-derive a player or card view
 // client-side; everything routes through here.
 type RenderHandler struct {
-	db    *sql.DB
-	blobs BlobStore
+	db        *sql.DB
+	blobs     BlobStore
+	jwtSecret []byte
+	checker   authz.Checker
 }
 
-func NewRender(db *sql.DB, blobs BlobStore) *RenderHandler {
-	return &RenderHandler{db: db, blobs: blobs}
+func NewRender(db *sql.DB, blobs BlobStore, jwtSecret string, checker authz.Checker) *RenderHandler {
+	return &RenderHandler{db: db, blobs: blobs, jwtSecret: []byte(jwtSecret), checker: checker}
 }
 
 // Render godoc
@@ -49,6 +52,9 @@ func (h *RenderHandler) Render(w http.ResponseWriter, r *http.Request) {
 	m, err := scanEntryMeta(h.db.QueryRowContext(r.Context(), entryMetaSelect+" WHERE id = ?", id))
 	if err != nil {
 		writeError(w, http.StatusNotFound, "not found")
+		return
+	}
+	if _, ok := requireProjectMember(w, r, h.jwtSecret, h.checker, m.ProjectID); !ok {
 		return
 	}
 

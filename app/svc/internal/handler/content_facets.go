@@ -7,18 +7,24 @@ import (
 	"net/url"
 
 	"github.com/go-chi/chi/v5"
+
+	"github.com/quillit/svc/internal/middleware"
 )
 
 // ContentFacetsHandler proxies facet-vocabulary requests to the content
 // service. Content owns the facets/project_facets tables and all validation
 // (kebab-case check, effective-vocabulary union — see #38's
-// app/content/internal/handler/facets.go), but content has no auth of its
-// own: it's an internal-only service (docker-compose exposes no public
-// port), reachable only from svc. svc is the BFF, so it gates these routes
-// behind RequireSession the same way AdminHandler.proxyToAuth gates the
-// auth-svc proxy in admin.go — then forwards verbatim, preserving content's
-// exact status codes and response bodies (200 vs 201 vs 400, the delete
-// reminder message, etc.) rather than re-implementing any of that here.
+// app/content/internal/handler/facets.go). content is an internal-only
+// service (docker-compose exposes no public port for it) reachable only
+// from svc, but as of #44 it authenticates and authorizes every request
+// per-caller anyway — the network boundary proves the request came from
+// svc, not which end user svc is forwarding it for. So this proxy is no
+// longer just "gate behind RequireSession and forward verbatim": it also
+// has to forward the caller's own identity (the raw session JWT) as a
+// bearer token, or every proxied call would 401 against content. svc is
+// still the BFF and still gates these routes behind RequireSession first
+// (same as AdminHandler.proxyToAuth in admin.go) — that's what makes
+// RawJWTFromContext available to forward.
 type ContentFacetsHandler struct {
 	contentURL string
 }
@@ -28,8 +34,9 @@ func NewContentFacets(contentURL string) *ContentFacetsHandler {
 }
 
 // proxy forwards method+path (content-service-relative, e.g. "/content/facets")
-// to the content service, streaming the request body through and copying the
-// response status/body back verbatim.
+// to the content service, streaming the request body through, forwarding
+// the caller's session JWT as a bearer token (#44 — see type doc), and
+// copying the response status/body back verbatim.
 func (h *ContentFacetsHandler) proxy(w http.ResponseWriter, r *http.Request, method, path string, body io.Reader) {
 	req, err := http.NewRequestWithContext(r.Context(), method, h.contentURL+path, body)
 	if err != nil {
@@ -38,6 +45,9 @@ func (h *ContentFacetsHandler) proxy(w http.ResponseWriter, r *http.Request, met
 	}
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
+	}
+	if raw, ok := middleware.RawJWTFromContext(r.Context()); ok {
+		req.Header.Set("Authorization", "Bearer "+raw)
 	}
 
 	resp, err := http.DefaultClient.Do(req)

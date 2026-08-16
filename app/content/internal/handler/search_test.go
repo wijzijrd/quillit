@@ -1,12 +1,17 @@
 package handler
 
 import (
+	"context"
+	"database/sql"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"github.com/go-chi/chi/v5"
+
+	"github.com/quillit/content-svc/internal/authz"
 	"github.com/quillit/content-svc/internal/db"
 )
 
@@ -22,7 +27,14 @@ func newTestSearchHandler(t *testing.T) (*EntriesHandler, *SearchHandler) {
 	}
 	t.Cleanup(func() { database.Close() })
 	blobs := newFakeBlobStore()
-	return NewEntries(database, "", blobs), NewSearch(database)
+	return NewEntries(database, "", blobs, authz.AllowAll{}), NewSearch(database, "", authz.AllowAll{})
+}
+
+// searchHandlerDenyingEveryone shares database with an already-populated
+// EntriesHandler, but answers "not a member" for every (user, project)
+// pair — for the auth-rejection test below.
+func searchHandlerDenyingEveryone(database *sql.DB) *SearchHandler {
+	return NewSearch(database, "", authz.Static{})
 }
 
 func search(t *testing.T, h *SearchHandler, projectID, q, mode string) (*httptest.ResponseRecorder, []SearchResult) {
@@ -143,5 +155,31 @@ func TestSearchLookup_ReturnsWikilinkFields(t *testing.T) {
 	got := results[0]
 	if got.DirectoryPath != "characters/npcs" || got.Slug != "mary" || got.Title != "Mary the Merchant" {
 		t.Errorf("result = %+v, want enough fields to build [[characters/npcs/mary|Mary the Merchant]]", got)
+	}
+}
+
+// ── Auth (#44) ───────────────────────────────────────────────────────────
+
+func TestSearch_RejectsUnauthenticatedRequest(t *testing.T) {
+	_, sh := newTestSearchHandler(t)
+	req := httptest.NewRequest(http.MethodGet, "/content/projects/proj-1/search?q=Mary", nil) // no caller injected
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("id", "proj-1")
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+	w := httptest.NewRecorder()
+	sh.Search(w, req)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want %d, body = %s", w.Code, http.StatusUnauthorized, w.Body.String())
+	}
+}
+
+func TestSearch_RejectsNonProjectMember(t *testing.T) {
+	entries, _ := newTestSearchHandler(t)
+	createEntry(t, entries, "proj-1", createEntryRequest{Slug: "mary", Body: "Mary the merchant."})
+
+	denied := searchHandlerDenyingEveryone(entries.db)
+	w, _ := search(t, denied, "proj-1", "Mary", "")
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want %d, body = %s", w.Code, http.StatusForbidden, w.Body.String())
 	}
 }

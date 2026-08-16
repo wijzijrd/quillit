@@ -1,16 +1,29 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/go-chi/chi/v5"
+
+	"github.com/quillit/content-svc/internal/authz"
 )
 
 func newTestLinksHandler(t *testing.T) (*LinksHandler, *EntriesHandler) {
 	t.Helper()
 	entries, blobs := newTestEntriesHandler(t)
-	return NewLinks(entries.db, blobs), entries
+	return NewLinks(entries.db, blobs, "", authz.AllowAll{}), entries
+}
+
+// linksHandlerDenyingEveryone shares database and blobs with an
+// already-populated LinksHandler/EntriesHandler pair, but answers "not a
+// member" for every (user, project) pair — for the auth-rejection tests
+// below.
+func linksHandlerDenyingEveryone(entries *EntriesHandler) *LinksHandler {
+	return NewLinks(entries.db, entries.blobs, "", authz.Static{})
 }
 
 func getEntryLinks(t *testing.T, h *LinksHandler, entryID string) *httptest.ResponseRecorder {
@@ -201,5 +214,44 @@ func TestCompileProject_EmptyProjectSucceeds(t *testing.T) {
 	}
 	if len(resp.Warnings) != 0 {
 		t.Errorf("Warnings = %+v, want none", resp.Warnings)
+	}
+}
+
+// ── Auth (#44) ───────────────────────────────────────────────────────────
+
+func TestGetForEntry_RejectsUnauthenticatedRequest(t *testing.T) {
+	h, entries := newTestLinksHandler(t)
+	e := createEntry(t, entries, "proj-1", createEntryRequest{Slug: "solo", Body: "No links."})
+
+	req := httptest.NewRequest(http.MethodGet, "/content/entries/"+e.ID+"/links", nil)
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("id", e.ID)
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx)) // no caller injected
+	w := httptest.NewRecorder()
+	h.GetForEntry(w, req)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want %d, body = %s", w.Code, http.StatusUnauthorized, w.Body.String())
+	}
+}
+
+func TestGetForEntry_RejectsNonProjectMember(t *testing.T) {
+	_, entries := newTestLinksHandler(t)
+	e := createEntry(t, entries, "proj-1", createEntryRequest{Slug: "solo", Body: "No links."})
+
+	denied := linksHandlerDenyingEveryone(entries)
+	w := getEntryLinks(t, denied, e.ID)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want %d, body = %s", w.Code, http.StatusForbidden, w.Body.String())
+	}
+}
+
+func TestCompileProject_RejectsNonProjectMember(t *testing.T) {
+	_, entries := newTestLinksHandler(t)
+	createEntry(t, entries, "proj-1", createEntryRequest{Slug: "tom", Body: "Tom."})
+
+	denied := linksHandlerDenyingEveryone(entries)
+	w := compileProject(t, denied, "proj-1")
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want %d, body = %s", w.Code, http.StatusForbidden, w.Body.String())
 	}
 }

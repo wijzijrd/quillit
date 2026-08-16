@@ -6,12 +6,14 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
 
+	"github.com/quillit/content-svc/internal/authz"
 	"github.com/quillit/content-svc/internal/db"
 	"github.com/quillit/content-svc/internal/handler"
 	"github.com/quillit/content-svc/internal/storage"
@@ -21,6 +23,7 @@ func main() {
 	port := env("PORT", "3004")
 	dbPath := env("DB_PATH", "./quillit-content.db")
 	jwtSecret := mustEnv("JWT_SECRET")
+	svcURL := env("SVC_SERVICE_URL", "http://localhost:3000")
 
 	database, err := db.Open(dbPath)
 	if err != nil {
@@ -44,12 +47,22 @@ func main() {
 		}
 	}
 
+	// #44: content authorizes every request per-caller (see
+	// internal/handler/helpers.go's "Cross-domain auth" section) by asking
+	// svc whether the caller belongs to the project in question — svc owns
+	// project_members, content doesn't duplicate it. checker is shared
+	// across every handler so its membership cache (short-TTL, with a
+	// bounded stale-fallback window for svc outages — see internal/authz)
+	// does the most good.
+	checker := authz.NewSvcChecker(svcURL, &http.Client{Timeout: 3 * time.Second})
+
 	health := handler.NewHealth(database)
-	entries := handler.NewEntries(database, jwtSecret, blobs)
-	renderer := handler.NewRender(database, blobs)
-	facets := handler.NewFacets(database)
-	links := handler.NewLinks(database, blobs)
-	search := handler.NewSearch(database)
+	entries := handler.NewEntries(database, jwtSecret, blobs, checker)
+	renderer := handler.NewRender(database, blobs, jwtSecret, checker)
+	facets := handler.NewFacets(database, jwtSecret, checker)
+	links := handler.NewLinks(database, blobs, jwtSecret, checker)
+	search := handler.NewSearch(database, jwtSecret, checker)
+	internal := handler.NewInternal(database)
 
 	r := chi.NewRouter()
 	r.Use(middleware.Logger)
@@ -77,6 +90,12 @@ func main() {
 		r.Post("/projects/{id}/facets", facets.CreateForProject)
 		r.Delete("/projects/{id}/facets/{name}", facets.DeleteForProject)
 		r.Post("/projects/{id}/compile", links.CompileProject)
+
+		// Internal-only: svc reports cross-domain events here (currently:
+		// project deletion — see internal/handler/internal.go for why this
+		// isn't behind requireCaller/requireProjectMember like everything
+		// else in this route group).
+		r.Post("/internal/projects/{id}/deleted", internal.ProjectDeleted)
 	})
 
 	addr := fmt.Sprintf(":%s", port)

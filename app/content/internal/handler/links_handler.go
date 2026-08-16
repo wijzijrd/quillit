@@ -8,6 +8,8 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/quillit/contentengine/parse"
+
+	"github.com/quillit/content-svc/internal/authz"
 )
 
 // LinksHandler serves the HTTP-facing endpoints for entry_links — reading a
@@ -18,12 +20,14 @@ import (
 // save-triggered path (entries.go's Create/Update) and CompileProject below
 // both call the same recompileLinks function.
 type LinksHandler struct {
-	db    *sql.DB
-	blobs BlobStore
+	db        *sql.DB
+	blobs     BlobStore
+	jwtSecret []byte
+	checker   authz.Checker
 }
 
-func NewLinks(db *sql.DB, blobs BlobStore) *LinksHandler {
-	return &LinksHandler{db: db, blobs: blobs}
+func NewLinks(db *sql.DB, blobs BlobStore, jwtSecret string, checker authz.Checker) *LinksHandler {
+	return &LinksHandler{db: db, blobs: blobs, jwtSecret: []byte(jwtSecret), checker: checker}
 }
 
 // entryLinkView is one outgoing link as returned by GetForEntry — the
@@ -52,9 +56,12 @@ func (h *LinksHandler) GetForEntry(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var exists int
-	if err := h.db.QueryRowContext(r.Context(), `SELECT 1 FROM entries WHERE id = ?`, id).Scan(&exists); err != nil {
+	projectID, err := projectIDForEntry(r.Context(), h.db, id)
+	if err != nil {
 		writeError(w, http.StatusNotFound, "not found")
+		return
+	}
+	if _, ok := requireProjectMember(w, r, h.jwtSecret, h.checker, projectID); !ok {
 		return
 	}
 
@@ -97,6 +104,9 @@ func (h *LinksHandler) CompileProject(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "id")
 	if projectID == "" {
 		writeError(w, http.StatusBadRequest, "missing project id")
+		return
+	}
+	if _, ok := requireProjectMember(w, r, h.jwtSecret, h.checker, projectID); !ok {
 		return
 	}
 	if h.blobs == nil {
