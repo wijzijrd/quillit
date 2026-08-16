@@ -16,6 +16,15 @@ const (
 	maxAssetSize = 10 << 20 // matches UploadImage's multipart cap
 )
 
+// maxTotalUncompressed caps the sum of every extracted file's decompressed
+// size within one tarball. The per-file cap (maxAssetSize) and the
+// compressed-body cap (maxImportBody, applied by http.MaxBytesReader before
+// this ever sees the request) don't bound total decompressed memory: gzip
+// can pack ~1000 files at 10 MB each into a body well under 50 MB, expanding
+// to ~10 GB in memory — a DoS. A package-level var (not const) so tests can
+// lower it instead of building gigabytes of test data.
+var maxTotalUncompressed int64 = 200 << 20 // 200 MB
+
 type importItem struct {
 	Slug          string
 	DirectoryPath string
@@ -68,6 +77,7 @@ func readImportTarball(r io.Reader) ([]importItem, error) {
 
 	tr := tar.NewReader(gz)
 	count := 0
+	var totalUncompressed int64
 	for {
 		hdr, err := tr.Next()
 		if err == io.EOF {
@@ -114,6 +124,11 @@ func readImportTarball(r io.Reader) ([]importItem, error) {
 		}
 		if len(data) > maxAssetSize {
 			return nil, &tarballError{msg: fmt.Sprintf("%s exceeds the %d MB per-file limit", clean, maxAssetSize>>20)}
+		}
+
+		totalUncompressed += int64(len(data))
+		if totalUncompressed > maxTotalUncompressed {
+			return nil, &tarballError{msg: fmt.Sprintf("tarball contents exceed the %d MB limit", maxTotalUncompressed>>20)}
 		}
 
 		f := folders[dir]

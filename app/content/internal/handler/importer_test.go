@@ -195,6 +195,58 @@ func TestImport_UnknownFacet_RejectedByDefault_CreatedWithFlag(t *testing.T) {
 	}
 }
 
+// TestImport_NonKebabFacetRejectedEvenWithCreateFacets guards against a bug
+// where the card-block parser accepts any non-space token as a facet name
+// (e.g. "Bad_Facet"), but project_facets has a kebab-case CHECK constraint;
+// with createFacets=true and INSERT OR IGNORE, the constraint violation was
+// silently swallowed and facets.created reported the bad name as created
+// even though it never actually landed in project_facets. The bad name must
+// be rejected in the 422, regardless of createFacets.
+func TestImport_NonKebabFacetRejectedEvenWithCreateFacets(t *testing.T) {
+	h, _, _ := newTestImportHandler(t)
+	files := map[string]string{
+		"tom/tom.md": "---\nname: Tom\n---\n\n:::card Bad_Facet\nAC 12\n:::\n",
+	}
+
+	r := chi.NewRouter()
+	r.Post("/content/projects/{id}/import", h.ImportProject)
+	req := httptest.NewRequest(http.MethodPost, "/content/projects/p1/import?mode=apply&createFacets=true", makeTarball(t, files))
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("status = %d, want 422; body %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "Bad_Facet") {
+		t.Errorf("422 body doesn't name Bad_Facet: %s", rec.Body.String())
+	}
+	var n int
+	_ = h.db.QueryRow(`SELECT COUNT(*) FROM project_facets WHERE project_id='p1' AND name='Bad_Facet'`).Scan(&n)
+	if n != 0 {
+		t.Error("invalid facet name was inserted into project_facets")
+	}
+	_ = h.db.QueryRow(`SELECT COUNT(*) FROM entries`).Scan(&n)
+	if n != 0 {
+		t.Error("entry created despite invalid facet name")
+	}
+
+	// A genuine kebab-case facet in the same createFacets=true flow still
+	// works (regression guard against the fix over-rejecting).
+	files2 := map[string]string{
+		"tom/tom.md": "---\nname: Tom\n---\n\n:::card stat-block\nAC 12\n:::\n",
+	}
+	rec2, resp2 := doImport(t, h, "p1", "?mode=apply&createFacets=true", files2)
+	if rec2.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body %s", rec2.Code, rec2.Body.String())
+	}
+	if len(resp2.Facets.Created) != 1 || resp2.Facets.Created[0] != "stat-block" {
+		t.Errorf("facets.created = %v, want [stat-block]", resp2.Facets.Created)
+	}
+	_ = h.db.QueryRow(`SELECT COUNT(*) FROM project_facets WHERE project_id='p1' AND name='stat-block'`).Scan(&n)
+	if n != 1 {
+		t.Error("stat-block not added to project_facets")
+	}
+}
+
 func TestImport_Conflicts(t *testing.T) {
 	seed := func(t *testing.T) (*ImportHandler, string) {
 		h, _, entries := newTestImportHandler(t)
@@ -401,6 +453,61 @@ func TestImport_ImagesStoredUnderEntryWithFilename(t *testing.T) {
 	}
 	if txt == nil || txt.Uploaded {
 		t.Errorf("txt row = %+v, want uploaded=false", txt)
+	}
+}
+
+// TestImport_BlobFailureUndo_PreservesPreexistingOverwrittenBlob guards
+// against a data-loss bug: on a mid-batch blob Put failure, the undo loop
+// used to delete every key in blobWrites, including bodyKey(existingID) for
+// an onConflict=overwrite entry — a key that held data before this import
+// ran. The DB side rolls back cleanly (deferred tx.Rollback), but blob
+// deletion is not transactional: undo must never delete a preexisting key.
+// This forces the *second* Put in the batch to fail (tom's overwrite body
+// is written first and succeeds) so the failure path actually reaches the
+// undo loop with a preexisting key already among blobWrites.
+func TestImport_BlobFailureUndo_PreservesPreexistingOverwrittenBlob(t *testing.T) {
+	h, blobs, entries := newTestImportHandler(t)
+
+	// Seed an existing "tom" entry via the normal Create endpoint — its body
+	// blob predates this import.
+	req := httptest.NewRequest(http.MethodPost, "/content/projects/p1/entries",
+		strings.NewReader(`{"slug":"tom","directoryPath":"characters/npcs","body":"---\nname: Old Tom\n---\n\nOld."}`))
+	req = withChiParam(req, "id", "p1")
+	rec := httptest.NewRecorder()
+	entries.Create(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("seed create: %d %s", rec.Code, rec.Body.String())
+	}
+	var e Entry
+	_ = json.Unmarshal(rec.Body.Bytes(), &e)
+	if _, err := blobs.Get(context.Background(), bodyKey(e.ID)); err != nil {
+		t.Fatalf("pre-existing body blob missing before import: %v", err)
+	}
+
+	// projectFiles() imports "characters/npcs/tom" (conflicts, overwrite) and
+	// "locations/inn" (new). Sorted dir order puts tom's body Put first, so
+	// failing after 1 call lets tom's overwrite Put succeed and fails on
+	// inn's — forcing the undo loop to run with tom's preexisting key already
+	// recorded in blobWrites.
+	blobs.failAfter = 1
+
+	rec2, _ := doImport(t, h, "p1", "?mode=apply&onConflict=overwrite", projectFiles())
+	if rec2.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500 (forced blob failure); body %s", rec2.Code, rec2.Body.String())
+	}
+
+	// The forced failure must not have deleted the pre-existing overwritten
+	// body blob — losing it entirely would be strictly worse than leaving
+	// possibly-stale overwritten content in place.
+	if _, err := blobs.Get(context.Background(), bodyKey(e.ID)); err != nil {
+		t.Errorf("pre-existing body blob deleted by failed-apply undo: %v", err)
+	}
+
+	// DB side rolled back cleanly: still just the one pre-existing entry.
+	var n int
+	_ = h.db.QueryRow(`SELECT COUNT(*) FROM entries`).Scan(&n)
+	if n != 1 {
+		t.Errorf("entries after failed apply = %d, want 1 (rollback)", n)
 	}
 }
 

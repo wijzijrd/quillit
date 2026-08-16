@@ -15,7 +15,7 @@ func TestRenderImportReport_DryRun(t *testing.T) {
 			{Path: "locations/inn", Action: "conflict", Detail: "an entry already exists at this path"},
 		},
 	}
-	out := renderImportReport(resp)
+	out := renderImportReport(resp, false)
 	for _, want := range []string{"characters/npcs/tom", "create", "locations/inn", "conflict", "--apply"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("report output missing %q:\n%s", want, out)
@@ -28,9 +28,32 @@ func TestRenderImportReport_Applied(t *testing.T) {
 		Applied: true,
 		Report:  []client.ImportReportRow{{Path: "a/b", Action: "create"}},
 	}
-	out := renderImportReport(resp)
+	out := renderImportReport(resp, true)
 	if strings.Contains(out, "--apply") {
 		t.Errorf("applied report still suggests --apply:\n%s", out)
+	}
+}
+
+// TestRenderImportReport_ApplyRequestedButNotApplied covers --apply hitting
+// conflicts under onConflict=fail: the server reports Applied=false even
+// though the user asked for a real apply, so the ordinary dry-run message
+// ("Re-run with --apply") would be actively misleading — the user already
+// did that.
+func TestRenderImportReport_ApplyRequestedButNotApplied(t *testing.T) {
+	resp := &client.ImportResponse{
+		Applied: false,
+		Report: []client.ImportReportRow{
+			{Path: "locations/inn", Action: "conflict", Detail: "an entry already exists at this path"},
+		},
+	}
+	out := renderImportReport(resp, true)
+	if strings.Contains(out, "Dry run") {
+		t.Errorf("apply-requested report still shows dry-run text:\n%s", out)
+	}
+	for _, want := range []string{"Nothing imported", "conflict", "--on-conflict"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("report output missing %q:\n%s", want, out)
+		}
 	}
 }
 

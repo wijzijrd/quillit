@@ -143,8 +143,16 @@ func (h *Home) Save() error {
 	if err != nil {
 		return fmt.Errorf("encoding home config: %w", err)
 	}
-	if err := os.WriteFile(configPath(h.Path), data, 0o600); err != nil {
-		return fmt.Errorf("writing home config at %s: %w", configPath(h.Path), err)
+	path := configPath(h.Path)
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		return fmt.Errorf("writing home config at %s: %w", path, err)
+	}
+	// WriteFile only applies the mode when it creates the file; a config.yaml
+	// left over from an earlier, less-restrictive bootstrap (e.g. 0644) keeps
+	// its old mode otherwise. session_token lives in this file after login,
+	// so enforce 0600 on every save regardless of prior mode.
+	if err := os.Chmod(path, 0o600); err != nil {
+		return fmt.Errorf("securing permissions on home config at %s: %w", path, err)
 	}
 	return nil
 }

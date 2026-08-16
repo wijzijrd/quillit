@@ -98,7 +98,7 @@ login needed.`,
 			}
 			return err
 		}
-		fmt.Print(renderImportReport(resp))
+		fmt.Print(renderImportReport(resp, pushApply))
 		return nil
 	},
 }
@@ -116,7 +116,12 @@ func matchWebProject(projects []client.Project, target string) (client.Project, 
 	return client.Project{}, fmt.Errorf("no web project named %q — available: %s", target, strings.Join(names, ", "))
 }
 
-func renderImportReport(resp *client.ImportResponse) string {
+// renderImportReport formats the server's import report. requestedApply is
+// the --apply flag the caller passed — distinct from resp.Applied, which can
+// still be false under --apply when onConflict=fail hits a conflict; the two
+// need different closing messages so a real apply attempt that applied
+// nothing isn't mistaken for an ordinary dry run.
+func renderImportReport(resp *client.ImportResponse, requestedApply bool) string {
 	var b strings.Builder
 	tw := tabwriter.NewWriter(&b, 2, 4, 2, ' ', 0)
 	for _, row := range resp.Report {
@@ -144,9 +149,12 @@ func renderImportReport(resp *client.ImportResponse) string {
 		fmt.Fprintf(&b, "images: %d uploaded, %d skipped\n", uploaded, skipped)
 	}
 
-	if resp.Applied {
+	switch {
+	case resp.Applied:
 		fmt.Fprintf(&b, "Imported %d entries.\n", len(resp.Report))
-	} else {
+	case requestedApply:
+		fmt.Fprintf(&b, "Nothing imported — conflicts must be resolved (see rows above). Choose --on-conflict skip|overwrite|suffix or remove the conflicting entries.\n")
+	default:
 		fmt.Fprintf(&b, "Dry run — nothing imported. Re-run with --apply to import.\n")
 	}
 	return b.String()

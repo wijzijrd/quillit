@@ -100,6 +100,51 @@ func TestReadImportTarball_RejectsOversizeAsset(t *testing.T) {
 	}
 }
 
+// TestReadImportTarball_RejectsTotalUncompressedOverCap guards against a DoS
+// where the 50 MB compressed-body cap and the 10 MB per-file cap don't bound
+// total decompressed memory: many files just under the per-file cap can sum
+// to gigabytes while gzipping down to a tiny compressed body. Lowers the
+// package-level cap for the test instead of building hundreds of MB of data.
+func TestReadImportTarball_RejectsTotalUncompressedOverCap(t *testing.T) {
+	orig := maxTotalUncompressed
+	maxTotalUncompressed = 1 << 20 // 1 MB, lowered for this test
+	t.Cleanup(func() { maxTotalUncompressed = orig })
+
+	chunk := strings.Repeat("x", 700*1024) // 700 KB, under the per-file cap
+	buf := makeTarball(t, map[string]string{
+		"tom/tom.md": "body",
+		"tom/a.png":  chunk,
+		"tom/b.png":  chunk,
+	})
+	_, err := readImportTarball(buf)
+	if err == nil {
+		t.Fatal("total uncompressed content over cap accepted, want error")
+	}
+	if !strings.Contains(err.Error(), "exceed") {
+		t.Errorf("error = %q, want a message about exceeding the limit", err.Error())
+	}
+}
+
+// TestReadImportTarball_UnderTotalCapStillAccepted is a control for the
+// above: content safely under the (lowered) cap must still import cleanly,
+// guarding against an off-by-one or overly aggressive cap check.
+func TestReadImportTarball_UnderTotalCapStillAccepted(t *testing.T) {
+	orig := maxTotalUncompressed
+	maxTotalUncompressed = 1 << 20 // 1 MB
+	t.Cleanup(func() { maxTotalUncompressed = orig })
+
+	buf := makeTarball(t, map[string]string{
+		"tom/tom.md": "---\nname: Tom\n---\nBody",
+	})
+	items, err := readImportTarball(buf)
+	if err != nil {
+		t.Fatalf("readImportTarball: %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("got %d items, want 1", len(items))
+	}
+}
+
 func TestReadImportTarball_NotGzip(t *testing.T) {
 	if _, err := readImportTarball(strings.NewReader("plain garbage")); err == nil {
 		t.Error("non-gzip input accepted, want error")

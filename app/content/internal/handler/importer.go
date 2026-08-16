@@ -176,22 +176,32 @@ func (h *ImportHandler) ImportProject(w http.ResponseWriter, r *http.Request) {
 		if err := validateFacets(parsedItems[i], vocab, sorted); err != nil {
 			var ufe UnknownFacetError
 			if errors.As(err, &ufe) {
-				missingSet[ufe.Facet] = true
+				p := entryPathOf(item.DirectoryPath, item.Slug)
 				// Re-validate against an augmented vocabulary to find ALL
-				// missing facets in this entry, not just the first.
+				// missing facets in this entry, not just the first. A facet
+				// that isn't kebab-case can never satisfy project_facets'
+				// CHECK constraint — createFacets=true must not paper over
+				// that with INSERT OR IGNORE (which would silently swallow
+				// the constraint violation and then report the facet as
+				// "created" despite the card never actually validating), so
+				// reject it here, in the 422, regardless of createFacets.
 				aug := map[string]bool{}
 				for k := range vocab {
 					aug[k] = true
 				}
 				for {
+					if !isKebabName(ufe.Facet) {
+						entryErrs = append(entryErrs, importEntryError{Path: p, Error: fmt.Sprintf("facet %q is not valid (lowercase letters, digits, hyphens only, i.e. kebab-case)", ufe.Facet)})
+					} else {
+						missingSet[ufe.Facet] = true
+					}
 					aug[ufe.Facet] = true
 					if err := validateFacets(parsedItems[i], aug, sorted); err == nil {
 						break
 					} else if !errors.As(err, &ufe) {
-						entryErrs = append(entryErrs, importEntryError{Path: entryPathOf(item.DirectoryPath, item.Slug), Error: err.Error()})
+						entryErrs = append(entryErrs, importEntryError{Path: p, Error: err.Error()})
 						break
 					}
-					missingSet[ufe.Facet] = true
 				}
 			} else {
 				entryErrs = append(entryErrs, importEntryError{Path: entryPathOf(item.DirectoryPath, item.Slug), Error: err.Error()})
@@ -226,8 +236,13 @@ func (h *ImportHandler) ImportProject(w http.ResponseWriter, r *http.Request) {
 
 	if createFacets {
 		for _, f := range missing {
+			// Plain INSERT, not OR IGNORE: every name in missing has already
+			// passed isKebabName above (validation phase), so it satisfies
+			// project_facets' CHECK, and effectiveFacetVocabulary already
+			// established it isn't present yet — a real failure here is a
+			// genuine db error, not a constraint violation to shrug off.
 			if _, err := tx.ExecContext(r.Context(),
-				`INSERT OR IGNORE INTO project_facets (project_id, name) VALUES (?, ?)`, projectID, f); err != nil {
+				`INSERT INTO project_facets (project_id, name) VALUES (?, ?)`, projectID, f); err != nil {
 				writeError(w, http.StatusInternalServerError, "db error")
 				return
 			}
@@ -238,6 +253,15 @@ func (h *ImportHandler) ImportProject(w http.ResponseWriter, r *http.Request) {
 	type blobWrite struct {
 		key, contentType string
 		data             []byte
+		// preexisting marks a key that already held data before this import
+		// (the body — and, best-effort, same-named assets — of an
+		// onConflict=overwrite entry). The DB side of an overwrite rolls
+		// back cleanly via tx.Rollback on failure, but blobs have no
+		// transaction: undo must never delete a preexisting key, or a
+		// failed apply destroys data that predates this request entirely,
+		// which is strictly worse than leaving the (possibly now-stale)
+		// overwritten content in place.
+		preexisting bool
 	}
 	var blobWrites []blobWrite
 
@@ -338,7 +362,8 @@ func (h *ImportHandler) ImportProject(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		blobWrites = append(blobWrites, blobWrite{key: bodyKey(id), contentType: "text/markdown; charset=utf-8", data: item.Body})
+		overwriting := action == "overwrite"
+		blobWrites = append(blobWrites, blobWrite{key: bodyKey(id), contentType: "text/markdown; charset=utf-8", data: item.Body, preexisting: overwriting})
 		for _, asset := range item.Assets {
 			ct := mime.TypeByExtension(path.Ext(asset.Name))
 			if !isAllowedImageType(ct) {
@@ -349,6 +374,10 @@ func (h *ImportHandler) ImportProject(w http.ResponseWriter, r *http.Request) {
 				key:         fmt.Sprintf("entries/%s/images/%s", id, asset.Name),
 				contentType: ct,
 				data:        asset.Data,
+				// An overwritten entry's asset under the same filename may
+				// also have pre-existed (same id, same key derivation) —
+				// treat it as preexisting too, same rationale as the body.
+				preexisting: overwriting,
 			})
 			resp.Images = append(resp.Images, ImportImageRow{Path: entryPathOf(item.DirectoryPath, item.Slug) + "/" + asset.Name, Uploaded: mode == "apply"})
 		}
@@ -385,19 +414,24 @@ func (h *ImportHandler) ImportProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	undoBlobWrites := func() {
+		for _, undo := range blobWrites {
+			if undo.preexisting {
+				continue
+			}
+			_ = h.blobs.Delete(r.Context(), undo.key)
+		}
+	}
+
 	for _, bw := range blobWrites {
 		if err := h.blobs.Put(r.Context(), bw.key, bw.contentType, bw.data); err != nil {
-			for _, undo := range blobWrites {
-				_ = h.blobs.Delete(r.Context(), undo.key)
-			}
+			undoBlobWrites()
 			writeError(w, http.StatusInternalServerError, "blob error")
 			return
 		}
 	}
 	if err := tx.Commit(); err != nil {
-		for _, undo := range blobWrites {
-			_ = h.blobs.Delete(r.Context(), undo.key)
-		}
+		undoBlobWrites()
 		writeError(w, http.StatusInternalServerError, "db error")
 		return
 	}
