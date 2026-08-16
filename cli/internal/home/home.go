@@ -26,6 +26,10 @@ var DefaultFacets = []string{"motivation", "description", "history"}
 type Config struct {
 	Facets         []string `yaml:"facets"`
 	CurrentProject string   `yaml:"current_project"`
+	// Server + SessionToken are set by `quillit login` (spec §6) and used
+	// by `quillit push`. Optional — absent until first login.
+	Server       string `yaml:"server,omitempty"`
+	SessionToken string `yaml:"session_token,omitempty"`
 }
 
 // Home wraps a resolved $QUILLIT_HOME directory and its parsed config.yaml.
@@ -139,7 +143,7 @@ func (h *Home) Save() error {
 	if err != nil {
 		return fmt.Errorf("encoding home config: %w", err)
 	}
-	if err := os.WriteFile(configPath(h.Path), data, 0o644); err != nil {
+	if err := os.WriteFile(configPath(h.Path), data, 0o600); err != nil {
 		return fmt.Errorf("writing home config at %s: %w", configPath(h.Path), err)
 	}
 	return nil
