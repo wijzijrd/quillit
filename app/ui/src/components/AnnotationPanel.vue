@@ -1,8 +1,7 @@
 <template>
   <aside class="annotation-panel">
-    <!-- New annotation form (shown when text is selected) -->
-    <div class="annotation-form" v-if="pendingSelection">
-      <div class="selected-text">"{{ pendingSelection.text }}"</div>
+    <!-- New annotation form -->
+    <div class="annotation-form" v-if="adding">
       <textarea
         class="annotation-input"
         v-model="draftText"
@@ -23,13 +22,16 @@
       </div>
       <div class="form-actions">
         <button class="btn-save" @click="saveAnnotation" :disabled="!draftText.trim()">Save</button>
-        <button class="btn-cancel" @click="emit('cancel')">Cancel</button>
+        <button class="btn-cancel" @click="adding = false">Cancel</button>
       </div>
+    </div>
+    <div class="panel-add-row" v-else>
+      <button class="btn-ghost" @click="adding = true">+ Add note</button>
     </div>
 
     <!-- Empty state -->
-    <div class="panel-empty" v-else-if="visibleAnnotations.length === 0">
-      <p>Select text in the editor to add an annotation.</p>
+    <div class="panel-empty" v-if="!adding && visibleAnnotations.length === 0">
+      <p>No notes for this entry yet.</p>
     </div>
 
     <!-- Annotation list -->
@@ -80,10 +82,7 @@ import { useAnnotationsStore } from '../stores/useAnnotationsStore'
 const props = defineProps<{
   entryId?: string
   previewMode?: boolean
-  pendingSelection: { from: number; to: number; text: string } | null
 }>()
-
-const emit = defineEmits(['apply-annotation', 'remove-annotation', 'cancel'])
 
 const annotations = useAnnotationsStore()
 
@@ -94,6 +93,7 @@ const VISIBILITIES = [
 
 const VISIBILITY_LABELS: Record<string, string> = { gm: 'Private', shared: 'Shared', player: 'Shared' }
 
+const adding = ref(false)
 const draftText = ref('')
 const draftVisibility = ref('gm')
 const editingId = ref<string | null>(null)
@@ -105,15 +105,15 @@ const visibleAnnotations = computed(() => {
   return props.previewMode ? list.filter(a => a.visibility !== 'gm') : list
 })
 
-function saveAnnotation() {
+async function saveAnnotation() {
   if (!draftText.value.trim()) return
-  const id = annotations.createAnnotation(props.entryId, {
+  await annotations.createAnnotation(props.entryId, {
     text: draftText.value.trim(),
     visibility: draftVisibility.value,
   })
-  emit('apply-annotation', { id, visibility: draftVisibility.value })
   draftText.value = ''
   draftVisibility.value = 'gm'
+  adding.value = false
 }
 
 function startEdit(ann: { id: string; text: string; visibility: string }) {
@@ -132,7 +132,6 @@ function saveEdit(id: string) {
 
 function remove(id: string) {
   annotations.deleteAnnotation(id)
-  emit('remove-annotation', id)
 }
 </script>
 
@@ -152,14 +151,23 @@ function remove(id: string) {
   gap: 8px;
 }
 
-.selected-text {
-  font-size: 0.82em;
-  color: var(--muted-foreground);
-  font-style: italic;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.panel-add-row {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
 }
+.btn-ghost {
+  width: 100%;
+  background: var(--muted);
+  color: var(--muted-foreground);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 6px 10px;
+  font-family: var(--font-body);
+  font-size: 0.84em;
+  cursor: pointer;
+  transition: background var(--transition), color var(--transition);
+}
+.btn-ghost:hover { background: var(--card); color: var(--foreground); }
 
 .annotation-input {
   background: var(--muted);

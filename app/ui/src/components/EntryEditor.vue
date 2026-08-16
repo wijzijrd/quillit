@@ -20,15 +20,6 @@
         <select v-if="inProject" class="cat-select" v-model="localCategory" @change="save">
           <option v-for="c in (cats.projectCategories.length ? cats.projectCategories : cats.categories)" :key="c.id" :value="c.name">{{ c.icon }} {{ c.name }}</option>
         </select>
-        <button
-          class="vis-toggle icon-btn"
-          :class="localVisibility === 'public' ? 'vis-public' : 'vis-private'"
-          @click="toggleVisibility"
-          :title="localVisibility === 'public' ? 'Public — visible to players' : 'Private — GM only'"
-        >
-          <Globe v-if="localVisibility === 'public'" :size="14" />
-          <Lock v-else :size="14" />
-        </button>
         <button class="delete-btn icon-btn" @click="confirmDelete" title="Delete entry">
           <Trash2 :size="14" />
         </button>
@@ -77,12 +68,16 @@
         <button class="tbtn" @click="editor?.chain().focus().setTextAlign('justify').run()" :class="{ on: editor?.isActive({ textAlign: 'justify' }) }" title="Justify"><AlignJustify :size="14" /></button>
         <div class="toolbar-divider"></div>
         <button
-          class="tbtn annotate-btn"
-          :class="{ on: !!pendingSelection }"
-          :disabled="!hasSelection && !pendingSelection"
-          @click="startAnnotation"
-          title="Annotate selected text"
-        ><Pin :size="14" /></button>
+          class="tbtn secret-btn"
+          @click="insertSecretBlock"
+          title="Insert secret block (DM only, stripped from player view)"
+        ><Lock :size="14" /></button>
+        <button
+          class="tbtn card-btn"
+          :disabled="!cardFacets.length"
+          @click="insertCardBlock"
+          :title="cardFacets.length ? 'Insert card block' : 'No facets configured for this project'"
+        ><Layers :size="14" /></button>
         <button class="tbtn" @click="printEntry" title="Print / export PDF"><Printer :size="14" /></button>
         <span class="toolbar-spacer"></span>
         <button
@@ -103,8 +98,8 @@
           ref="tiptapRef"
           v-model="localBody"
           :uploadImageFn="uploadImage"
+          :previewMode="previewMode"
           @update:modelValue="debouncedSave"
-          @selectionUpdate="onSelectionUpdate"
         />
       </div>
       <div class="right-panel" :class="{ collapsed: panelCollapsed }">
@@ -146,10 +141,6 @@
           v-if="activePanel === 'annotations'"
           :entryId="entry.id"
           :previewMode="previewMode"
-          :pendingSelection="pendingSelection"
-          @apply-annotation="applyAnnotation"
-          @remove-annotation="removeAnnotation"
-          @cancel="pendingSelection = null"
         />
         <LinkedEntriesPanel
           v-if="activePanel === 'links'"
@@ -180,7 +171,7 @@ import { api } from '../api/client'
 import {
   Bold, Italic, Heading2, Heading3, List, Minus,
   AlignLeft, AlignCenter, AlignRight, AlignJustify,
-  Pin, Eye, EyeOff, Printer, Globe, Lock, Trash2,
+  Pin, Eye, EyeOff, Printer, Lock, Layers, Trash2,
   PanelRightClose, PanelRightOpen, Link, LayoutList,
   ChevronLeft, ChevronRight, X, ExternalLink, Share2,
 } from 'lucide-vue-next'
@@ -193,14 +184,17 @@ import { hexToAlpha } from '../utils/color'
 import { useEntriesStore } from '../stores/useEntriesStore'
 import { useCategoriesStore } from '../stores/useCategoriesStore'
 import { useAnnotationsStore } from '../stores/useAnnotationsStore'
+import { useFacetsStore } from '../stores/useFacetsStore'
 import { useUIStore } from '../stores/useUIStore'
-import { stripGmMarks } from '../composables/useAnnotationVisibility'
+import { renderMarkdownToHtml } from '../composables/useMarkdownRender'
+import { invalidateWikilinkCache } from '../extensions/wikilinkLookup'
 
 defineProps<{ onClose?: () => void }>()
 
 const entries = useEntriesStore()
 const cats = useCategoriesStore()
 const annotations = useAnnotationsStore()
+const facets = useFacetsStore()
 const ui = useUIStore()
 const route = useRoute()
 const inProject = computed(() => !!route.params.projectId)
@@ -212,17 +206,26 @@ const currentProjectId = computed(() => {
   return typeof p === 'string' ? p : undefined
 })
 
+// Effective facet vocabulary for the card-block insert button — issue #47's
+// facet picker is constrained to this list (see useFacetsStore, from #38/#50).
+watch(currentProjectId, (id) => {
+  if (id) facets.fetchForProject(id).catch(() => {})
+}, { immediate: true })
+const cardFacets = computed(() => currentProjectId.value ? (facets.projectEffective[currentProjectId.value] ?? []) : [])
+
 const entry = ref(null)
 const localTitle = ref('')
 const localCategory = ref('Lore')
 const localBody = ref('')
+// Still round-tripped on save (see save(), below) even though the editor no
+// longer exposes a control for it — issue #47 replaces the whole-entry
+// visibility flag with block-level :::secret content; this just preserves
+// whatever value the entry already had rather than dropping the field.
 const localVisibility = ref('private')
 const localTags = ref([])
 const tagInput = ref('')
 const saveStatus = ref('')
 const previewMode = ref(false)
-const hasSelection = ref(false)
-const pendingSelection = ref(null)
 const activePanel = ref('annotations')
 const panelCollapsed = ref(false)
 
@@ -244,8 +247,6 @@ watch(() => ui.activeEntryId, async (id) => {
   localBody.value = found.body
   localVisibility.value = found.visibility ?? 'private'
   localTags.value = found.tags ?? []
-  pendingSelection.value = null
-  hasSelection.value = false
   // Body may be empty when stored in MinIO (list response omits it).
   // Fetch the full entry to hydrate body content.
   if (!found.body) {
@@ -271,11 +272,6 @@ function debouncedSave() {
   saveTimer = setTimeout(save, 800)
 }
 
-function toggleVisibility() {
-  localVisibility.value = localVisibility.value === 'public' ? 'private' : 'public'
-  save()
-}
-
 async function save() {
   if (!entry.value) return
   try {
@@ -286,6 +282,10 @@ async function save() {
       visibility: localVisibility.value,
       tags: localTags.value,
     })
+    // A save can newly resolve a wikilink that pointed at a since-created
+    // entry, or dangle one whose target moved — drop the cached lookups
+    // rather than have them go stale until the next reload.
+    if (currentProjectId.value) invalidateWikilinkCache(currentProjectId.value)
     saveStatus.value = 'Saved'
   } catch {
     saveStatus.value = 'Save failed'
@@ -299,52 +299,21 @@ function confirmDelete() {
   ui.setActiveEntry(null)
 }
 
-function onSelectionUpdate({ empty }) {
-  hasSelection.value = !empty
-}
-
-function startAnnotation() {
+function insertSecretBlock() {
   if (!editor.value) return
-  const { from, to } = editor.value.state.selection
-  const text = editor.value.state.doc.textBetween(from, to, ' ')
-  pendingSelection.value = { from, to, text: text.slice(0, 60) }
-  activePanel.value = 'annotations'
+  editor.value.chain().focus().insertContent({
+    type: 'secretBlock',
+    content: [{ type: 'paragraph' }],
+  }).run()
 }
 
-function applyAnnotation({ id, visibility }) {
-  if (!editor.value || !pendingSelection.value) return
-  const { from, to } = pendingSelection.value
-  // Compute annotation index for multi-word selections
-  let count = 0
-  editor.value.state.doc.nodesBetween(0, editor.value.state.doc.content.size, (node) => {
-    node.marks.forEach(m => { if (m.type.name === 'annotation') count++ })
-  })
-  const isMultiWord = pendingSelection.value.text.includes(' ')
-  const annotationIndex = isMultiWord ? count + 1 : null
-  editor.value.chain()
-    .setTextSelection({ from, to })
-    .setMark('annotation', { annotationId: id, visibility, annotationIndex })
-    .run()
-  pendingSelection.value = null
-  localBody.value = editor.value.getHTML()
-  save()
-}
-
-function removeAnnotation(id) {
-  if (!editor.value) return
-  editor.value.commands.command(({ tr, dispatch }) => {
-    tr.doc.nodesBetween(0, tr.doc.content.size, (node, pos) => {
-      node.marks.forEach(mark => {
-        if (mark.type.name === 'annotation' && mark.attrs.annotationId === id) {
-          tr.removeMark(pos, pos + node.nodeSize, mark)
-        }
-      })
-    })
-    dispatch?.(tr)
-    return true
-  })
-  localBody.value = editor.value.getHTML()
-  save()
+function insertCardBlock() {
+  if (!editor.value || !cardFacets.value.length) return
+  editor.value.chain().focus().insertContent({
+    type: 'cardBlock',
+    attrs: { facet: cardFacets.value[0] },
+    content: [{ type: 'paragraph' }],
+  }).run()
 }
 
 function addTag() {
@@ -368,7 +337,7 @@ function onTagKeydown(e) {
   }
 }
 
-function printEntry() {
+async function printEntry() {
   if (!entry.value) return
   const win = window.open('', '_blank')
   if (!win) return
@@ -391,8 +360,10 @@ function printEntry() {
   titleEl.textContent = entry.value.title
   win.document.body.appendChild(titleEl)
 
-  // Parse body through DOMParser then transfer nodes to avoid innerHTML assignment
-  const bodyHtml = stripGmMarks(localBody.value)
+  // Render markdown to HTML with :::secret blocks stripped — print is always
+  // a player-safe export, matching the CLI's `player` view (docs/cli-spec.md
+  // §4) — then parse + transfer nodes to avoid innerHTML assignment.
+  const bodyHtml = await renderMarkdownToHtml(localBody.value, { stripSecrets: true, interactiveLinks: false })
   const parsed = new DOMParser().parseFromString(bodyHtml, 'text/html')
   const content = win.document.createElement('div')
   Array.from(parsed.body.childNodes).forEach(node => {
@@ -422,7 +393,7 @@ function printEntry() {
       item.style.cssText = 'margin-bottom:6px;'
       const prefix = win.document.createElement('span')
       prefix.style.cssText = 'font-weight:600;margin-right:4px;'
-      prefix.textContent = ann.annotationIndex != null ? `[${ann.annotationIndex}]` : '•'
+      prefix.textContent = '•'
       item.appendChild(prefix)
       item.appendChild(win.document.createTextNode(' ' + ann.text))
       footer.appendChild(item)
@@ -472,24 +443,20 @@ function goForward() {
 }
 
 function onEditorClick(e: MouseEvent) {
-  const mention = (e.target as HTMLElement).closest('.entry-mention') as HTMLElement | null
-  if (mention?.dataset.entryId) {
+  // Wikilink's node view (Wikilink.ts) resolves the target async and stamps
+  // data-resolved-id once it knows the entry id — navigation + back/forward
+  // history live here rather than in the node view itself, matching how
+  // the old .entry-mention delegation worked.
+  const link = (e.target as HTMLElement).closest('.wikilink') as HTMLElement | null
+  if (link?.dataset.resolvedId) {
     e.preventDefault()
-    const nextId = mention.dataset.entryId
+    const nextId = link.dataset.resolvedId
     const currId = ui.activeEntryId
     if (currId) {
       localHistory.value.push(currId)
       localFuture.value = []
     }
     ui.setActiveEntry(nextId)
-    return
-  }
-  if (e.shiftKey) {
-    const mark = (e.target as HTMLElement).closest('.annotation-mark') as HTMLElement | null
-    if (mark) {
-      activePanel.value = 'annotations'
-      panelCollapsed.value = false
-    }
   }
 }
 </script>
@@ -563,7 +530,6 @@ function onEditorClick(e: MouseEvent) {
   transition: background var(--transition), color var(--transition), border-color var(--transition);
 }
 .icon-btn:hover { background: var(--muted); color: var(--foreground); }
-.vis-toggle.vis-public { border-color: rgba(80,200,120,0.4); background: rgba(80,200,120,0.08); color: #8e8; }
 .delete-btn:hover { color: var(--destructive); background: rgba(220, 38, 38, 0.1); border-color: rgba(220, 38, 38, 0.3); }
 
 .toolbar {
@@ -589,7 +555,8 @@ function onEditorClick(e: MouseEvent) {
 .tbtn:hover { background: var(--muted); color: var(--foreground); }
 .tbtn.on { background: var(--secondary); color: var(--primary); }
 .tbtn:disabled { opacity: 0.35; cursor: default; }
-.annotate-btn.on { background: rgba(200,146,42,0.15); color: var(--primary); }
+.secret-btn:hover { color: #e88; }
+.card-btn:hover { color: var(--primary); }
 .preview-btn.on { background: rgba(80,200,120,0.15); color: #8e8; }
 .toolbar-divider {
   width: 1px; background: var(--border);
