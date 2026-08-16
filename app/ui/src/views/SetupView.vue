@@ -94,7 +94,7 @@ onMounted(async () => {
       // Already logged in — redeem the invite and go straight to the project.
       try {
         const membership = await projects.join(inviteToken.value)
-        router.push(`/projects/${membership.projectId}/notes`)
+        router.push(`/projects/${membership.projectId}/entries`)
       } catch {
         router.push('/')
       }
@@ -130,7 +130,7 @@ async function submit() {
     if (inviteToken.value) {
       try {
         const membership = await projects.join(inviteToken.value)
-        router.push(`/projects/${membership.projectId}/notes`)
+        router.push(`/projects/${membership.projectId}/entries`)
         return
       } catch {
         // Join failed — navigate home; user can join manually

@@ -219,7 +219,7 @@ function hideDropdown() {
 
 function navigate(id: string) {
   ui.setActiveEntry(id)
-  router.push(`/notes/${id}`)
+  router.push(`/entries/${id}`)
 }
 </script>
 

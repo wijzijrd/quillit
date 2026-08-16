@@ -35,7 +35,7 @@
           <RouterLink
             v-for="entry in searchResults"
             :key="entry.id"
-            :to="`/notes/${entry.id}`"
+            :to="`/entries/${entry.id}`"
             class="recent-item"
             @click="ui.setActiveEntry(entry.id)"
           >
@@ -53,7 +53,7 @@
           <RouterLink
             v-for="entry in recent"
             :key="entry.id"
-            :to="`/notes/${entry.id}`"
+            :to="`/entries/${entry.id}`"
             class="recent-item"
             @click="ui.setActiveEntry(entry.id)"
           >
@@ -66,7 +66,7 @@
             <span class="ri-title">{{ entry.title }}</span>
           </RouterLink>
           <p v-if="recent.length === 0" class="no-recent">
-            No entries yet — head to <RouterLink to="/notes">Notes</RouterLink> to create one.
+            No entries yet — head to <RouterLink to="/entries">Entries</RouterLink> to create one.
           </p>
         </template>
       </div>
@@ -101,7 +101,7 @@
       </div>
 
       <div class="project-grid" v-if="projectStore.projects.length > 0">
-        <div class="project-card" v-for="p in projectStore.projects" :key="p.id" @click="router.push('/projects/' + p.id + '/notes')">
+        <div class="project-card" v-for="p in projectStore.projects" :key="p.id" @click="router.push('/projects/' + p.id + '/entries')">
           <div class="pc-top">
             <span class="pc-type-badge">{{ p.type }}</span>
             <span class="pc-live-badge" v-if="p.live"><span class="pc-live-dot" />Live</span>

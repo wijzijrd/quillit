@@ -8,7 +8,7 @@
       <RouterLink to="/" class="nav-item" active-class="nav-active" title="Dashboard">
         <LayoutDashboard :size="16" class="flex-shrink-0" />
       </RouterLink>
-      <RouterLink to="/notes" class="nav-item" active-class="nav-active" title="Notes">
+      <RouterLink to="/entries" class="nav-item" active-class="nav-active" title="Entries">
         <BookOpen :size="16" class="flex-shrink-0" />
       </RouterLink>
       <RouterLink to="/member" class="nav-item" active-class="nav-active" title="Member">

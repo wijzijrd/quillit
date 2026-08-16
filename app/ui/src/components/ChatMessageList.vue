@@ -93,7 +93,7 @@ async function saveCard(m: ChatMessage) {
     await member.addToFolder(selectedFolderId.value, entry.id)
     folderPickerFor.value = null
   } catch (e: unknown) {
-    emit('error', apiErrorMessage(e, 'Could not save note to folder'))
+    emit('error', apiErrorMessage(e, 'Could not save entry to folder'))
     // createEntry already succeeded but a later step failed — roll back the
     // orphaned blank/partial entry so it doesn't silently persist. Failure
     // to roll back shouldn't mask the original error above.

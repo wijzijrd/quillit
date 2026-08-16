@@ -2,7 +2,7 @@
   <div class="entry-row" @click="$emit('edit')">
     <span class="er-title">{{ entry.title }}</span>
     <div class="er-actions">
-      <button class="er-btn" @click.stop="$emit('links')" title="Linked notes">
+      <button class="er-btn" @click.stop="$emit('links')" title="Linked entries">
         <Link2 :size="13" />
       </button>
       <button class="er-btn" @click.stop="$emit('edit')" title="Edit">
