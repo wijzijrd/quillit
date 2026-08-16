@@ -59,6 +59,7 @@ func main() {
 	health := handler.NewHealth(database)
 	entries := handler.NewEntries(database, jwtSecret, blobs, checker)
 	renderer := handler.NewRender(database, blobs, jwtSecret, checker)
+	exporter := handler.NewExport(database, blobs, jwtSecret, checker)
 	facets := handler.NewFacets(database, jwtSecret, checker)
 	links := handler.NewLinks(database, blobs, jwtSecret, checker)
 	search := handler.NewSearch(database, jwtSecret, checker)
@@ -80,6 +81,7 @@ func main() {
 		r.Delete("/entries/{id}", entries.Delete)
 		r.Post("/entries/{id}/images", entries.UploadImage)
 		r.Get("/entries/{id}/render", renderer.Render)
+		r.Get("/entries/{id}/export", exporter.Export)
 		r.Get("/entries/{id}/links", links.GetForEntry)
 		r.Post("/entries/{id}/assign", assign.Assign)
 
