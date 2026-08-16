@@ -4,6 +4,16 @@ import { api } from '../api/client'
 import { loadEntries, saveEntries } from '../composables/usePersistence'
 import type { Entry } from '../types'
 
+/** One hit from #43's content-svc full-text search (see app/content/internal/handler/search.go's SearchResult). */
+export interface EntrySearchResult {
+  id: string
+  projectId: string
+  slug: string
+  directoryPath: string
+  title: string
+  tags: string[]
+}
+
 export const useEntriesStore = defineStore('entries', () => {
   const entries = ref<Entry[]>([])
   const loaded = ref(false)
@@ -78,6 +88,31 @@ export const useEntriesStore = defineStore('entries', () => {
     )
   }
 
+  /**
+   * Real full-text search (issue #51), replacing the naive client-side
+   * `.filter()` in `search()` above (kept for now — still used by the
+   * unwired SearchBar.vue). Hits content-svc's project-scoped search
+   * endpoint (GET /content/projects/{id}/search?q=), which is FTS5-backed
+   * and actually indexes body content, not just whatever's cached locally.
+   *
+   * The endpoint is per-project, but the dashboard/global search this backs
+   * has always searched across every project a user belongs to — so this
+   * fans out one request per project id and merges the results. Failures
+   * for an individual project (e.g. one the caller just lost access to) are
+   * swallowed rather than failing the whole search.
+   */
+  async function searchRemote(query: string, projectIds: string[]): Promise<EntrySearchResult[]> {
+    const q = query.trim()
+    if (!q || !projectIds.length) return []
+    const settled = await Promise.allSettled(
+      projectIds.map(async (id) => {
+        const hits: EntrySearchResult[] = await api(`/content/projects/${id}/search?q=${encodeURIComponent(q)}`)
+        return hits
+      })
+    )
+    return settled.flatMap(r => (r.status === 'fulfilled' ? r.value : []))
+  }
+
   const allTags = computed(() =>
     [...new Set(entries.value.flatMap(e => e.tags ?? []))].sort()
   )
@@ -86,5 +121,5 @@ export const useEntriesStore = defineStore('entries', () => {
     return entries.value.filter(e => e.tags?.includes(tag))
   }
 
-  return { entries, loaded, init, createEntry, updateEntry, deleteEntry, byCategory, getById, addLink, removeLink, backlinksFor, search, allTags, byTag }
+  return { entries, loaded, init, createEntry, updateEntry, deleteEntry, byCategory, getById, addLink, removeLink, backlinksFor, search, searchRemote, allTags, byTag }
 })
