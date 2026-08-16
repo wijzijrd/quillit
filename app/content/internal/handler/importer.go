@@ -250,6 +250,19 @@ func (h *ImportHandler) ImportProject(w http.ResponseWriter, r *http.Request) {
 	}
 	var appliedEntries []applied
 
+	// claimedSlugs tracks (directoryPath, slug) pairs already spoken for
+	// within this batch: every item's own natural path up front, plus each
+	// suffix candidate as it's chosen. Without the up-front reservation,
+	// sequential suffix assignment could steal a later batch item's genuine
+	// slug for an earlier conflicting item (since the later item hasn't been
+	// inserted into the tx yet when the earlier one's candidates are
+	// checked against the DB) — silently swapping content between them.
+	claimedSlugs := make(map[string]bool, len(items))
+	claimKey := func(dir, slug string) string { return dir + "\x00" + slug }
+	for _, it := range items {
+		claimedSlugs[claimKey(it.DirectoryPath, it.Slug)] = true
+	}
+
 	for i, item := range items {
 		p := entryPathOf(item.DirectoryPath, item.Slug)
 		slug := item.Slug
@@ -278,12 +291,16 @@ func (h *ImportHandler) ImportProject(w http.ResponseWriter, r *http.Request) {
 		case exists && onConflict == "suffix":
 			for n := 2; ; n++ {
 				candidate := fmt.Sprintf("%s-%d", item.Slug, n)
+				if claimedSlugs[claimKey(item.DirectoryPath, candidate)] {
+					continue
+				}
 				var one int
 				err := tx.QueryRowContext(r.Context(),
 					`SELECT 1 FROM entries WHERE project_id = ? AND directory_path = ? AND slug = ?`,
 					projectID, item.DirectoryPath, candidate).Scan(&one)
 				if err == sql.ErrNoRows {
 					slug = candidate
+					claimedSlugs[claimKey(item.DirectoryPath, candidate)] = true
 					break
 				}
 				if err != nil {

@@ -282,6 +282,56 @@ func TestImport_Conflicts(t *testing.T) {
 	})
 }
 
+// TestImport_SuffixAvoidsBatchSiblingCollision guards against a bug where
+// sequential suffix assignment could steal a later batch item's genuine
+// slug for an earlier conflicting item: with a pre-existing "tom" and a
+// batch containing both a conflicting "tom" folder and a distinct, genuine
+// "tom-2" folder, naive processing would suffix the conflicting "tom" into
+// "tom-2" (since the genuine tom-2 isn't inserted yet when "tom" is
+// checked), silently displacing the real tom-2 content to "tom-2-2".
+func TestImport_SuffixAvoidsBatchSiblingCollision(t *testing.T) {
+	h, _, entries := newTestImportHandler(t)
+	req := httptest.NewRequest(http.MethodPost, "/content/projects/p1/entries",
+		strings.NewReader(`{"slug":"tom","directoryPath":"characters/npcs","body":"---\nname: Old Tom\n---\n\nOld."}`))
+	req = withChiParam(req, "id", "p1")
+	rec := httptest.NewRecorder()
+	entries.Create(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("seed create: %d %s", rec.Code, rec.Body.String())
+	}
+
+	files := map[string]string{
+		"characters/npcs/tom/tom.md":     "---\nname: New Tom\n---\n\nNew Tom content.\n",
+		"characters/npcs/tom-2/tom-2.md": "---\nname: Genuine Tom Two\n---\n\nGenuine second entry.\n",
+	}
+	_, resp := doImport(t, h, "p1", "?mode=apply&onConflict=suffix", files)
+	if !resp.Applied {
+		t.Fatalf("applied=false, report=%+v", resp.Report)
+	}
+
+	var genuineTitle string
+	if err := h.db.QueryRow(`SELECT title FROM entries WHERE project_id='p1' AND directory_path='characters/npcs' AND slug='tom-2'`).Scan(&genuineTitle); err != nil {
+		t.Fatalf("tom-2 row: %v", err)
+	}
+	if genuineTitle != "Genuine Tom Two" {
+		t.Errorf("slug tom-2 title = %q, want %q (genuine batch sibling must not be displaced)", genuineTitle, "Genuine Tom Two")
+	}
+
+	var suffixedTitle string
+	if err := h.db.QueryRow(`SELECT title FROM entries WHERE project_id='p1' AND directory_path='characters/npcs' AND slug='tom-3'`).Scan(&suffixedTitle); err != nil {
+		t.Fatalf("expected the conflicting tom import to land at tom-3, got error: %v", err)
+	}
+	if suffixedTitle != "New Tom" {
+		t.Errorf("slug tom-3 title = %q, want %q", suffixedTitle, "New Tom")
+	}
+
+	var n int
+	_ = h.db.QueryRow(`SELECT COUNT(*) FROM entries WHERE project_id='p1'`).Scan(&n)
+	if n != 3 { // old tom + genuine tom-2 + suffixed tom-3
+		t.Errorf("entries = %d, want 3", n)
+	}
+}
+
 func TestImport_ReresolvesPreexistingDanglingLinks(t *testing.T) {
 	h, _, entries := newTestImportHandler(t)
 	// Existing entry pointing at not-yet-existing locations/inn.
