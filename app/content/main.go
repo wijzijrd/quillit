@@ -65,6 +65,7 @@ func main() {
 	search := handler.NewSearch(database, jwtSecret, checker)
 	assign := handler.NewAssign(database, blobs, jwtSecret, checker)
 	internal := handler.NewInternal(database)
+	importer := handler.NewImport(database, jwtSecret, blobs, checker)
 
 	r := chi.NewRouter()
 	r.Use(middleware.Logger)
@@ -86,6 +87,7 @@ func main() {
 		r.Post("/entries/{id}/assign", assign.Assign)
 
 		r.Get("/projects/{id}/search", search.Search)
+		r.Post("/projects/{id}/import", importer.ImportProject)
 
 		r.Get("/facets", facets.ListGlobal)
 		r.Post("/facets", facets.CreateGlobal)

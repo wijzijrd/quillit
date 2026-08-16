@@ -1,0 +1,377 @@
+package handler
+
+import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+
+	"github.com/go-chi/chi/v5"
+
+	"github.com/quillit/content-svc/internal/authz"
+	"github.com/quillit/content-svc/internal/db"
+)
+
+func newTestImportHandler(t *testing.T) (*ImportHandler, *fakeBlobStore, *EntriesHandler) {
+	t.Helper()
+	database, err := db.Open(":memory:")
+	if err != nil {
+		t.Fatalf("db.Open: %v", err)
+	}
+	t.Cleanup(func() { database.Close() })
+	blobs := newFakeBlobStore()
+	return NewImport(database, "", blobs, authz.AllowAll{}), blobs, NewEntries(database, "", blobs, authz.AllowAll{})
+}
+
+// doImport POSTs tarball files to the import endpoint via a chi router so
+// {id} resolves, and decodes the response.
+func doImport(t *testing.T, h *ImportHandler, projectID, query string, files map[string]string) (*httptest.ResponseRecorder, ImportResponse) {
+	t.Helper()
+	r := chi.NewRouter()
+	r.Post("/content/projects/{id}/import", h.ImportProject)
+	req := withTestCaller(httptest.NewRequest(http.MethodPost,
+		"/content/projects/"+projectID+"/import"+query, makeTarball(t, files)))
+	req.Header.Set("Content-Type", "application/gzip")
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	var resp ImportResponse
+	_ = json.NewDecoder(rec.Body).Decode(&resp)
+	return rec, resp
+}
+
+const tomMD = "---\nname: Tom\ntags: [npc]\n---\n\nTom runs the inn at [[locations/inn]].\n"
+const innMD = "---\nname: The Inn\n---\n\nRun by [[characters/npcs/tom|Tom]].\n"
+
+func projectFiles() map[string]string {
+	return map[string]string{
+		"characters/npcs/tom/tom.md": tomMD,
+		"locations/inn/inn.md":       innMD,
+	}
+}
+
+func TestImport_DryRunByDefault_MakesNoChanges(t *testing.T) {
+	h, blobs, _ := newTestImportHandler(t)
+	rec, resp := doImport(t, h, "p1", "", projectFiles())
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body %s", rec.Code, rec.Body.String())
+	}
+	if resp.Applied {
+		t.Error("dry-run reported applied=true")
+	}
+	if len(resp.Report) != 2 || resp.Report[0].Action != "create" || resp.Report[1].Action != "create" {
+		t.Errorf("report = %+v, want 2 create rows", resp.Report)
+	}
+	var n int
+	if err := h.db.QueryRow(`SELECT COUNT(*) FROM entries`).Scan(&n); err != nil || n != 0 {
+		t.Errorf("entries rows after dry-run = %d (err %v), want 0", n, err)
+	}
+	if len(blobs.objects) != 0 {
+		t.Errorf("blobs after dry-run = %d, want 0", len(blobs.objects))
+	}
+}
+
+func TestImport_Apply_CreatesEntriesAndResolvedLinks(t *testing.T) {
+	h, blobs, _ := newTestImportHandler(t)
+	rec, resp := doImport(t, h, "p1", "?mode=apply", projectFiles())
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body %s", rec.Code, rec.Body.String())
+	}
+	if !resp.Applied {
+		t.Error("apply reported applied=false")
+	}
+
+	// Both entries exist with the right metadata.
+	var tomID, innID string
+	if err := h.db.QueryRow(`SELECT id FROM entries WHERE project_id='p1' AND directory_path='characters/npcs' AND slug='tom'`).Scan(&tomID); err != nil {
+		t.Fatalf("tom row: %v", err)
+	}
+	if err := h.db.QueryRow(`SELECT id FROM entries WHERE project_id='p1' AND directory_path='locations' AND slug='inn'`).Scan(&innID); err != nil {
+		t.Fatalf("inn row: %v", err)
+	}
+
+	// AC 4: in-batch wikilinks resolve to real ids, both directions.
+	var target string
+	var resolved bool
+	if err := h.db.QueryRow(`SELECT target_entry_id, resolved FROM entry_links WHERE entry_id=?`, tomID).Scan(&target, &resolved); err != nil {
+		t.Fatalf("tom link: %v", err)
+	}
+	if !resolved || target != innID {
+		t.Errorf("tom→inn link = (%s, %v), want (%s, true)", target, resolved, innID)
+	}
+	if err := h.db.QueryRow(`SELECT target_entry_id, resolved FROM entry_links WHERE entry_id=?`, innID).Scan(&target, &resolved); err != nil {
+		t.Fatalf("inn link: %v", err)
+	}
+	if !resolved || target != tomID {
+		t.Errorf("inn→tom link = (%s, %v), want (%s, true)", target, resolved, tomID)
+	}
+
+	// Bodies stored byte-identical (render parity rests on this + shared parser).
+	body, err := blobs.Get(context.Background(), bodyKey(tomID))
+	if err != nil || string(body) != tomMD {
+		t.Errorf("tom body = %q (err %v), want source bytes", body, err)
+	}
+}
+
+func TestImport_ApplyMatchesDryRunReport(t *testing.T) {
+	h, _, _ := newTestImportHandler(t)
+	_, dry := doImport(t, h, "p1", "", projectFiles())
+	_, apply := doImport(t, h, "p1", "?mode=apply", projectFiles())
+	if len(dry.Report) != len(apply.Report) {
+		t.Fatalf("report lengths differ: dry %d apply %d", len(dry.Report), len(apply.Report))
+	}
+	for i := range dry.Report {
+		if dry.Report[i] != apply.Report[i] {
+			t.Errorf("row %d: dry %+v != apply %+v", i, dry.Report[i], apply.Report[i])
+		}
+	}
+}
+
+func TestImport_ParseFailure_Is422ListingAllEntries(t *testing.T) {
+	h, _, _ := newTestImportHandler(t)
+	files := map[string]string{
+		"a/a.md": "---\nname: A\n---\n\n:::secret\nunclosed",
+		"b/b.md": "---\nname: B\n---\n\n:::secret\nalso unclosed",
+	}
+	r := chi.NewRouter()
+	r.Post("/content/projects/{id}/import", h.ImportProject)
+	req := withTestCaller(httptest.NewRequest(http.MethodPost, "/content/projects/p1/import", makeTarball(t, files)))
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("status = %d, want 422; body %s", rec.Code, rec.Body.String())
+	}
+	var body struct {
+		Entries []struct{ Path, Error string } `json:"entries"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(body.Entries) != 2 {
+		t.Errorf("failing entries = %d, want 2 (every failure listed)", len(body.Entries))
+	}
+	var n int
+	_ = h.db.QueryRow(`SELECT COUNT(*) FROM entries`).Scan(&n)
+	if n != 0 {
+		t.Errorf("entries created on validation failure = %d, want 0", n)
+	}
+}
+
+func TestImport_UnknownFacet_RejectedByDefault_CreatedWithFlag(t *testing.T) {
+	h, _, _ := newTestImportHandler(t)
+	files := map[string]string{
+		"tom/tom.md": "---\nname: Tom\n---\n\n:::card stat-block\nAC 12\n:::\n",
+	}
+
+	r := chi.NewRouter()
+	r.Post("/content/projects/{id}/import", h.ImportProject)
+	req := withTestCaller(httptest.NewRequest(http.MethodPost, "/content/projects/p1/import?mode=apply", makeTarball(t, files)))
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("status = %d, want 422; body %s", rec.Code, rec.Body.String())
+	}
+	var errBody struct {
+		MissingFacets []string `json:"missingFacets"`
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &errBody)
+	if len(errBody.MissingFacets) != 1 || errBody.MissingFacets[0] != "stat-block" {
+		t.Errorf("missingFacets = %v, want [stat-block]", errBody.MissingFacets)
+	}
+
+	// With createFacets=true the same import succeeds and records the facet.
+	rec2, resp := doImport(t, h, "p1", "?mode=apply&createFacets=true", files)
+	if rec2.Code != http.StatusOK {
+		t.Fatalf("status = %d, body %s", rec2.Code, rec2.Body.String())
+	}
+	if len(resp.Facets.Created) != 1 || resp.Facets.Created[0] != "stat-block" {
+		t.Errorf("facets.created = %v, want [stat-block]", resp.Facets.Created)
+	}
+	var n int
+	_ = h.db.QueryRow(`SELECT COUNT(*) FROM project_facets WHERE project_id='p1' AND name='stat-block'`).Scan(&n)
+	if n != 1 {
+		t.Error("stat-block not added to project_facets")
+	}
+}
+
+func TestImport_Conflicts(t *testing.T) {
+	seed := func(t *testing.T) (*ImportHandler, string) {
+		h, _, entries := newTestImportHandler(t)
+		// Existing entry at characters/npcs/tom via the normal Create endpoint.
+		req := httptest.NewRequest(http.MethodPost, "/content/projects/p1/entries",
+			strings.NewReader(`{"slug":"tom","directoryPath":"characters/npcs","body":"---\nname: Old Tom\n---\n\nOld."}`))
+		req = withChiParam(req, "id", "p1")
+		rec := httptest.NewRecorder()
+		entries.Create(rec, req)
+		if rec.Code != http.StatusCreated {
+			t.Fatalf("seed create: %d %s", rec.Code, rec.Body.String())
+		}
+		var e Entry
+		_ = json.Unmarshal(rec.Body.Bytes(), &e)
+		return h, e.ID
+	}
+
+	t.Run("fail default surfaces conflict and applies nothing", func(t *testing.T) {
+		h, _ := seed(t)
+		rec, resp := doImport(t, h, "p1", "?mode=apply", projectFiles())
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d", rec.Code)
+		}
+		if resp.Applied {
+			t.Error("applied=true despite conflict under onConflict=fail")
+		}
+		found := false
+		for _, row := range resp.Report {
+			if row.Path == "characters/npcs/tom" && row.Action == "conflict" {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("no conflict row in %+v", resp.Report)
+		}
+		var n int
+		_ = h.db.QueryRow(`SELECT COUNT(*) FROM entries`).Scan(&n)
+		if n != 1 {
+			t.Errorf("entries = %d, want only the pre-existing 1", n)
+		}
+	})
+
+	t.Run("skip imports the rest", func(t *testing.T) {
+		h, existingID := seed(t)
+		_, resp := doImport(t, h, "p1", "?mode=apply&onConflict=skip", projectFiles())
+		if !resp.Applied {
+			t.Error("applied=false")
+		}
+		var body string
+		_ = h.db.QueryRow(`SELECT title FROM entries WHERE id=?`, existingID).Scan(&body)
+		if body != "Old Tom" {
+			t.Errorf("skipped entry was modified: title=%q", body)
+		}
+		var n int
+		_ = h.db.QueryRow(`SELECT COUNT(*) FROM entries`).Scan(&n)
+		if n != 2 { // old tom + new inn
+			t.Errorf("entries = %d, want 2", n)
+		}
+	})
+
+	t.Run("overwrite keeps id, replaces content", func(t *testing.T) {
+		h, existingID := seed(t)
+		_, resp := doImport(t, h, "p1", "?mode=apply&onConflict=overwrite", projectFiles())
+		if !resp.Applied {
+			t.Error("applied=false")
+		}
+		var title string
+		_ = h.db.QueryRow(`SELECT title FROM entries WHERE id=?`, existingID).Scan(&title)
+		if title != "Tom" {
+			t.Errorf("overwritten title = %q, want Tom (from imported frontmatter)", title)
+		}
+	})
+
+	t.Run("suffix creates tom-2", func(t *testing.T) {
+		h, _ := seed(t)
+		_, resp := doImport(t, h, "p1", "?mode=apply&onConflict=suffix", projectFiles())
+		if !resp.Applied {
+			t.Error("applied=false")
+		}
+		var n int
+		_ = h.db.QueryRow(`SELECT COUNT(*) FROM entries WHERE directory_path='characters/npcs' AND slug='tom-2'`).Scan(&n)
+		if n != 1 {
+			t.Error("tom-2 not created")
+		}
+	})
+}
+
+func TestImport_ReresolvesPreexistingDanglingLinks(t *testing.T) {
+	h, _, entries := newTestImportHandler(t)
+	// Existing entry pointing at not-yet-existing locations/inn.
+	req := httptest.NewRequest(http.MethodPost, "/content/projects/p1/entries",
+		strings.NewReader(`{"slug":"guide","body":"---\nname: Guide\n---\n\nSee [[locations/inn]].\n"}`))
+	req = withChiParam(req, "id", "p1")
+	rec := httptest.NewRecorder()
+	entries.Create(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("seed: %d %s", rec.Code, rec.Body.String())
+	}
+	var guide Entry
+	_ = json.Unmarshal(rec.Body.Bytes(), &guide)
+
+	_, _ = doImport(t, h, "p1", "?mode=apply", map[string]string{"locations/inn/inn.md": innMD})
+
+	var resolved bool
+	var target string
+	if err := h.db.QueryRow(`SELECT resolved, target_entry_id FROM entry_links WHERE entry_id=?`, guide.ID).Scan(&resolved, &target); err != nil {
+		t.Fatalf("guide link: %v", err)
+	}
+	if !resolved || target == "" {
+		t.Errorf("pre-existing dangling link not re-resolved: (%v, %q)", resolved, target)
+	}
+}
+
+func TestImport_InvalidSlugRejected(t *testing.T) {
+	h, _, _ := newTestImportHandler(t)
+	r := chi.NewRouter()
+	r.Post("/content/projects/{id}/import", h.ImportProject)
+	req := withTestCaller(httptest.NewRequest(http.MethodPost, "/content/projects/p1/import",
+		makeTarball(t, map[string]string{"Bad_Name/Bad_Name.md": "---\nname: Bad\n---\nx"})))
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Errorf("status = %d, want 422", rec.Code)
+	}
+}
+
+func TestImport_ImagesStoredUnderEntryWithFilename(t *testing.T) {
+	h, blobs, _ := newTestImportHandler(t)
+	files := map[string]string{
+		"tom/tom.md":           "---\nname: Tom\n---\n\n![portrait](tom-portrait.png)\n",
+		"tom/tom-portrait.png": "PNGDATA",
+		"tom/notes.txt":        "not an image",
+	}
+	_, resp := doImport(t, h, "p1", "?mode=apply", files)
+	var tomID string
+	if err := h.db.QueryRow(`SELECT id FROM entries WHERE slug='tom'`).Scan(&tomID); err != nil {
+		t.Fatalf("tom row: %v", err)
+	}
+	if _, err := blobs.Get(context.Background(), "entries/"+tomID+"/images/tom-portrait.png"); err != nil {
+		t.Error("image not stored under entries/{id}/images/<filename>")
+	}
+	// notes.txt is not an allowed image type → reported, not uploaded.
+	var png, txt *ImportImageRow
+	for i := range resp.Images {
+		switch resp.Images[i].Path {
+		case "tom/tom-portrait.png":
+			png = &resp.Images[i]
+		case "tom/notes.txt":
+			txt = &resp.Images[i]
+		}
+	}
+	if png == nil || !png.Uploaded {
+		t.Errorf("png row = %+v, want uploaded=true", png)
+	}
+	if txt == nil || txt.Uploaded {
+		t.Errorf("txt row = %+v, want uploaded=false", txt)
+	}
+}
+
+func TestImport_BadTarballIs400(t *testing.T) {
+	h, _, _ := newTestImportHandler(t)
+	r := chi.NewRouter()
+	r.Post("/content/projects/{id}/import", h.ImportProject)
+	req := withTestCaller(httptest.NewRequest(http.MethodPost, "/content/projects/p1/import", strings.NewReader("not a tarball")))
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", rec.Code)
+	}
+}
+
+func TestImport_BadParamsAre400(t *testing.T) {
+	h, _, _ := newTestImportHandler(t)
+	for _, q := range []string{"?mode=yolo", "?onConflict=merge"} {
+		rec, _ := doImport(t, h, "p1", q, projectFiles())
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("query %q: status = %d, want 400", q, rec.Code)
+		}
+	}
+}
