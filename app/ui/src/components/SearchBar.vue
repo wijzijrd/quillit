@@ -92,7 +92,7 @@ function select(entry: { id: string }) {
   query.value = ''
   showDropdown.value = false
   ui.setActiveEntry(entry.id)
-  router.push('/notes/' + entry.id)
+  router.push('/entries/' + entry.id)
 }
 </script>
 

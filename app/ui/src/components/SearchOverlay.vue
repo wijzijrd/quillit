@@ -94,7 +94,7 @@ function onKeydown(e: KeyboardEvent) {
 
 function select(entry: Entry) {
   ui.setActiveEntry(entry.id)
-  router.push('/notes/' + entry.id)
+  router.push('/entries/' + entry.id)
   ui.closeSearchOverlay()
 }
 </script>

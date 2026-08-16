@@ -74,7 +74,7 @@ onMounted(async () => {
 })
 
 // Deliberately no onUnmounted disconnect here: the live session socket is
-// app-global (one Pinia store instance), and other views — e.g. the notes
+// app-global (one Pinia store instance), and other views — e.g. the entry
 // editor's "push to session chat" button — may still need it open after the
 // user navigates away from this panel. The store itself tears the socket
 // down on explicit stop() or a server-sent session_ended frame.

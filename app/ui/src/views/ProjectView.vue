@@ -6,8 +6,8 @@
           <h1 class="pv-name">{{ project?.name ?? '…' }}</h1>
           <span class="pv-type-badge">{{ typeLabel }}</span>
         </div>
-        <RouterLink :to="`/projects/${projectId}/notes`" class="pv-open-btn">
-          Open Notes
+        <RouterLink :to="`/projects/${projectId}/entries`" class="pv-open-btn">
+          Open Entries
         </RouterLink>
       </div>
     </header>

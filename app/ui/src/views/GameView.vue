@@ -5,7 +5,7 @@
         <h1 class="gv-title">Game Mode</h1>
         <p class="gv-subtitle" v-if="projectName">{{ projectName }}</p>
       </div>
-      <RouterLink class="gv-back" :to="`/projects/${projectId}/notes`">Open notes</RouterLink>
+      <RouterLink class="gv-back" :to="`/projects/${projectId}/entries`">Open entries</RouterLink>
     </header>
 
     <div class="gv-columns">

@@ -3,7 +3,7 @@
     <p class="share-error" v-if="shareError">{{ shareError }}</p>
 
     <div class="share-section">
-      <p class="share-hint">Search users by name or email to share this note.</p>
+      <p class="share-hint">Search users by name or email to share this entry.</p>
       <div class="search-row">
         <input
           class="share-input"
@@ -72,7 +72,7 @@ watch(() => props.projectId, async (id) => {
     await liveSession.fetchStatus(id)
     // Ensure the chat socket is open so a push works even if the user never
     // visited the project's Live Session panel this session (e.g. they came
-    // straight to the notes editor).
+    // straight to the entry editor).
     if (liveSession.status === 'running') liveSession.connect(id)
   } catch { /* status check failed — push stays disabled */ }
 }, { immediate: true })

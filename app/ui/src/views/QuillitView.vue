@@ -1,7 +1,7 @@
 <template>
   <div class="notes-browser">
     <div class="browser-header">
-      <span class="browser-title">{{ inProject ? project?.name ?? 'Notes' : 'Notes' }}</span>
+      <span class="browser-title">{{ inProject ? project?.name ?? 'Entries' : 'Entries' }}</span>
       <button class="new-btn" @click="createNew">+ New</button>
     </div>
 
