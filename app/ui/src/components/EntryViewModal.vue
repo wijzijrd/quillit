@@ -57,6 +57,7 @@ import LinkedEntriesPanel from './LinkedEntriesPanel.vue'
 import { useEntriesStore } from '../stores/useEntriesStore'
 import { useCategoriesStore } from '../stores/useCategoriesStore'
 import { hexToAlpha } from '../utils/color'
+import { renderMarkdownToHtml } from '../composables/useMarkdownRender'
 
 const props = defineProps<{
   entryId?: string
@@ -96,13 +97,19 @@ watch(() => props.entryId, async (id) => {
   }
 }, { immediate: true })
 
-const renderedBody = computed(() => hydratedBody.value ?? '')
+// issue #47: entry bodies are markdown now, not HTML — render through the
+// same Tiptap schema/markdown parser the editor uses (useMarkdownRender),
+// so this read-only view stays in lockstep with what the editor produces.
+const renderedBody = ref('')
+watch(hydratedBody, async (body) => {
+  renderedBody.value = await renderMarkdownToHtml(body ?? '')
+}, { immediate: true })
 
 function handleBodyClick(e: MouseEvent) {
-  const mention = (e.target as HTMLElement).closest('.entry-mention') as HTMLElement | null
-  if (mention?.dataset.entryId) {
+  const link = (e.target as HTMLElement).closest('.wikilink') as HTMLElement | null
+  if (link?.dataset.resolvedId) {
     e.preventDefault()
-    emit('navigate', mention.dataset.entryId)
+    emit('navigate', link.dataset.resolvedId)
   }
 }
 </script>
@@ -177,7 +184,6 @@ function handleBodyClick(e: MouseEvent) {
 :deep(hr) { border: none; border-top: 1px solid var(--border); margin: 1.5em 0; }
 :deep(blockquote) { border-left: 3px solid var(--border); padding-left: 1em; color: var(--muted-foreground); margin: 1em 0; }
 :deep(strong) { color: var(--foreground); font-weight: 600; }
-:deep(.entry-mention) { color: var(--primary); cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
 :deep(a) { color: var(--primary); text-decoration: underline; text-underline-offset: 2px; }
-:deep(a):hover, :deep(.entry-mention):hover { opacity: 0.8; }
+:deep(a):hover { opacity: 0.8; }
 </style>

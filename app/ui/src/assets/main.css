@@ -317,29 +317,88 @@ html.glass.dark { --surface-alpha: 58%; }
     height: 0;
   }
 
-  /* Annotation mark highlights */
-  .annotation-mark { cursor: pointer; border-radius: 2px; padding: 0 1px; }
-  .annotation-mark--gm     { background: rgba(220, 80, 80, 0.22); border-bottom: 2px solid rgba(220, 80, 80, 0.75); }
-  .annotation-mark--shared { background: rgba(80, 160, 220, 0.22); border-bottom: 2px solid rgba(80, 160, 220, 0.75); }
-  .annotation-mark--player { background: rgba(80, 200, 120, 0.22); border-bottom: 2px solid rgba(80, 200, 120, 0.75); }
-
-  .player-preview .annotation-mark--gm {
-    background: none;
-    border-bottom: none;
-    cursor: text;
-    pointer-events: none;
+  /* Secret block — DM-only content (issue #47, replaces the old inline
+     annotation mark). Shaded + left-bordered so it reads as visually
+     distinct from ordinary body text at a glance. */
+  .secret-block {
+    position: relative;
+    background: rgba(220, 80, 80, 0.07);
+    border-left: 3px solid rgba(220, 80, 80, 0.55);
+    border-radius: 0 var(--radius) var(--radius) 0;
+    padding: 1.6em 0.9em 0.6em;
+    margin: 0.9em 0;
   }
+  .secret-block::before {
+    content: '🔒 Secret — DM only';
+    position: absolute;
+    top: 0.35em;
+    left: 0.9em;
+    font-size: 0.68em;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: rgba(220, 80, 80, 0.85);
+    font-weight: 600;
+  }
+  .secret-block > *:last-child { margin-bottom: 0; }
 
-  /* Entry mention inline links */
-  .entry-mention {
+  /* Player preview hides secret content entirely — matches the CLI's
+     `player` render view (docs/cli-spec.md §4: "everything except
+     :::secret"), rather than the old dim-but-visible GM-mark treatment. */
+  .player-preview .secret-block { display: none; }
+
+  /* Card block — a named-facet flash card, may nest inside a secret block. */
+  .card-block {
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 0.6em 0.9em 0.7em;
+    margin: 0.9em 0;
+    background: var(--muted);
+  }
+  .card-block-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 0.5em;
+  }
+  .card-block-icon { font-size: 0.9em; }
+  .card-block-badge {
+    font-size: 0.72em;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-weight: 600;
+    color: var(--primary);
+  }
+  .card-block-select {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--foreground);
+    font-family: var(--font-body);
+    font-size: 0.78em;
+    padding: 2px 6px;
+    cursor: pointer;
+  }
+  .card-block-content > *:last-child { margin-bottom: 0; }
+  /* A card nested inside a secret block reuses secret-block's own left
+     border for the outer edge, so don't double it up on the inner card. */
+  .secret-block .card-block { background: var(--card); }
+
+  /* Wikilink inline node (replaces the old .entry-mention Mention node). */
+  .wikilink {
     color: var(--primary);
     text-decoration: underline;
+    text-underline-offset: 2px;
     cursor: pointer;
     font-style: normal;
   }
-  .entry-mention:hover { color: var(--foreground); }
+  .wikilink:hover { color: var(--foreground); }
+  .wikilink--dangling {
+    color: var(--destructive);
+    text-decoration: underline wavy;
+    text-underline-offset: 2px;
+  }
 
-  /* Entry suggestion popup (Tiptap mention dropdown) */
+  /* Entry suggestion popup (Tiptap wikilink "@" autocomplete) */
   .entry-suggestion-popup {
     background: var(--popover);
     border: 1px solid var(--border);
@@ -369,14 +428,6 @@ html.glass.dark { --surface-alpha: 58%; }
     flex-shrink: 0;
   }
   .esug-title { font-size: 0.88em; color: var(--foreground); }
-
-  /* Annotation number superscript */
-  mark[data-annotation-index]::after {
-    content: ' [' attr(data-annotation-index) ']';
-    font-size: 0.65em;
-    vertical-align: super;
-    opacity: 0.7;
-  }
 }
 
 /* Print styles */
@@ -387,7 +438,6 @@ html.glass.dark { --surface-alpha: 58%; }
   .right-panel,
   .editor-header .toolbar,
   .tags-row,
-  .title-row .vis-toggle,
   .title-row .delete-btn,
   .title-row .cat-select {
     display: none !important;
@@ -398,9 +448,6 @@ html.glass.dark { --surface-alpha: 58%; }
     font-size: 12pt !important;
   }
   .tiptap { min-height: auto; }
-  .annotation-mark--gm { background: none !important; border: none !important; }
-  .annotation-mark--shared,
-  .annotation-mark--player { background: none !important; border-bottom: 1px solid #aaa !important; }
   .ann-print-footer { page-break-inside: avoid; }
 }
 

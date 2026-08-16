@@ -1,26 +1,25 @@
 <template>
-  <editor-content :editor="editor" />
+  <div class="tiptap-wrapper" :class="{ 'player-preview': previewMode }">
+    <editor-content :editor="editor" />
+  </div>
 </template>
 
 <script setup lang="ts">
 import { watch, onBeforeUnmount } from 'vue'
 import { useEditor, EditorContent } from '@tiptap/vue-3'
-import StarterKit from '@tiptap/starter-kit'
-import Placeholder from '@tiptap/extension-placeholder'
-import TextAlign from '@tiptap/extension-text-align'
-import Link from '@tiptap/extension-link'
-import Image from '@tiptap/extension-image'
-import { AnnotationMark } from '../extensions/AnnotationMark'
-import { createEntryMention } from '../extensions/EntryMention'
-import { useEntriesStore } from '../stores/useEntriesStore'
+import { buildMarkdownExtensions } from '../lib/markdownExtensions'
 
 const props = defineProps<{
+  /** Markdown source (issue #47: the editor's persisted artifact is
+   * annotated markdown, not HTML — the Tiptap doc is an ephemeral
+   * in-memory projection of it). */
   modelValue?: string
   uploadImageFn?: (file: File) => Promise<string>
+  /** Hides :::secret blocks live in the editor — the "player preview"
+   * toggle in EntryEditor.vue's toolbar. */
+  previewMode?: boolean
 }>()
 const emit = defineEmits(['update:modelValue', 'selectionUpdate'])
-
-const entriesStore = useEntriesStore()
 
 async function handleImageFile(file: File, insertFn: (url: string) => void) {
   if (!props.uploadImageFn) return false
@@ -36,18 +35,7 @@ async function handleImageFile(file: File, insertFn: (url: string) => void) {
 
 const editor = useEditor({
   content: props.modelValue || '',
-  extensions: [
-    StarterKit,
-    Placeholder.configure({ placeholder: 'Write your lore here…' }),
-    TextAlign.configure({ types: ['heading', 'paragraph'] }),
-    AnnotationMark,
-    createEntryMention(() => entriesStore.entries),
-    Link.configure({
-      openOnClick: false,
-      HTMLAttributes: { rel: 'noopener noreferrer', target: '_blank' },
-    }),
-    Image.configure({ inline: false }),
-  ],
+  extensions: buildMarkdownExtensions({ placeholder: 'Write your lore here…' }),
   editorProps: {
     handlePaste(view, event) {
       const items = event.clipboardData?.items
@@ -80,7 +68,7 @@ const editor = useEditor({
     },
   },
   onUpdate({ editor }) {
-    emit('update:modelValue', editor.getHTML())
+    emit('update:modelValue', editor.storage.markdown.getMarkdown())
   },
   onSelectionUpdate({ editor }) {
     emit('selectionUpdate', { empty: editor.state.selection.empty })
@@ -88,7 +76,7 @@ const editor = useEditor({
 })
 
 watch(() => props.modelValue, (val) => {
-  if (editor.value && val !== editor.value.getHTML()) {
+  if (editor.value && val !== editor.value.storage.markdown.getMarkdown()) {
     editor.value.commands.setContent(val || '')
   }
 })
