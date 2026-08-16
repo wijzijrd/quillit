@@ -52,6 +52,7 @@ import (
 func main() {
 	dbPath := flag.String("svc-db", "", "path to svc's LIVE quillit.db (required; this tool never modifies entry/migration data — it opens the database with db.OpenLegacy(), which performs no migration at all against an already-current-version database)")
 	contentURL := flag.String("content-url", "http://localhost:3004", "base URL of the running quillit/content service")
+	token := flag.String("token", "", "bearer JWT to send with every request to content (required with -apply as of #44 — content rejects unauthenticated writes; any valid user's session JWT works, since content only checks identity + project membership, not an elevated role)")
 	useMinio := flag.Bool("minio", true, "resolve body_key-backed entry bodies from MinIO (set false only if no entry has a body_key)")
 	apply := flag.Bool("apply", false, "actually create entries in content (default: dry-run, prints the plan only)")
 	force := flag.Bool("force", false, "proceed even if the conversion pass reports hard failures (default: refuse)")
@@ -63,14 +64,19 @@ func main() {
 		flag.Usage()
 		os.Exit(2)
 	}
+	if *apply && *token == "" {
+		fmt.Fprintln(os.Stderr, "migrate-cutover: -token is required with -apply — content rejects unauthenticated writes as of #44")
+		flag.Usage()
+		os.Exit(2)
+	}
 
-	if err := run(*dbPath, *contentURL, *useMinio, *apply, *force, *cleanup); err != nil {
+	if err := run(*dbPath, *contentURL, *token, *useMinio, *apply, *force, *cleanup); err != nil {
 		fmt.Fprintf(os.Stderr, "migrate-cutover: %v\n", err)
 		os.Exit(1)
 	}
 }
 
-func run(dbPath, contentURL string, useMinio, apply, force, cleanup bool) error {
+func run(dbPath, contentURL, token string, useMinio, apply, force, cleanup bool) error {
 	database, err := db.OpenLegacy(dbPath)
 	if err != nil {
 		return fmt.Errorf("open database: %w", err)
@@ -111,7 +117,7 @@ func run(dbPath, contentURL string, useMinio, apply, force, cleanup bool) error 
 		return nil
 	}
 
-	importer := &migrate.ContentClient{BaseURL: contentURL, HTTP: &http.Client{Timeout: 30 * time.Second}}
+	importer := &migrate.ContentClient{BaseURL: contentURL, HTTP: &http.Client{Timeout: 30 * time.Second}, Token: token}
 	results, err := migrate.Cutover(context.Background(), database, blobs, importer)
 	if err != nil {
 		return fmt.Errorf("cutover: %w", err)

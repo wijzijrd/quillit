@@ -1,9 +1,11 @@
 package handler
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"log"
 	"net/http"
 	"time"
 
@@ -38,13 +40,23 @@ const inviteTTL = 7 * 24 * time.Hour
 
 // ── Handler struct ────────────────────────────────────────────────────────────
 
-type ProjectsHandler struct {
-	db        *sql.DB
-	jwtSecret []byte
+// ContentNotifier is the subset of contentclient.Client's methods
+// ProjectsHandler needs to tell content about a deleted project (#44) — an
+// interface here (rather than depending on the concrete contentclient.Client
+// type) lets handler tests substitute a fake, the same role BlobStore plays
+// in content's own entries.go.
+type ContentNotifier interface {
+	NotifyProjectDeleted(ctx context.Context, projectID string) error
 }
 
-func NewProjects(db *sql.DB, jwtSecret string) *ProjectsHandler {
-	return &ProjectsHandler{db: db, jwtSecret: []byte(jwtSecret)}
+type ProjectsHandler struct {
+	db              *sql.DB
+	jwtSecret       []byte
+	contentNotifier ContentNotifier
+}
+
+func NewProjects(db *sql.DB, jwtSecret string, contentNotifier ContentNotifier) *ProjectsHandler {
+	return &ProjectsHandler{db: db, jwtSecret: []byte(jwtSecret), contentNotifier: contentNotifier}
 }
 
 // callerID extracts the user ID (sub) from the JWT stored in request context.
@@ -88,9 +100,9 @@ type ProjectInvite struct {
 }
 
 type ProjectType struct {
-	Type        string    `json:"type"`
-	Label       string    `json:"label"`
-	RoleLabels  [2]string `json:"roleLabels"`
+	Type       string    `json:"type"`
+	Label      string    `json:"label"`
+	RoleLabels [2]string `json:"roleLabels"`
 }
 
 // ── Types endpoint ────────────────────────────────────────────────────────────
@@ -315,6 +327,27 @@ func (h *ProjectsHandler) Delete(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "db error")
 		return
 	}
+
+	// #44: tell content this project is gone so it can apply its own
+	// deletion policy to that project's entries (orphan-and-report, not
+	// hard-delete — see app/content/internal/handler/internal.go). This is
+	// best-effort and non-blocking: svc's own project row (and everything
+	// that cascades from it via ON DELETE CASCADE — project_members,
+	// project_invites, game_sessions, chat_messages) is already gone by
+	// this point, so a transient content outage shouldn't turn an
+	// otherwise-successful deletion into a user-facing error — the client
+	// has no useful retry here (retrying DELETE on an already-deleted
+	// project just 404s), and content's policy is designed to tolerate
+	// finding out late (it just orphans on next contact — there's no
+	// separate "am I already deleted" state to race).
+	if h.contentNotifier != nil {
+		notifyCtx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+		defer cancel()
+		if err := h.contentNotifier.NotifyProjectDeleted(notifyCtx, id); err != nil {
+			log.Printf("projects: notify content of deleted project %s failed (entries will stay live in content until the next successful notification): %v", id, err)
+		}
+	}
+
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -631,6 +664,57 @@ func (h *ProjectsHandler) Join(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// ── Internal (#44) ───────────────────────────────────────────────────────────
+
+// membershipResponse is InternalMembership's 200 body — enough for content
+// to both answer its own yes/no membership question and, if it ever needs
+// it, know the caller's role/project type without a second round trip.
+type membershipResponse struct {
+	ProjectID   string `json:"projectId"`
+	UserID      string `json:"userId"`
+	Role        string `json:"role"`
+	ProjectType string `json:"projectType"`
+}
+
+// InternalMembership answers "does userID belong to projectID" for
+// server-to-server callers — currently content, checking authorization for
+// its own endpoints (see app/content/internal/authz.SvcChecker and the #44
+// PR notes on why membership resolution lives here rather than in the
+// JWT). Mounted outside /api in main.go, so it's never reachable through
+// ui's nginx proxy (app/ui/nginx.conf only forwards /api/) — the same
+// "not publicly routed, reachable only on the compose network" trust
+// boundary content itself already relies on (infra/docker-compose.yml
+// gives content no exposed port at all).
+//
+// 200 means userID is a member (body carries their role); 404 means
+// either the project doesn't exist or userID isn't in it — content
+// deliberately doesn't need to tell those apart (both mean "reject").
+func (h *ProjectsHandler) InternalMembership(w http.ResponseWriter, r *http.Request) {
+	projectID := chi.URLParam(r, "id")
+	userID := chi.URLParam(r, "userId")
+	if projectID == "" || userID == "" {
+		writeError(w, http.StatusBadRequest, "missing project or user id")
+		return
+	}
+
+	projectType, role, err := h.memberRole(r, projectID, userID)
+	if errors.Is(err, sql.ErrNoRows) {
+		writeError(w, http.StatusNotFound, "not a member")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "db error")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, membershipResponse{
+		ProjectID:   projectID,
+		UserID:      userID,
+		Role:        role,
+		ProjectType: projectType,
+	})
+}
+
 // ── Private helpers ───────────────────────────────────────────────────────────
 
 // memberRole returns the project type and the caller's role within projectID.
@@ -671,10 +755,13 @@ var roleLabelPair = func(projectType string) [2]string {
 	}
 }
 
-
 // ── Test helpers ──────────────────────────────────────────────────────────────
 
-// NewProjectsForTest creates a handler that uses test context for caller ID.
+// NewProjectsForTest creates a handler that uses test context for caller
+// ID, with no content notification wired up (Delete silently skips it —
+// see the nil check in Delete). Tests that need to assert on the
+// notification itself construct a ProjectsHandler directly with a fake
+// ContentNotifier instead (see projects_test.go).
 func NewProjectsForTest(db *sql.DB) *ProjectsHandler {
 	return &ProjectsHandler{db: db, jwtSecret: nil}
 }

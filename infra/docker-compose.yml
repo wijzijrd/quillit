@@ -69,6 +69,7 @@ services:
       PORT: 3004
       DB_PATH: /data/quillit-content.db
       JWT_SECRET: ${JWT_SECRET}
+      SVC_SERVICE_URL: http://svc:3000
       MINIO_ENDPOINT: minio:9000
       MINIO_ACCESS_KEY: ${MINIO_USER}
       MINIO_SECRET_KEY: ${MINIO_PASSWORD}

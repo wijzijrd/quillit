@@ -33,6 +33,40 @@ func TestContentClient_CreateEntry_Success(t *testing.T) {
 	}
 }
 
+func TestContentClient_CreateEntry_ForwardsTokenAsBearer(t *testing.T) {
+	var gotAuth string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		w.WriteHeader(http.StatusCreated)
+	}))
+	defer srv.Close()
+
+	c := &ContentClient{BaseURL: srv.URL, Token: "the-jwt"}
+	if err := c.CreateEntry(context.Background(), "proj-1", "mary", "", "body"); err != nil {
+		t.Fatalf("CreateEntry: %v", err)
+	}
+	if want := "Bearer the-jwt"; gotAuth != want {
+		t.Errorf("Authorization = %q, want %q", gotAuth, want)
+	}
+}
+
+func TestContentClient_CreateEntry_NoTokenOmitsAuthHeader(t *testing.T) {
+	var sawAuthHeader bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		sawAuthHeader = r.Header.Get("Authorization") != ""
+		w.WriteHeader(http.StatusCreated)
+	}))
+	defer srv.Close()
+
+	c := &ContentClient{BaseURL: srv.URL}
+	if err := c.CreateEntry(context.Background(), "proj-1", "mary", "", "body"); err != nil {
+		t.Fatalf("CreateEntry: %v", err)
+	}
+	if sawAuthHeader {
+		t.Error("expected no Authorization header when Token is unset")
+	}
+}
+
 func TestContentClient_CreateEntry_EscapesProjectIDInPath(t *testing.T) {
 	var gotPath string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

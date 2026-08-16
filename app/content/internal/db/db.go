@@ -44,6 +44,11 @@ func migrate(db *sql.DB) error {
 			return fmt.Errorf("schema v3: %w", err)
 		}
 	}
+	if version < 4 {
+		if err := toV4(db); err != nil {
+			return fmt.Errorf("schema v4: %w", err)
+		}
+	}
 	return nil
 }
 
@@ -191,6 +196,34 @@ func toV3(db *sql.DB) error {
 	}
 
 	if _, err := tx.Exec(`PRAGMA user_version = 3`); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// toV4 adds entries.orphaned_at, the column behind #44's "orphan-and-report"
+// policy for cross-domain project deletion: when svc deletes a project, it
+// notifies content (POST /content/internal/projects/{id}/deleted), and
+// content stamps orphaned_at on that project's entries rather than hard-
+// deleting them. content has no FK to svc's projects table (project_id is
+// just an opaque string here — svc owns that domain), so a mistaken project
+// deletion can't cascade into content the way, say, svc's own
+// project_members does (ON DELETE CASCADE) — the entry rows, MinIO bodies,
+// and images all survive, flagged instead of destroyed, so the damage is
+// reversible. NULL means "not orphaned" (the common case), matching this
+// codebase's existing convention for optional entry state (owner_user_id).
+func toV4(db *sql.DB) error {
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.Exec(`ALTER TABLE entries ADD COLUMN orphaned_at INTEGER`); err != nil {
+		return fmt.Errorf("add entries.orphaned_at: %w", err)
+	}
+
+	if _, err := tx.Exec(`PRAGMA user_version = 4`); err != nil {
 		return err
 	}
 	return tx.Commit()

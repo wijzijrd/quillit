@@ -1,17 +1,22 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/go-chi/chi/v5"
+
+	"github.com/quillit/content-svc/internal/authz"
 )
 
 func newTestRenderHandler(t *testing.T) (*EntriesHandler, *RenderHandler) {
 	t.Helper()
 	entries, blobs := newTestEntriesHandler(t)
-	return entries, NewRender(entries.db, blobs)
+	return entries, NewRender(entries.db, blobs, "", authz.AllowAll{})
 }
 
 func renderEntry(t *testing.T, h *RenderHandler, id, query string) *httptest.ResponseRecorder {
@@ -127,5 +132,37 @@ func TestRender_NonExpandedLinkIsInAppNavReference(t *testing.T) {
 	}
 	if strings.Contains(body, "quillit render") {
 		t.Errorf("expected no CLI clipboard-link presentation, got: %s", body)
+	}
+}
+
+// ── Auth (#44) ───────────────────────────────────────────────────────────
+
+func TestRender_RejectsUnauthenticatedRequest(t *testing.T) {
+	entries, h := newTestRenderHandler(t)
+	e := createEntry(t, entries, "proj-1", createEntryRequest{Slug: "tom", Body: "Prose."})
+
+	req := httptest.NewRequest(http.MethodGet, "/content/entries/"+e.ID+"/render", nil)
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("id", e.ID)
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx)) // no caller injected
+	w := httptest.NewRecorder()
+	h.Render(w, req)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want %d, body = %s", w.Code, http.StatusUnauthorized, w.Body.String())
+	}
+}
+
+func TestRender_RejectsNonProjectMember(t *testing.T) {
+	entries, _ := newTestRenderHandler(t)
+	body := "Public.\n\n:::secret\nSecret stuff.\n:::\n"
+	e := createEntry(t, entries, "proj-1", createEntryRequest{Slug: "tom", Body: body})
+
+	denied := NewRender(entries.db, entries.blobs, "", authz.Static{})
+	w := renderEntry(t, denied, e.ID, "")
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want %d, body = %s", w.Code, http.StatusForbidden, w.Body.String())
+	}
+	if strings.Contains(w.Body.String(), "Public") || strings.Contains(w.Body.String(), "Secret stuff") {
+		t.Errorf("a rejected render must not leak any entry content, got: %s", w.Body.String())
 	}
 }

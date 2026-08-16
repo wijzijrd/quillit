@@ -11,6 +11,8 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/quillit/contentengine/parse"
+
+	"github.com/quillit/content-svc/internal/authz"
 )
 
 // SearchHandler serves #43's project-scoped full-text search, backed by the
@@ -21,11 +23,13 @@ import (
 // lightweight endpoint — whichever avoids duplicating the underlying query
 // logic."
 type SearchHandler struct {
-	db *sql.DB
+	db        *sql.DB
+	jwtSecret []byte
+	checker   authz.Checker
 }
 
-func NewSearch(db *sql.DB) *SearchHandler {
-	return &SearchHandler{db: db}
+func NewSearch(db *sql.DB, jwtSecret string, checker authz.Checker) *SearchHandler {
+	return &SearchHandler{db: db, jwtSecret: []byte(jwtSecret), checker: checker}
 }
 
 // SearchResult is one hit — full-text or lookup — with enough fields for a
@@ -58,6 +62,9 @@ func (h *SearchHandler) Search(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "id")
 	if projectID == "" {
 		writeError(w, http.StatusBadRequest, "missing project id")
+		return
+	}
+	if _, ok := requireProjectMember(w, r, h.jwtSecret, h.checker, projectID); !ok {
 		return
 	}
 

@@ -23,6 +23,14 @@ func RawJWTFromContext(ctx context.Context) (string, bool) {
 	return raw, ok && raw != ""
 }
 
+// WithRawJWTForTest injects a raw JWT string into context the same way
+// RequireSession does, for tests that need RawJWTFromContext to return
+// something without exercising the full session-cookie flow — mirrors
+// handler.WithTestCallerID's role for callerIDFromRequest.
+func WithRawJWTForTest(ctx context.Context, raw string) context.Context {
+	return context.WithValue(ctx, jwtKey, raw)
+}
+
 // ClaimsFromContext extracts and parses the JWT stored in context by RequireSession.
 // Expiry is not validated — use this only for identity extraction, not auth decisions.
 func ClaimsFromContext(ctx context.Context, jwtSecret []byte) (jwt.MapClaims, error) {

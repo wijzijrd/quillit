@@ -1,6 +1,9 @@
 package db
 
-import "testing"
+import (
+	"database/sql"
+	"testing"
+)
 
 func TestOpen_FreshDatabase(t *testing.T) {
 	database, err := Open(":memory:")
@@ -13,8 +16,8 @@ func TestOpen_FreshDatabase(t *testing.T) {
 	if err := database.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatalf("read schema version: %v", err)
 	}
-	if version != 3 {
-		t.Errorf("user_version = %d, want 3", version)
+	if version != 4 {
+		t.Errorf("user_version = %d, want 4", version)
 	}
 
 	var count int
@@ -82,6 +85,37 @@ func TestOpen_EntriesUniqueSlugPerDirectory(t *testing.T) {
 	// Same slug, different project — allowed.
 	if _, err := database.Exec(insert, "e3", "proj-b", "mary", "characters/npcs"); err != nil {
 		t.Errorf("insert into different project should succeed: %v", err)
+	}
+}
+
+func TestOpen_EntriesOrphanedAtDefaultsNullAndIsSettable(t *testing.T) {
+	database, err := Open(":memory:")
+	if err != nil {
+		t.Fatalf("Open() failed: %v", err)
+	}
+	defer database.Close()
+
+	insert := `INSERT INTO entries (id, project_id, slug, directory_path, created_at, updated_at) VALUES (?, ?, ?, ?, 0, 0)`
+	if _, err := database.Exec(insert, "e1", "proj-a", "mary", "characters/npcs"); err != nil {
+		t.Fatalf("insert failed: %v", err)
+	}
+
+	var orphanedAt sql.NullInt64
+	if err := database.QueryRow(`SELECT orphaned_at FROM entries WHERE id = ?`, "e1").Scan(&orphanedAt); err != nil {
+		t.Fatalf("select orphaned_at: %v", err)
+	}
+	if orphanedAt.Valid {
+		t.Errorf("orphaned_at = %v, want NULL for a freshly created entry", orphanedAt)
+	}
+
+	if _, err := database.Exec(`UPDATE entries SET orphaned_at = 12345 WHERE id = ?`, "e1"); err != nil {
+		t.Fatalf("update orphaned_at: %v", err)
+	}
+	if err := database.QueryRow(`SELECT orphaned_at FROM entries WHERE id = ?`, "e1").Scan(&orphanedAt); err != nil {
+		t.Fatalf("select orphaned_at after update: %v", err)
+	}
+	if !orphanedAt.Valid || orphanedAt.Int64 != 12345 {
+		t.Errorf("orphaned_at = %v, want 12345", orphanedAt)
 	}
 }
 

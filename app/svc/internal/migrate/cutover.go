@@ -36,6 +36,14 @@ type ContentImporter interface {
 type ContentClient struct {
 	BaseURL string
 	HTTP    *http.Client
+	// Token is a bearer JWT forwarded as Authorization on every request —
+	// required as of #44, which made content authenticate and authorize
+	// every entry-write request (previously it accepted any POST). Pass a
+	// short-lived admin/service token via -token on the migrate-cutover
+	// command; CreateEntry omits the header entirely (rather than sending
+	// an empty bearer token) when Token is unset, so content's own 401
+	// makes a missing -token obvious rather than this failing silently.
+	Token string
 }
 
 func (c *ContentClient) CreateEntry(ctx context.Context, projectID, slug, directoryPath, body string) error {
@@ -54,6 +62,9 @@ func (c *ContentClient) CreateEntry(ctx context.Context, projectID, slug, direct
 		return fmt.Errorf("build request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
+	if c.Token != "" {
+		req.Header.Set("Authorization", "Bearer "+c.Token)
+	}
 
 	client := c.HTTP
 	if client == nil {

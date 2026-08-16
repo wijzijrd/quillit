@@ -10,6 +10,8 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/quillit/contentengine/parse"
+
+	"github.com/quillit/content-svc/internal/authz"
 )
 
 // UnknownFacetError is returned when an entry body's :::card block names a
@@ -95,11 +97,13 @@ func isKebabName(name string) bool {
 }
 
 type FacetsHandler struct {
-	db *sql.DB
+	db        *sql.DB
+	jwtSecret []byte
+	checker   authz.Checker
 }
 
-func NewFacets(db *sql.DB) *FacetsHandler {
-	return &FacetsHandler{db: db}
+func NewFacets(db *sql.DB, jwtSecret string, checker authz.Checker) *FacetsHandler {
+	return &FacetsHandler{db: db, jwtSecret: []byte(jwtSecret), checker: checker}
 }
 
 type facetRequest struct {
@@ -114,11 +118,15 @@ type facetResponse struct {
 
 // ListGlobal godoc
 // @Summary  List global facets
+// @Description  Any authenticated caller — the global vocabulary isn't project-scoped, so there's no membership to check (see #44 PR notes).
 // @Tags     facets
 // @Produce  json
 // @Success  200  {array}  string
 // @Router   /content/facets [get]
 func (h *FacetsHandler) ListGlobal(w http.ResponseWriter, r *http.Request) {
+	if _, ok := requireCaller(w, r, h.jwtSecret); !ok {
+		return
+	}
 	names, err := queryFacetNames(r.Context(), h.db, `SELECT name FROM facets ORDER BY name`)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "db error")
@@ -138,6 +146,9 @@ func (h *FacetsHandler) ListGlobal(w http.ResponseWriter, r *http.Request) {
 // @Failure  400  {object}  ErrorResponse
 // @Router   /content/facets [post]
 func (h *FacetsHandler) CreateGlobal(w http.ResponseWriter, r *http.Request) {
+	if _, ok := requireCaller(w, r, h.jwtSecret); !ok {
+		return
+	}
 	var req facetRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "bad request")
@@ -170,6 +181,9 @@ func (h *FacetsHandler) CreateGlobal(w http.ResponseWriter, r *http.Request) {
 // @Success  200   {object}  facetResponse
 // @Router   /content/facets/{name} [delete]
 func (h *FacetsHandler) DeleteGlobal(w http.ResponseWriter, r *http.Request) {
+	if _, ok := requireCaller(w, r, h.jwtSecret); !ok {
+		return
+	}
 	name := chi.URLParam(r, "name")
 	if _, err := h.db.ExecContext(r.Context(), `DELETE FROM facets WHERE name = ?`, name); err != nil {
 		writeError(w, http.StatusInternalServerError, "db error")
@@ -191,6 +205,9 @@ func (h *FacetsHandler) DeleteGlobal(w http.ResponseWriter, r *http.Request) {
 // @Router   /content/projects/{id}/facets [get]
 func (h *FacetsHandler) ListEffectiveForProject(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "id")
+	if _, ok := requireProjectMember(w, r, h.jwtSecret, h.checker, projectID); !ok {
+		return
+	}
 	_, sorted, err := effectiveFacetVocabulary(r.Context(), h.db, projectID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "db error")
@@ -215,6 +232,9 @@ func (h *FacetsHandler) ListEffectiveForProject(w http.ResponseWriter, r *http.R
 // @Router   /content/projects/{id}/facets [post]
 func (h *FacetsHandler) CreateForProject(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "id")
+	if _, ok := requireProjectMember(w, r, h.jwtSecret, h.checker, projectID); !ok {
+		return
+	}
 	var req facetRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "bad request")
@@ -253,6 +273,9 @@ func (h *FacetsHandler) CreateForProject(w http.ResponseWriter, r *http.Request)
 // @Router   /content/projects/{id}/facets/{name} [delete]
 func (h *FacetsHandler) DeleteForProject(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "id")
+	if _, ok := requireProjectMember(w, r, h.jwtSecret, h.checker, projectID); !ok {
+		return
+	}
 	name := chi.URLParam(r, "name")
 	if _, err := h.db.ExecContext(r.Context(), `DELETE FROM project_facets WHERE project_id = ? AND name = ?`, projectID, name); err != nil {
 		writeError(w, http.StatusInternalServerError, "db error")

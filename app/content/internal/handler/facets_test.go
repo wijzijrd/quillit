@@ -10,28 +10,35 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/quillit/content-svc/internal/authz"
 	"github.com/quillit/content-svc/internal/db"
 )
 
 // withChiParams sets multiple chi URL params at once — withChiParam (in
 // entries_test.go) replaces the whole route context per call, so it can't
-// be chained to set more than one param.
+// be chained to set more than one param. Also injects the default test
+// caller (see withChiParam's doc comment for why).
 func withChiParams(req *http.Request, params map[string]string) *http.Request {
 	rctx := chi.NewRouteContext()
 	for k, v := range params {
 		rctx.URLParams.Add(k, v)
 	}
-	return req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+	return withTestCaller(req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx)))
 }
 
 func newTestFacetsHandler(t *testing.T) *FacetsHandler {
+	t.Helper()
+	return newTestFacetsHandlerWithChecker(t, authz.AllowAll{})
+}
+
+func newTestFacetsHandlerWithChecker(t *testing.T, checker authz.Checker) *FacetsHandler {
 	t.Helper()
 	database, err := db.Open(":memory:")
 	if err != nil {
 		t.Fatalf("db.Open: %v", err)
 	}
 	t.Cleanup(func() { database.Close() })
-	return NewFacets(database)
+	return NewFacets(database, "", checker)
 }
 
 func postFacet(t *testing.T, h *FacetsHandler, projectID, name string) *httptest.ResponseRecorder {
@@ -39,7 +46,7 @@ func postFacet(t *testing.T, h *FacetsHandler, projectID, name string) *httptest
 	raw, _ := json.Marshal(facetRequest{Name: name})
 	var req *http.Request
 	if projectID == "" {
-		req = httptest.NewRequest(http.MethodPost, "/content/facets", strings.NewReader(string(raw)))
+		req = withTestCaller(httptest.NewRequest(http.MethodPost, "/content/facets", strings.NewReader(string(raw))))
 		w := httptest.NewRecorder()
 		h.CreateGlobal(w, req)
 		return w
@@ -49,6 +56,19 @@ func postFacet(t *testing.T, h *FacetsHandler, projectID, name string) *httptest
 	w := httptest.NewRecorder()
 	h.CreateForProject(w, req)
 	return w
+}
+
+// listGlobalFacets calls ListGlobal with a default test caller — every
+// direct httptest.NewRequest call for this read-only, param-less endpoint
+// needs the same auth injection withChiParam gives param-bearing requests.
+func listGlobalFacets(t *testing.T, h *FacetsHandler) []string {
+	t.Helper()
+	req := withTestCaller(httptest.NewRequest(http.MethodGet, "/content/facets", nil))
+	w := httptest.NewRecorder()
+	h.ListGlobal(w, req)
+	var names []string
+	_ = json.Unmarshal(w.Body.Bytes(), &names)
+	return names
 }
 
 func TestCreateGlobal_RejectsNonKebabCase(t *testing.T) {
@@ -66,11 +86,7 @@ func TestCreateGlobal_AddsNewFacet(t *testing.T) {
 		t.Fatalf("status = %d, want %d, body = %s", w.Code, http.StatusCreated, w.Body.String())
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/content/facets", nil)
-	w2 := httptest.NewRecorder()
-	h.ListGlobal(w2, req)
-	var names []string
-	_ = json.Unmarshal(w2.Body.Bytes(), &names)
+	names := listGlobalFacets(t, h)
 	found := false
 	for _, n := range names {
 		if n == "stat-block" {
@@ -112,11 +128,7 @@ func TestDeleteGlobal_IncludesReminder(t *testing.T) {
 		t.Error("expected a reminder message in the delete response")
 	}
 
-	req2 := httptest.NewRequest(http.MethodGet, "/content/facets", nil)
-	w2 := httptest.NewRecorder()
-	h.ListGlobal(w2, req2)
-	var names []string
-	_ = json.Unmarshal(w2.Body.Bytes(), &names)
+	names := listGlobalFacets(t, h)
 	for _, n := range names {
 		if n == "motivation" {
 			t.Error("expected motivation to be removed from global facets")
@@ -196,5 +208,49 @@ func TestDeleteForProject_DoesNotAffectGlobal(t *testing.T) {
 		if n != "" && n == "motivation" {
 			// sanity: global facets remain
 		}
+	}
+}
+
+// ── Auth (#44) ───────────────────────────────────────────────────────────
+
+func TestListGlobal_RejectsUnauthenticatedRequest(t *testing.T) {
+	h := newTestFacetsHandler(t)
+	req := httptest.NewRequest(http.MethodGet, "/content/facets", nil) // no caller injected
+	w := httptest.NewRecorder()
+	h.ListGlobal(w, req)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want %d, body = %s", w.Code, http.StatusUnauthorized, w.Body.String())
+	}
+}
+
+func TestListEffectiveForProject_RejectsNonProjectMember(t *testing.T) {
+	h := newTestFacetsHandlerWithChecker(t, authz.Static{Members: map[string]map[string]bool{
+		testUserID: {"proj-a": true},
+	}})
+	req := httptest.NewRequest(http.MethodGet, "/content/projects/proj-b/facets", nil)
+	req = withChiParam(req, "id", "proj-b") // testUserID isn't a member of proj-b
+	w := httptest.NewRecorder()
+	h.ListEffectiveForProject(w, req)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want %d, body = %s", w.Code, http.StatusForbidden, w.Body.String())
+	}
+}
+
+func TestCreateForProject_RejectsNonProjectMember(t *testing.T) {
+	h := newTestFacetsHandlerWithChecker(t, authz.Static{})
+	w := postFacet(t, h, "proj-1", "stat-block")
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want %d, body = %s", w.Code, http.StatusForbidden, w.Body.String())
+	}
+}
+
+func TestDeleteForProject_RejectsNonProjectMember(t *testing.T) {
+	h := newTestFacetsHandlerWithChecker(t, authz.Static{})
+	req := httptest.NewRequest(http.MethodDelete, "/content/projects/proj-1/facets/stat-block", nil)
+	req = withChiParams(req, map[string]string{"id": "proj-1", "name": "stat-block"})
+	w := httptest.NewRecorder()
+	h.DeleteForProject(w, req)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want %d, body = %s", w.Code, http.StatusForbidden, w.Body.String())
 	}
 }

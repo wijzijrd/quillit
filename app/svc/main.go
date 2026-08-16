@@ -47,9 +47,9 @@ func main() {
 
 	auth := handler.NewAuth(authURL, sessions, jwtSecret)
 	admin := handler.NewAdmin(database, jwtSecret, authURL)
-	projects := handler.NewProjects(database, jwtSecret)
-	settings := handler.NewSettings(database, jwtSecret)
 	content := &contentclient.Client{BaseURL: contentURL, HTTP: &http.Client{Timeout: 5 * time.Second}}
+	projects := handler.NewProjects(database, jwtSecret, content)
+	settings := handler.NewSettings(database, jwtSecret)
 	contentFacets := handler.NewContentFacets(contentURL)
 	// Shared in-process WebSocket hub for Game Mode chat (single-instance only).
 	hub := ws.NewHub()
@@ -64,6 +64,14 @@ func main() {
 
 	// Health probe (no session required) — used by the deploy pipeline & uptime monitors
 	r.Get("/healthz", health.Check)
+
+	// Internal-only (#44): server-to-server callers on the compose network,
+	// currently content checking project membership for its own request
+	// authorization (see app/content/internal/authz.SvcChecker). Mounted
+	// outside /api deliberately — app/ui/nginx.conf only forwards /api/ to
+	// svc, so this is never reachable from the browser, the same trust
+	// boundary content itself relies on for having no exposed port at all.
+	r.Get("/internal/projects/{id}/members/{userId}", projects.InternalMembership)
 
 	// Auth routes (no session required)
 	r.Get("/api/auth/status", auth.Status)
