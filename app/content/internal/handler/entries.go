@@ -508,6 +508,53 @@ func (h *EntriesHandler) UploadImage(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"key": key})
 }
 
+// GetImage godoc
+// @Summary      Get an entry image
+// @Tags         entries
+// @Produce      image/*
+// @Param        id        path  string  true  "Entry ID"
+// @Param        filename  path  string  true  "Image filename"
+// @Success      200
+// @Failure      400  {object}  ErrorResponse
+// @Failure      404  {object}  ErrorResponse
+// @Router       /content/entries/{id}/images/{filename} [get]
+func (h *EntriesHandler) GetImage(w http.ResponseWriter, r *http.Request) {
+	if h.blobs == nil {
+		writeError(w, http.StatusServiceUnavailable, "blob storage not configured")
+		return
+	}
+
+	id := chi.URLParam(r, "id")
+	filename := chi.URLParam(r, "filename")
+	if filename == "" || filename == ".." || strings.Contains(filename, "/") {
+		writeError(w, http.StatusBadRequest, "invalid filename")
+		return
+	}
+
+	projectID, err := projectIDForEntry(r.Context(), h.db, id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "not found")
+		return
+	}
+	if _, ok := requireProjectMember(w, r, h.jwtSecret, h.checker, projectID); !ok {
+		return
+	}
+
+	data, err := h.blobs.Get(r.Context(), imagesPrefix(id)+filename)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "not found")
+		return
+	}
+
+	contentType := mime.TypeByExtension(filepath.Ext(filename))
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+	w.Header().Set("Content-Type", contentType)
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(data)
+}
+
 // validateFacetsOrError validates parsed's card blocks against projectID's
 // effective facet vocabulary, writing a structured 422 (naming the bad facet
 // and the vocabulary) and returning false if validation fails or the
