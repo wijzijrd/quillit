@@ -137,6 +137,16 @@
       </div>
     </section>
 
+    <!-- CLI project import -->
+    <section class="pv-section" v-if="isEditor">
+      <h2 class="pv-section-title">Import from CLI</h2>
+      <p class="pv-note">
+        Upload a project tarball built by <code>quillit push --output</code> to bring
+        entries from a local CLI project into this one.
+      </p>
+      <ImportPanel :project-id="String(projectId)" />
+    </section>
+
     <!-- Game Mode -->
     <section class="pv-section">
       <h2 class="pv-section-title">Game Mode</h2>
@@ -157,6 +167,7 @@ import { useMemberStore } from '../stores/useMemberStore'
 import { useAuthStore } from '../stores/useAuthStore'
 import { useFacetsStore } from '../stores/useFacetsStore'
 import { apiErrorMessage } from '../api/client'
+import ImportPanel from '../components/ImportPanel.vue'
 import { inviteLink as buildInviteLink } from '../utils/links'
 import { isKebabCase } from '../utils/facets'
 
