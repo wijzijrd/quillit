@@ -16,8 +16,8 @@ func TestOpen_FreshDatabase(t *testing.T) {
 	if err := database.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatalf("read schema version: %v", err)
 	}
-	if version != 4 {
-		t.Errorf("user_version = %d, want 4", version)
+	if version != 5 {
+		t.Errorf("user_version = %d, want 5", version)
 	}
 
 	var count int
@@ -116,6 +116,37 @@ func TestOpen_EntriesOrphanedAtDefaultsNullAndIsSettable(t *testing.T) {
 	}
 	if !orphanedAt.Valid || orphanedAt.Int64 != 12345 {
 		t.Errorf("orphaned_at = %v, want 12345", orphanedAt)
+	}
+}
+
+func TestOpen_EntriesBodyHashDefaultsNullAndIsSettable(t *testing.T) {
+	database, err := Open(":memory:")
+	if err != nil {
+		t.Fatalf("Open() failed: %v", err)
+	}
+	defer database.Close()
+
+	insert := `INSERT INTO entries (id, project_id, slug, directory_path, created_at, updated_at) VALUES (?, ?, ?, ?, 0, 0)`
+	if _, err := database.Exec(insert, "e1", "proj-a", "mary", "characters/npcs"); err != nil {
+		t.Fatalf("insert failed: %v", err)
+	}
+
+	var bodyHash sql.NullString
+	if err := database.QueryRow(`SELECT body_hash FROM entries WHERE id = ?`, "e1").Scan(&bodyHash); err != nil {
+		t.Fatalf("select body_hash: %v", err)
+	}
+	if bodyHash.Valid {
+		t.Errorf("body_hash = %v, want NULL for a freshly created entry", bodyHash)
+	}
+
+	if _, err := database.Exec(`UPDATE entries SET body_hash = ? WHERE id = ?`, "abc123", "e1"); err != nil {
+		t.Fatalf("update body_hash: %v", err)
+	}
+	if err := database.QueryRow(`SELECT body_hash FROM entries WHERE id = ?`, "e1").Scan(&bodyHash); err != nil {
+		t.Fatalf("select body_hash after update: %v", err)
+	}
+	if !bodyHash.Valid || bodyHash.String != "abc123" {
+		t.Errorf("body_hash = %v, want abc123", bodyHash)
 	}
 }
 

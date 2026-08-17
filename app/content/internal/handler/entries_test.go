@@ -2,6 +2,9 @@ package handler
 
 import (
 	"context"
+	"crypto/sha256"
+	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"mime/multipart"
@@ -124,6 +127,15 @@ func withChiParam(req *http.Request, key, value string) *http.Request {
 	rctx := chi.NewRouteContext()
 	rctx.URLParams.Add(key, value)
 	return withTestCaller(req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx)))
+}
+
+func storedBodyHash(t *testing.T, h *EntriesHandler, id string) string {
+	t.Helper()
+	var hash sql.NullString
+	if err := h.db.QueryRow(`SELECT body_hash FROM entries WHERE id = ?`, id).Scan(&hash); err != nil {
+		t.Fatalf("query body_hash: %v", err)
+	}
+	return hash.String
 }
 
 func createEntry(t *testing.T, h *EntriesHandler, projectID string, reqBody createEntryRequest) Entry {
@@ -252,6 +264,87 @@ func TestUpdate_RecompilesLinks(t *testing.T) {
 	}
 	if targetID != mary.ID || !resolved {
 		t.Errorf("entry_links row = (target=%s, resolved=%v), want (target=%s, resolved=true)", targetID, resolved, mary.ID)
+	}
+}
+
+func TestCreate_StoresBodyHash(t *testing.T) {
+	h, _ := newTestEntriesHandler(t)
+	body := "---\nname: Tom\n---\n\nHello."
+	e := createEntry(t, h, "proj-1", createEntryRequest{Slug: "tom", Body: body})
+
+	sum := sha256.Sum256([]byte(body))
+	want := hex.EncodeToString(sum[:])
+	if got := storedBodyHash(t, h, e.ID); got != want {
+		t.Errorf("body_hash = %q, want %q", got, want)
+	}
+}
+
+func TestUpdate_RecomputesBodyHashOnBodyChange(t *testing.T) {
+	h, _ := newTestEntriesHandler(t)
+	e := createEntry(t, h, "proj-1", createEntryRequest{Slug: "tom", Body: "original"})
+	originalHash := storedBodyHash(t, h, e.ID)
+
+	newBody := "changed"
+	req := httptest.NewRequest(http.MethodPatch, "/content/entries/"+e.ID, strings.NewReader(`{"body":"changed"}`))
+	req = withChiParam(req, "id", e.ID)
+	w := httptest.NewRecorder()
+	h.Update(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("Update status = %d, body = %s", w.Code, w.Body.String())
+	}
+
+	sum := sha256.Sum256([]byte(newBody))
+	want := hex.EncodeToString(sum[:])
+	got := storedBodyHash(t, h, e.ID)
+	if got != want {
+		t.Errorf("body_hash = %q, want %q", got, want)
+	}
+	if got == originalHash {
+		t.Error("body_hash unchanged despite body change")
+	}
+}
+
+func TestUpdate_PreservesBodyHashWhenBodyNotChanged(t *testing.T) {
+	h, _ := newTestEntriesHandler(t)
+	e := createEntry(t, h, "proj-1", createEntryRequest{Slug: "tom", Body: "original"})
+	originalHash := storedBodyHash(t, h, e.ID)
+
+	req := httptest.NewRequest(http.MethodPatch, "/content/entries/"+e.ID, strings.NewReader(`{"title":"New Title"}`))
+	req = withChiParam(req, "id", e.ID)
+	w := httptest.NewRecorder()
+	h.Update(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("Update status = %d, body = %s", w.Code, w.Body.String())
+	}
+
+	if got := storedBodyHash(t, h, e.ID); got != originalHash {
+		t.Errorf("body_hash = %q, want unchanged %q (body wasn't touched)", got, originalHash)
+	}
+}
+
+func TestList_IncludesBodyHash(t *testing.T) {
+	h, _ := newTestEntriesHandler(t)
+	body := "---\nname: Tom\n---\n\nHello."
+	createEntry(t, h, "proj-1", createEntryRequest{Slug: "tom", Body: body})
+
+	req := httptest.NewRequest(http.MethodGet, "/content/projects/proj-1/entries", nil)
+	req = withChiParam(req, "id", "proj-1")
+	w := httptest.NewRecorder()
+	h.List(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("List status = %d, body = %s", w.Code, w.Body.String())
+	}
+	var got []EntryMeta
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("got %d entries, want 1", len(got))
+	}
+	sum := sha256.Sum256([]byte(body))
+	want := hex.EncodeToString(sum[:])
+	if got[0].BodyHash != want {
+		t.Errorf("BodyHash = %q, want %q", got[0].BodyHash, want)
 	}
 }
 
