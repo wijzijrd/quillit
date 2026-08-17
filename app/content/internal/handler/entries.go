@@ -551,6 +551,16 @@ func (h *EntriesHandler) GetImage(w http.ResponseWriter, r *http.Request) {
 		contentType = "application/octet-stream"
 	}
 	w.Header().Set("Content-Type", contentType)
+	// Defense-in-depth against stored XSS: an image type such as
+	// image/svg+xml can embed <script>, and this endpoint's response is
+	// served from the same origin as the web app's SPA (see
+	// app/svc/internal/handler/content_images.go's proxy and
+	// app/ui/nginx.conf). nosniff stops browsers from ignoring
+	// Content-Type and sniffing the body into HTML; the sandboxed
+	// default-src 'none' CSP stops any script that does execute (e.g. via
+	// direct navigation to an SVG's image URL) from doing anything.
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Content-Security-Policy", "default-src 'none'; sandbox")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(data)
 }

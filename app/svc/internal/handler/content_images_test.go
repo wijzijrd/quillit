@@ -54,6 +54,34 @@ func TestContentImagesProxy_ForwardsCallerJWTAndStreamsImage(t *testing.T) {
 	}
 }
 
+func TestContentImagesProxy_ForwardsAntiXSSHeaders(t *testing.T) {
+	content := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "image/svg+xml")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("Content-Security-Policy", "default-src 'none'; sandbox")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("<svg></svg>"))
+	}))
+	defer content.Close()
+
+	h := handler.NewContentImages(content.URL)
+	req := httptest.NewRequest(http.MethodGet, "/api/content/entries/e1/images/icon.svg", nil)
+	req = withImageRouteParams(req, "e1", "icon.svg")
+	rr := httptest.NewRecorder()
+	h.GetImage(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rr.Code, rr.Body.String())
+	}
+	if got := rr.Header().Get("X-Content-Type-Options"); got != "nosniff" {
+		t.Errorf("X-Content-Type-Options = %q, want %q", got, "nosniff")
+	}
+	wantCSP := "default-src 'none'; sandbox"
+	if got := rr.Header().Get("Content-Security-Policy"); got != wantCSP {
+		t.Errorf("Content-Security-Policy = %q, want %q", got, wantCSP)
+	}
+}
+
 func TestContentImagesProxy_NoJWTInContextStillProxies(t *testing.T) {
 	var sawAuthHeader bool
 	content := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -316,6 +316,29 @@ func TestGetImage_ReturnsStoredBytesAndContentType(t *testing.T) {
 	}
 }
 
+func TestGetImage_SetsAntiXSSHeaders(t *testing.T) {
+	h, blobs := newTestEntriesHandler(t)
+	e := createEntry(t, h, "proj-1", createEntryRequest{Slug: "mary", Body: "Mary."})
+	key := imagesPrefix(e.ID) + "portrait.png"
+	blobs.objects[key] = []byte("fake-png-bytes")
+
+	req := httptest.NewRequest(http.MethodGet, "/content/entries/"+e.ID+"/images/portrait.png", nil)
+	req = withChiParams(req, map[string]string{"id": e.ID, "filename": "portrait.png"})
+	w := httptest.NewRecorder()
+	h.GetImage(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
+	}
+	if got := w.Header().Get("X-Content-Type-Options"); got != "nosniff" {
+		t.Errorf("X-Content-Type-Options = %q, want %q", got, "nosniff")
+	}
+	wantCSP := "default-src 'none'; sandbox"
+	if got := w.Header().Get("Content-Security-Policy"); got != wantCSP {
+		t.Errorf("Content-Security-Policy = %q, want %q", got, wantCSP)
+	}
+}
+
 func TestGetImage_UnknownImageReturns404(t *testing.T) {
 	h, _ := newTestEntriesHandler(t)
 	e := createEntry(t, h, "proj-1", createEntryRequest{Slug: "mary", Body: "Mary."})

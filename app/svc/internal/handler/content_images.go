@@ -56,9 +56,38 @@ func (h *ContentImagesHandler) GetImage(w http.ResponseWriter, r *http.Request) 
 	}
 	defer resp.Body.Close()
 
-	if ct := resp.Header.Get("Content-Type"); ct != "" {
-		w.Header().Set("Content-Type", ct)
-	}
+	copyResponseHeaders(w.Header(), resp.Header)
 	w.WriteHeader(resp.StatusCode)
 	_, _ = io.Copy(w, resp.Body)
+}
+
+// forwardedResponseHeaders is the allowlist of upstream response headers
+// this proxy forwards verbatim. It's deliberately narrow — this is a
+// proxy, not a generic passthrough, so it forwards what content-svc set
+// rather than inventing header values of its own. Alongside the usual
+// caching/representation headers, it includes the two anti-XSS headers
+// content-svc's GetImage sets on every image response (X-Content-Type-
+// Options, Content-Security-Policy): before this allowlist existed, only
+// Content-Type was copied, which silently dropped those two and left a
+// stored-XSS path open for any image (e.g. SVG) served through this
+// same-origin proxy.
+var forwardedResponseHeaders = []string{
+	"Content-Type",
+	"Content-Length",
+	"Content-Disposition",
+	"Cache-Control",
+	"ETag",
+	"X-Content-Type-Options",
+	"Content-Security-Policy",
+}
+
+// copyResponseHeaders copies each header in forwardedResponseHeaders from
+// src to dst, skipping any that are absent or empty — same pattern as the
+// single-header check this replaced.
+func copyResponseHeaders(dst, src http.Header) {
+	for _, name := range forwardedResponseHeaders {
+		if v := src.Get(name); v != "" {
+			dst.Set(name, v)
+		}
+	}
 }
