@@ -82,7 +82,7 @@ func renderView(t *testing.T, entry *parse.Entry, view filter.View, resolver ren
 	if err != nil {
 		t.Fatalf("filter.Filter: %v", err)
 	}
-	html, err := render.Render(filtered, view, resolver, plainLinkRenderer)
+	html, err := render.Render(filtered, view, resolver, plainLinkRenderer, nil)
 	if err != nil {
 		t.Fatalf("render.Render: %v", err)
 	}

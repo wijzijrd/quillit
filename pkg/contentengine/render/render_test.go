@@ -77,7 +77,7 @@ func TestRender_PlayerView_NoSecretLeakage(t *testing.T) {
 	f := mustFilter(t, tomExample, filter.View{Kind: filter.ViewPlayer})
 	spy := &spyLinkRenderer{}
 
-	out, err := Render(f, filter.View{Kind: filter.ViewPlayer}, nil, spy.render)
+	out, err := Render(f, filter.View{Kind: filter.ViewPlayer}, nil, spy.render, nil)
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
@@ -97,7 +97,7 @@ func TestRender_CardView_MotivationOnly(t *testing.T) {
 	f := mustFilter(t, tomExample, filter.View{Kind: filter.ViewCard, Facet: "motivation"})
 	spy := &spyLinkRenderer{}
 
-	out, err := Render(f, filter.View{Kind: filter.ViewCard, Facet: "motivation"}, nil, spy.render)
+	out, err := Render(f, filter.View{Kind: filter.ViewCard, Facet: "motivation"}, nil, spy.render, nil)
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
@@ -126,7 +126,7 @@ func TestRender_CardExpansion_DepthOne(t *testing.T) {
 	view := filter.View{Kind: filter.ViewCard, Facet: "description"}
 	f := mustFilter(t, tomExample, view)
 
-	out, err := Render(f, view, resolver, spy.render)
+	out, err := Render(f, view, resolver, spy.render, nil)
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
@@ -171,7 +171,7 @@ func TestRender_CardExpansion_NoMatchingCard(t *testing.T) {
 	view := filter.View{Kind: filter.ViewCard, Facet: "description"}
 	f := mustFilter(t, tomExample, view)
 
-	if _, err := Render(f, view, resolver, spy.render); err != nil {
+	if _, err := Render(f, view, resolver, spy.render, nil); err != nil {
 		t.Fatalf("Render: %v", err)
 	}
 
@@ -190,7 +190,7 @@ func TestRender_LinkRendererCallCounts(t *testing.T) {
 		// No resolver: nothing can expand, so every link (the opening
 		// paragraph's Mary reference, and the one inside the
 		// description card) goes through the callback.
-		if _, err := Render(f, filter.View{Kind: filter.ViewDM}, nil, spy.render); err != nil {
+		if _, err := Render(f, filter.View{Kind: filter.ViewDM}, nil, spy.render, nil); err != nil {
 			t.Fatalf("Render: %v", err)
 		}
 		if len(spy.calls) != 2 {
@@ -212,7 +212,7 @@ func TestRender_LinkRendererCallCounts(t *testing.T) {
 		spy := &spyLinkRenderer{}
 		view := filter.View{Kind: filter.ViewCard, Facet: "description"}
 		f := mustFilter(t, tomExample, view)
-		if _, err := Render(f, view, resolver, spy.render); err != nil {
+		if _, err := Render(f, view, resolver, spy.render, nil); err != nil {
 			t.Fatalf("Render: %v", err)
 		}
 		if len(spy.calls) != 1 {
@@ -226,7 +226,7 @@ func TestRender_LinkRendererCallCounts(t *testing.T) {
 	t.Run("player view never calls it", func(t *testing.T) {
 		spy := &spyLinkRenderer{}
 		f := mustFilter(t, tomExample, filter.View{Kind: filter.ViewPlayer})
-		if _, err := Render(f, filter.View{Kind: filter.ViewPlayer}, nil, spy.render); err != nil {
+		if _, err := Render(f, filter.View{Kind: filter.ViewPlayer}, nil, spy.render, nil); err != nil {
 			t.Fatalf("Render: %v", err)
 		}
 		if len(spy.calls) != 0 {
@@ -238,7 +238,7 @@ func TestRender_LinkRendererCallCounts(t *testing.T) {
 func TestRender_OutputIsFragment(t *testing.T) {
 	f := mustFilter(t, tomExample, filter.View{Kind: filter.ViewDM})
 	spy := &spyLinkRenderer{}
-	out, err := Render(f, filter.View{Kind: filter.ViewDM}, nil, spy.render)
+	out, err := Render(f, filter.View{Kind: filter.ViewDM}, nil, spy.render, nil)
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
@@ -248,6 +248,82 @@ func TestRender_OutputIsFragment(t *testing.T) {
 		if strings.Contains(lower, forbidden) {
 			t.Errorf("render output should be a fragment with no document wrapper, but found %q in: %s", forbidden, out)
 		}
+	}
+}
+
+func TestRender_ImageResolver_RewritesRelativeSrc(t *testing.T) {
+	f := mustFilter(t, "---\nname: Tom\n---\n\n![Tom's portrait](tom-portrait.png)\n", filter.View{Kind: filter.ViewDM})
+	spy := &spyLinkRenderer{}
+
+	out, err := Render(f, filter.View{Kind: filter.ViewDM}, nil, spy.render, func(src string) string {
+		return "/api/content/entries/e1/images/" + src
+	})
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if !strings.Contains(out, `src="/api/content/entries/e1/images/tom-portrait.png"`) {
+		t.Errorf("relative image src not rewritten, got: %s", out)
+	}
+}
+
+func TestRender_ImageResolver_LeavesAbsoluteAndExternalSrcAlone(t *testing.T) {
+	src := "---\nname: Tom\n---\n\n![local](/already/absolute.png)\n\n![remote](https://example.com/x.png)\n"
+	f := mustFilter(t, src, filter.View{Kind: filter.ViewDM})
+	spy := &spyLinkRenderer{}
+	called := false
+
+	out, err := Render(f, filter.View{Kind: filter.ViewDM}, nil, spy.render, func(s string) string {
+		called = true
+		return "SHOULD-NOT-APPEAR"
+	})
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if called {
+		t.Error("imageResolver should not be called for an absolute-path or external src")
+	}
+	if !strings.Contains(out, `src="/already/absolute.png"`) {
+		t.Errorf("absolute-path src was altered, got: %s", out)
+	}
+	if !strings.Contains(out, `src="https://example.com/x.png"`) {
+		t.Errorf("external src was altered, got: %s", out)
+	}
+}
+
+func TestRender_NilImageResolver_MatchesPreviousOutput(t *testing.T) {
+	f := mustFilter(t, "---\nname: Tom\n---\n\n![Tom's portrait](tom-portrait.png)\n", filter.View{Kind: filter.ViewDM})
+	spy := &spyLinkRenderer{}
+
+	out, err := Render(f, filter.View{Kind: filter.ViewDM}, nil, spy.render, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if !strings.Contains(out, `src="tom-portrait.png"`) {
+		t.Errorf("nil resolver should leave the raw markdown src untouched, got: %s", out)
+	}
+}
+
+func TestRender_ImageResolver_NotAppliedInsideExpandedCard(t *testing.T) {
+	resolver := fakeResolver{
+		"characters/npcs/mary": {
+			"description": "![mary](mary-portrait.png)",
+		},
+	}
+	spy := &spyLinkRenderer{}
+	view := filter.View{Kind: filter.ViewCard, Facet: "description"}
+	f := mustFilter(t, tomExample, view)
+
+	out, err := Render(f, view, resolver, spy.render, func(src string) string {
+		return "/api/content/entries/tom/images/" + src
+	})
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if !strings.Contains(out, `src="mary-portrait.png"`) {
+		t.Errorf("expanded card's image src should stay unresolved (no known entry id for it), got: %s", out)
+	}
+	if strings.Contains(out, "/api/content/entries/tom/images/mary-portrait.png") {
+		t.Errorf("expanded card's image must not resolve against the wrong (top-level) entry id, got: %s", out)
 	}
 }
 
