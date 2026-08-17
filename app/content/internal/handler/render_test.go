@@ -60,6 +60,21 @@ func TestRender_NoHTMLWrapper(t *testing.T) {
 	}
 }
 
+func TestRender_RewritesRelativeImageSrcToGatewayPath(t *testing.T) {
+	entries, h := newTestRenderHandler(t)
+	body := "---\nname: Tom\n---\n\n![Tom's portrait](tom-portrait.png)\n"
+	e := createEntry(t, entries, "proj-1", createEntryRequest{Slug: "tom", Body: body})
+
+	w := renderEntry(t, h, e.ID, "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
+	}
+	want := `src="/api/content/entries/` + e.ID + `/images/tom-portrait.png"`
+	if !strings.Contains(w.Body.String(), want) {
+		t.Errorf("expected %q in output, got: %s", want, w.Body.String())
+	}
+}
+
 func TestRender_UnknownFacetFailsLoud(t *testing.T) {
 	entries, h := newTestRenderHandler(t)
 	e := createEntry(t, entries, "proj-1", createEntryRequest{Slug: "tom", Body: "Prose only, no cards."})

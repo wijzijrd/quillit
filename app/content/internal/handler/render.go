@@ -7,6 +7,7 @@ import (
 	"fmt"
 	nethtml "html"
 	"net/http"
+	"net/url"
 
 	"github.com/go-chi/chi/v5"
 
@@ -82,8 +83,11 @@ func (h *RenderHandler) Render(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	imageResolver := func(src string) string {
+		return "/api/content/entries/" + m.ID + "/images/" + url.PathEscape(src)
+	}
 	resolver := &contentresolver.SQLite{DB: h.db, Blobs: h.blobs, ProjectID: m.ProjectID, Ctx: r.Context()}
-	fragment, err := render.Render(filtered, view, resolver, webLinkRenderer)
+	fragment, err := render.Render(filtered, view, resolver, webLinkRenderer, imageResolver)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "render error")
 		return
