@@ -267,7 +267,7 @@ func TestRender_ImageResolver_RewritesRelativeSrc(t *testing.T) {
 }
 
 func TestRender_ImageResolver_LeavesAbsoluteAndExternalSrcAlone(t *testing.T) {
-	src := "---\nname: Tom\n---\n\n![local](/already/absolute.png)\n\n![remote](https://example.com/x.png)\n"
+	src := "---\nname: Tom\n---\n\n![local](/already/absolute.png)\n\n![remote](https://example.com/x.png)\n\n![inline](data:image/png;base64,AAAA)\n"
 	f := mustFilter(t, src, filter.View{Kind: filter.ViewDM})
 	spy := &spyLinkRenderer{}
 	called := false
@@ -280,13 +280,16 @@ func TestRender_ImageResolver_LeavesAbsoluteAndExternalSrcAlone(t *testing.T) {
 		t.Fatalf("Render: %v", err)
 	}
 	if called {
-		t.Error("imageResolver should not be called for an absolute-path or external src")
+		t.Error("imageResolver should not be called for an absolute-path, external, or data URI src")
 	}
 	if !strings.Contains(out, `src="/already/absolute.png"`) {
 		t.Errorf("absolute-path src was altered, got: %s", out)
 	}
 	if !strings.Contains(out, `src="https://example.com/x.png"`) {
 		t.Errorf("external src was altered, got: %s", out)
+	}
+	if !strings.Contains(out, `src="data:image/png;base64,AAAA"`) {
+		t.Errorf("data URI src was altered, got: %s", out)
 	}
 }
 

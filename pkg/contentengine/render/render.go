@@ -301,6 +301,8 @@ func rewriteRelativeImages(doc ast.Node, resolve ImageResolver) {
 
 // isRelativeImageSrc reports whether src has no scheme and isn't already
 // an absolute path — the only case an ImageResolver should ever rewrite.
+// data: URIs are excluded too: they have no "://" and don't start with
+// "/", but embed the image inline and must never be resolver-rewritten.
 func isRelativeImageSrc(src string) bool {
-	return !strings.Contains(src, "://") && !strings.HasPrefix(src, "/")
+	return !strings.Contains(src, "://") && !strings.HasPrefix(src, "/") && !strings.HasPrefix(src, "data:")
 }
