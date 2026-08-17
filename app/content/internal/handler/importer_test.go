@@ -210,7 +210,7 @@ func TestImport_NonKebabFacetRejectedEvenWithCreateFacets(t *testing.T) {
 
 	r := chi.NewRouter()
 	r.Post("/content/projects/{id}/import", h.ImportProject)
-	req := httptest.NewRequest(http.MethodPost, "/content/projects/p1/import?mode=apply&createFacets=true", makeTarball(t, files))
+	req := withTestCaller(httptest.NewRequest(http.MethodPost, "/content/projects/p1/import?mode=apply&createFacets=true", makeTarball(t, files)))
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
 	if rec.Code != http.StatusUnprocessableEntity {
