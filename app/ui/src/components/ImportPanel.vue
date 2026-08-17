@@ -1,9 +1,9 @@
 <template>
   <Dialog v-model:open="open" @update:open="onOpenChange">
     <DialogTrigger as-child>
-      <button class="pv-btn">Import from CLI</button>
+      <Button variant="outline">Import from CLI</Button>
     </DialogTrigger>
-    <DialogContent class="import-panel-content">
+    <DialogContent class="sm:max-w-lg">
       <DialogHeader>
         <DialogTitle>Import from CLI</DialogTitle>
         <DialogDescription>
@@ -115,7 +115,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onUnmounted, ref } from 'vue'
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger,
 } from './ui/dialog'
@@ -182,10 +182,11 @@ function closeDialog() {
 function onOpenChange(isOpen: boolean) {
   if (!isOpen) store.reset()
 }
+
+onUnmounted(() => store.reset())
 </script>
 
 <style scoped>
-.import-panel-content { max-width: 32rem; }
 .import-panel-body { display: flex; flex-direction: column; gap: 1rem; }
 .import-field { display: flex; flex-direction: column; gap: 0.25rem; }
 .import-field-label { font-size: var(--text-sm); color: var(--muted-foreground); }
