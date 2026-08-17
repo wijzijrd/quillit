@@ -42,6 +42,11 @@ var errObjectNotFound = errors.New("object not found")
 type fakeBlobStore struct {
 	mu      sync.Mutex
 	objects map[string][]byte
+	// failAfter, when > 0, makes Put start failing once it has been called
+	// more than failAfter times — lets tests force a mid-batch blob failure
+	// (e.g. to exercise the import undo path) without a real backend.
+	failAfter int
+	putCalls  int
 }
 
 func newFakeBlobStore() *fakeBlobStore {
@@ -51,6 +56,10 @@ func newFakeBlobStore() *fakeBlobStore {
 func (f *fakeBlobStore) Put(_ context.Context, key, _ string, data []byte) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.putCalls++
+	if f.failAfter > 0 && f.putCalls > f.failAfter {
+		return errors.New("simulated blob store failure")
+	}
 	cp := make([]byte, len(data))
 	copy(cp, data)
 	f.objects[key] = cp

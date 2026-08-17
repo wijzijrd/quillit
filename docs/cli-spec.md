@@ -186,6 +186,9 @@ All four template files created **from working templates** — fresh entry rende
 | `render` | `<path_to_entry>`; `--view dm\|player`; `--card <facet>`; `--quick-view`/`-Q` | **P0** | Build entry `.md` into HTML using its scaffolding files, open in default browser. Default view `dm`. `--card`: flash card for facet. `-Q`: summarized version (frontmatter + first section). | `quillit render characters/npcs/tom --card motivation` |
 | `compile` | `<path_to_entry>` or `--all` | P1 | Scan entry `.md`, write `links.conf` link index. `--all`: every entry in project. Render/export auto-recompile stale indexes — this mainly forces/warms cache. | `quillit compile characters/npcs/tom` |
 | `export` | `[<path_to_entry>]`; `--view dm\|player`; `--card <facet>`; `--with-links [all]`; `--with <entries>` | P1 | Render to **PDF**. No path → export **all** entries. Same view flags as `render` — e.g. player-safe PDF handout. `--with-links`: interactive checklist of linked entries to bundle into one combined PDF. | `quillit export characters/npcs/tom --view player --with-links` |
+| `login` | `--server <url>` | P1 | Log in to a Quillit web app; stores server + session in home config for `push`. | `quillit login --server https://quillit.local` |
+| `logout` | — | P2 | Forget the stored web session. | `quillit logout` |
+| `push` | `[<web_project>]`; `--apply`; `--on-conflict fail\|skip\|overwrite\|suffix`; `--create-facets`; `--entry <path>`; `--output <file>` | P1 | Import this project into a web app project (issue #46). Dry-run by default; `--output` writes the tarball to disk instead. | `quillit push curse-of-strahd --apply` |
 
 **Priorities:** P0 = `connect`, `create` + `assign`, `edit`, `render` (MVP loop: connect, make note, file it, read at table). P1 = `init`, `compile`, `export`, `config add`/`config rm`. P2 = `version`, bare `config`, `--help` polish.
 
@@ -255,5 +258,5 @@ All four template files created **from working templates** — fresh entry rende
 
 - Web app and all integrations (CLI is interim tool).
 - Sharing beyond exported PDFs (no hosting, no links, no player accounts).
-- Sync, collaboration, network features.
+- Sync, collaboration, network features. Exception (issue #46): one-way *import* of a CLI project into the web app's content domain exists via `quillit push` — see `docs/superpowers/specs/2026-08-16-cli-project-import-design.md`. General/two-way sync remains out of scope, no commitments.
 - Anything not in §6.

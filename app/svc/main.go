@@ -52,6 +52,7 @@ func main() {
 	settings := handler.NewSettings(database, jwtSecret)
 	contentFacets := handler.NewContentFacets(contentURL)
 	contentImages := handler.NewContentImages(contentURL)
+	contentProxy := handler.NewContentProxy(database, jwtSecret, contentURL)
 	// Shared in-process WebSocket hub for Game Mode chat (single-instance only).
 	hub := ws.NewHub()
 	gameSessions := handler.NewGameSessions(database, jwtSecret, hub)
@@ -112,6 +113,9 @@ func main() {
 		r.Post("/api/content/projects/{id}/facets", contentFacets.CreateForProject)
 		r.Delete("/api/content/projects/{id}/facets/{name}", contentFacets.DeleteForProject)
 		r.Get("/api/content/entries/{id}/images/{filename}", contentImages.GetImage)
+
+		// CLI project import: proxied to content-svc (not externally reachable)
+		r.Post("/api/content/projects/{id}/import", contentProxy.ImportProject)
 
 		// Game Mode: live session control-plane + chat history
 		r.Post("/api/projects/{projectId}/session/start", gameSessions.Start)
