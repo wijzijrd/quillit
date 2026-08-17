@@ -303,6 +303,96 @@ func TestUploadImage_StoresAtConventionalPath(t *testing.T) {
 	}
 }
 
+func TestGetImage_ReturnsStoredBytesAndContentType(t *testing.T) {
+	h, blobs := newTestEntriesHandler(t)
+	e := createEntry(t, h, "proj-1", createEntryRequest{Slug: "mary", Body: "Mary."})
+	key := imagesPrefix(e.ID) + "portrait.png"
+	blobs.objects[key] = []byte("fake-png-bytes")
+
+	req := httptest.NewRequest(http.MethodGet, "/content/entries/"+e.ID+"/images/portrait.png", nil)
+	req = withChiParams(req, map[string]string{"id": e.ID, "filename": "portrait.png"})
+	w := httptest.NewRecorder()
+	h.GetImage(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
+	}
+	if got := w.Body.String(); got != "fake-png-bytes" {
+		t.Errorf("body = %q, want %q", got, "fake-png-bytes")
+	}
+	if ct := w.Header().Get("Content-Type"); ct != "image/png" {
+		t.Errorf("Content-Type = %q, want image/png", ct)
+	}
+}
+
+func TestGetImage_SetsAntiXSSHeaders(t *testing.T) {
+	h, blobs := newTestEntriesHandler(t)
+	e := createEntry(t, h, "proj-1", createEntryRequest{Slug: "mary", Body: "Mary."})
+	key := imagesPrefix(e.ID) + "portrait.png"
+	blobs.objects[key] = []byte("fake-png-bytes")
+
+	req := httptest.NewRequest(http.MethodGet, "/content/entries/"+e.ID+"/images/portrait.png", nil)
+	req = withChiParams(req, map[string]string{"id": e.ID, "filename": "portrait.png"})
+	w := httptest.NewRecorder()
+	h.GetImage(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
+	}
+	if got := w.Header().Get("X-Content-Type-Options"); got != "nosniff" {
+		t.Errorf("X-Content-Type-Options = %q, want %q", got, "nosniff")
+	}
+	wantCSP := "default-src 'none'; sandbox"
+	if got := w.Header().Get("Content-Security-Policy"); got != wantCSP {
+		t.Errorf("Content-Security-Policy = %q, want %q", got, wantCSP)
+	}
+}
+
+func TestGetImage_UnknownImageReturns404(t *testing.T) {
+	h, _ := newTestEntriesHandler(t)
+	e := createEntry(t, h, "proj-1", createEntryRequest{Slug: "mary", Body: "Mary."})
+
+	req := httptest.NewRequest(http.MethodGet, "/content/entries/"+e.ID+"/images/missing.png", nil)
+	req = withChiParams(req, map[string]string{"id": e.ID, "filename": "missing.png"})
+	w := httptest.NewRecorder()
+	h.GetImage(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d, body = %s", w.Code, http.StatusNotFound, w.Body.String())
+	}
+}
+
+func TestGetImage_RejectsPathTraversalFilename(t *testing.T) {
+	h, blobs := newTestEntriesHandler(t)
+	e := createEntry(t, h, "proj-1", createEntryRequest{Slug: "mary", Body: "Mary."})
+	blobs.objects["entries/"+e.ID+"/body.md"] = []byte("secret body")
+
+	req := httptest.NewRequest(http.MethodGet, "/content/entries/"+e.ID+"/images/..", nil)
+	req = withChiParams(req, map[string]string{"id": e.ID, "filename": ".."})
+	w := httptest.NewRecorder()
+	h.GetImage(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d, body = %s", w.Code, http.StatusBadRequest, w.Body.String())
+	}
+}
+
+func TestGetImage_RejectsNonProjectMember(t *testing.T) {
+	h, blobs := newTestEntriesHandler(t)
+	e := createEntry(t, h, "proj-1", createEntryRequest{Slug: "mary", Body: "Mary."})
+	blobs.objects[imagesPrefix(e.ID)+"portrait.png"] = []byte("fake-png-bytes")
+
+	denied := NewEntries(h.db, "", blobs, authz.Static{})
+	req := httptest.NewRequest(http.MethodGet, "/content/entries/"+e.ID+"/images/portrait.png", nil)
+	req = withChiParams(req, map[string]string{"id": e.ID, "filename": "portrait.png"})
+	w := httptest.NewRecorder()
+	denied.GetImage(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want %d, body = %s", w.Code, http.StatusForbidden, w.Body.String())
+	}
+}
+
 func TestDelete_RemovesRowAndBlobs(t *testing.T) {
 	h, blobs := newTestEntriesHandler(t)
 	e := createEntry(t, h, "proj-1", createEntryRequest{Slug: "mary", Body: "Mary."})

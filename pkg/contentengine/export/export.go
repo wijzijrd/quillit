@@ -88,7 +88,7 @@ func Bundle(entries []*filter.FilteredEntry) ([]byte, error) {
 // that no wikilink ever expands or gets interactive markup in PDF
 // output, regardless of which view produced entry.
 func renderFragment(entry *filter.FilteredEntry) (string, error) {
-	fragment, err := render.Render(entry, filter.View{}, nil, plainLabelRenderer)
+	fragment, err := render.Render(entry, filter.View{}, nil, plainLabelRenderer, nil)
 	if err != nil {
 		return "", fmt.Errorf("rendering entry for PDF: %w", err)
 	}

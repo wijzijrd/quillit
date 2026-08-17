@@ -56,7 +56,7 @@ is a DM tool.`,
 			return err
 		}
 
-		fragment, err := render.Render(filtered, view, resolver.FS{ProjectRoot: p.Root}, clipboardLinkRenderer)
+		fragment, err := render.Render(filtered, view, resolver.FS{ProjectRoot: p.Root}, clipboardLinkRenderer, nil)
 		if err != nil {
 			return err
 		}

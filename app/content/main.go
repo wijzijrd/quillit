@@ -81,6 +81,7 @@ func main() {
 		r.Patch("/entries/{id}", entries.Update)
 		r.Delete("/entries/{id}", entries.Delete)
 		r.Post("/entries/{id}/images", entries.UploadImage)
+		r.Get("/entries/{id}/images/{filename}", entries.GetImage)
 		r.Get("/entries/{id}/render", renderer.Render)
 		r.Get("/entries/{id}/export", exporter.Export)
 		r.Get("/entries/{id}/links", links.GetForEntry)

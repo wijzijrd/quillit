@@ -181,7 +181,7 @@ func renderAsPDFWould(t *testing.T, entry *filter.FilteredEntry) string {
 	t.Helper()
 	fragment, err := render.Render(entry, filter.View{}, nil, func(info render.LinkInfo) string {
 		return nethtml.EscapeString(info.Label)
-	})
+	}, nil)
 	if err != nil {
 		t.Fatalf("render.Render: %v", err)
 	}

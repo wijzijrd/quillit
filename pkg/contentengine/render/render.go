@@ -17,7 +17,9 @@ import (
 	"github.com/quillit/contentengine/filter"
 	"github.com/quillit/contentengine/parse"
 	"github.com/yuin/goldmark"
+	"github.com/yuin/goldmark/ast"
 	goldmarkhtml "github.com/yuin/goldmark/renderer/html"
+	"github.com/yuin/goldmark/text"
 )
 
 // Resolver looks up other entries by path, for wikilink resolution and
@@ -62,6 +64,15 @@ type LinkInfo struct {
 // only").
 type LinkRenderer func(LinkInfo) string
 
+// ImageResolver rewrites a relative image src (from markdown
+// ![alt](src)) to a servable URL. Called only for the entry being
+// rendered directly, at depth 0 — images inside a depth-1 expanded card
+// block (content pulled from a different linked entry) are left
+// unresolved, since neither FilteredEntry nor Resolver expose that
+// entry's id here, and guessing wrong would silently point at the wrong
+// entry's images. See renderExpandedCard, which passes nil explicitly.
+type ImageResolver func(src string) string
+
 var markdown = goldmark.New(
 	goldmark.WithRendererOptions(goldmarkhtml.WithUnsafe()),
 )
@@ -80,14 +91,14 @@ var markdown = goldmark.New(
 // such as a player-view/export-only render); expansion is then simply
 // never attempted, same as if every Resolve call reported the link as
 // dangling.
-func Render(entry *filter.FilteredEntry, view filter.View, resolver Resolver, linkRenderer LinkRenderer) (string, error) {
+func Render(entry *filter.FilteredEntry, view filter.View, resolver Resolver, linkRenderer LinkRenderer, imageResolver ImageResolver) (string, error) {
 	var b strings.Builder
 	if entry.Name != "" {
 		b.WriteString("<h1>" + html.EscapeString(entry.Name) + "</h1>\n")
 	}
 
 	for _, block := range entry.Blocks {
-		rendered, err := renderBlock(block, view, resolver, linkRenderer, 0)
+		rendered, err := renderBlock(block, view, resolver, linkRenderer, imageResolver, 0)
 		if err != nil {
 			return "", err
 		}
@@ -101,7 +112,7 @@ func Render(entry *filter.FilteredEntry, view filter.View, resolver Resolver, li
 // card view, its depth-1 expansions) to HTML. depth is 0 for blocks from
 // the entry itself, 1 for an expanded card's own content — depth is never
 // more than 1 by construction: expansion only happens when depth == 0.
-func renderBlock(block parse.Block, view filter.View, resolver Resolver, linkRenderer LinkRenderer, depth int) (string, error) {
+func renderBlock(block parse.Block, view filter.View, resolver Resolver, linkRenderer LinkRenderer, imageResolver ImageResolver, depth int) (string, error) {
 	decisions := decideLinks(block.Links, view, resolver, depth)
 
 	resolveInline := func(link parse.Wikilink) string {
@@ -129,7 +140,7 @@ func renderBlock(block parse.Block, view filter.View, resolver Resolver, linkRen
 		return linkRenderer(info)
 	}
 
-	body, err := renderMarkdown(block.Content, block.Links, resolveInline)
+	body, err := renderMarkdown(block.Content, block.Links, resolveInline, imageResolver)
 	if err != nil {
 		return "", err
 	}
@@ -180,7 +191,7 @@ func renderBlock(block parse.Block, view filter.View, resolver Resolver, linkRen
 // through linkRenderer, never expand further.
 func renderExpandedCard(content, facet string, resolver Resolver, linkRenderer LinkRenderer) (string, error) {
 	block := parse.Block{Kind: parse.BlockCard, Facet: facet, Content: content, Links: parse.ExtractLinks(content)}
-	return renderBlock(block, filter.View{Kind: filter.ViewCard, Facet: facet}, resolver, linkRenderer, 1)
+	return renderBlock(block, filter.View{Kind: filter.ViewCard, Facet: facet}, resolver, linkRenderer, nil, 1)
 }
 
 // linkDecision records what, if anything, was attempted for a link's
@@ -224,9 +235,9 @@ func decideLinks(links []parse.Wikilink, view filter.View, resolver Resolver, de
 // substituting each wikilink with resolveInline's result. links must be
 // exactly the wikilinks found in content (a Block's own Links, or
 // parse.ExtractLinks run on raw Resolver content).
-func renderMarkdown(content string, links []parse.Wikilink, resolveInline func(parse.Wikilink) string) (string, error) {
+func renderMarkdown(content string, links []parse.Wikilink, resolveInline func(parse.Wikilink) string, imageResolver ImageResolver) (string, error) {
 	if len(links) == 0 {
-		return convertMarkdown(content)
+		return convertMarkdown(content, imageResolver)
 	}
 
 	placeholders := make([]string, len(links))
@@ -241,7 +252,7 @@ func renderMarkdown(content string, links []parse.Wikilink, resolveInline func(p
 		replaced = strings.Replace(replaced, raw, placeholders[i], 1)
 	}
 
-	out, err := convertMarkdown(replaced)
+	out, err := convertMarkdown(replaced, imageResolver)
 	if err != nil {
 		return "", err
 	}
@@ -252,10 +263,46 @@ func renderMarkdown(content string, links []parse.Wikilink, resolveInline func(p
 	return out, nil
 }
 
-func convertMarkdown(source string) (string, error) {
+func convertMarkdown(source string, imageResolver ImageResolver) (string, error) {
+	src := []byte(source)
+	doc := markdown.Parser().Parse(text.NewReader(src))
+	if imageResolver != nil {
+		rewriteRelativeImages(doc, imageResolver)
+	}
+
 	var buf bytes.Buffer
-	if err := markdown.Convert([]byte(source), &buf); err != nil {
+	if err := markdown.Renderer().Render(&buf, src, doc); err != nil {
 		return "", fmt.Errorf("converting markdown: %w", err)
 	}
 	return buf.String(), nil
+}
+
+// rewriteRelativeImages walks doc for image nodes and rewrites each
+// relative destination through resolve, in place. goldmark's Parser and
+// Renderer produce byte-identical output to Convert when nothing is
+// mutated, so this is a no-op-safe replacement for the previous single
+// markdown.Convert call.
+func rewriteRelativeImages(doc ast.Node, resolve ImageResolver) {
+	_ = ast.Walk(doc, func(n ast.Node, entering bool) (ast.WalkStatus, error) {
+		if !entering {
+			return ast.WalkContinue, nil
+		}
+		img, ok := n.(*ast.Image)
+		if !ok {
+			return ast.WalkContinue, nil
+		}
+		dest := string(img.Destination)
+		if isRelativeImageSrc(dest) {
+			img.Destination = []byte(resolve(dest))
+		}
+		return ast.WalkContinue, nil
+	})
+}
+
+// isRelativeImageSrc reports whether src has no scheme and isn't already
+// an absolute path — the only case an ImageResolver should ever rewrite.
+// data: URIs are excluded too: they have no "://" and don't start with
+// "/", but embed the image inline and must never be resolver-rewritten.
+func isRelativeImageSrc(src string) bool {
+	return !strings.Contains(src, "://") && !strings.HasPrefix(src, "/") && !strings.HasPrefix(src, "data:")
 }
