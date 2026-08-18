@@ -115,6 +115,11 @@ func main() {
 		r.Delete("/api/content/projects/{id}/facets/{name}", contentFacets.DeleteForProject)
 		r.Get("/api/content/entries/{id}/images/{filename}", contentImages.GetImage)
 		r.Get("/api/content/projects/{id}/entries", contentEntries.ListEntries)
+		r.Get("/api/content/entries/{id}", contentEntries.GetEntry)
+		r.Patch("/api/content/entries/{id}", contentEntries.UpdateEntry)
+		r.Delete("/api/content/entries/{id}", contentEntries.DeleteEntry)
+		r.Post("/api/content/projects/{id}/entries", contentEntries.CreateEntry)
+		r.Get("/api/content/entries/{id}/render", contentEntries.RenderEntry)
 
 		// CLI project import: proxied to content-svc (not externally reachable)
 		r.Post("/api/content/projects/{id}/import", contentProxy.ImportProject)
