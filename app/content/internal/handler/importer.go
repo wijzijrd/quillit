@@ -341,22 +341,23 @@ func (h *ImportHandler) ImportProject(w http.ResponseWriter, r *http.Request) {
 			title = slug
 		}
 		tagsJSON := marshalTags(parsed.Frontmatter.Tags)
+		hash := bodyHash(item.Body)
 
 		var id string
 		if action == "overwrite" {
 			id = existingID
 			if _, err := tx.ExecContext(r.Context(),
-				`UPDATE entries SET title = ?, tags = ?, updated_at = ? WHERE id = ?`,
-				title, tagsJSON, now, id); err != nil {
+				`UPDATE entries SET title = ?, tags = ?, updated_at = ?, body_hash = ? WHERE id = ?`,
+				title, tagsJSON, now, hash, id); err != nil {
 				writeError(w, http.StatusInternalServerError, "db error")
 				return
 			}
 		} else {
 			id = newID()
 			if _, err := tx.ExecContext(r.Context(), `
-				INSERT INTO entries (id, project_id, slug, directory_path, title, tags, owner_user_id, created_at, updated_at)
-				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-			`, id, projectID, slug, item.DirectoryPath, title, tagsJSON, nullStr(ownerID), now, now); err != nil {
+				INSERT INTO entries (id, project_id, slug, directory_path, title, tags, owner_user_id, created_at, updated_at, body_hash)
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			`, id, projectID, slug, item.DirectoryPath, title, tagsJSON, nullStr(ownerID), now, now, hash); err != nil {
 				writeError(w, http.StatusInternalServerError, "db error")
 				return
 			}

@@ -2,6 +2,8 @@ package handler
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -111,6 +113,70 @@ func TestImport_Apply_CreatesEntriesAndResolvedLinks(t *testing.T) {
 	body, err := blobs.Get(context.Background(), bodyKey(tomID))
 	if err != nil || string(body) != tomMD {
 		t.Errorf("tom body = %q (err %v), want source bytes", body, err)
+	}
+}
+
+func TestImport_Apply_SetsBodyHashOnCreate(t *testing.T) {
+	h, _, _ := newTestImportHandler(t)
+	rec, resp := doImport(t, h, "p1", "?mode=apply", map[string]string{
+		"characters/npcs/tom/tom.md": tomMD,
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	if !resp.Applied {
+		t.Fatalf("apply reported applied=false: %+v", resp)
+	}
+
+	var id string
+	if err := h.db.QueryRow(`SELECT id FROM entries WHERE project_id='p1' AND directory_path='characters/npcs' AND slug='tom'`).Scan(&id); err != nil {
+		t.Fatalf("find imported entry: %v", err)
+	}
+	var hash string
+	if err := h.db.QueryRow(`SELECT COALESCE(body_hash,'') FROM entries WHERE id = ?`, id).Scan(&hash); err != nil {
+		t.Fatalf("query body_hash: %v", err)
+	}
+	sum := sha256.Sum256([]byte(tomMD))
+	want := hex.EncodeToString(sum[:])
+	if hash != want {
+		t.Errorf("body_hash = %q, want %q", hash, want)
+	}
+}
+
+func TestImport_Apply_SetsBodyHashOnOverwrite(t *testing.T) {
+	h, _, entries := newTestImportHandler(t)
+
+	// Seed an existing entry at the same path the import will overwrite —
+	// same pattern TestImport_Conflicts' seed closure uses.
+	req := httptest.NewRequest(http.MethodPost, "/content/projects/p1/entries",
+		strings.NewReader(`{"slug":"tom","directoryPath":"characters/npcs","body":"---\nname: Old Tom\n---\n\nOld."}`))
+	req = withChiParam(req, "id", "p1")
+	rec := httptest.NewRecorder()
+	entries.Create(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("seed create: %d %s", rec.Code, rec.Body.String())
+	}
+	var seeded Entry
+	_ = json.Unmarshal(rec.Body.Bytes(), &seeded)
+
+	rec2, resp := doImport(t, h, "p1", "?mode=apply&onConflict=overwrite", map[string]string{
+		"characters/npcs/tom/tom.md": tomMD,
+	})
+	if rec2.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec2.Code, rec2.Body.String())
+	}
+	if !resp.Applied {
+		t.Fatalf("apply reported applied=false: %+v", resp)
+	}
+
+	var hash string
+	if err := h.db.QueryRow(`SELECT COALESCE(body_hash,'') FROM entries WHERE id = ?`, seeded.ID).Scan(&hash); err != nil {
+		t.Fatalf("query body_hash: %v", err)
+	}
+	sum := sha256.Sum256([]byte(tomMD))
+	want := hex.EncodeToString(sum[:])
+	if hash != want {
+		t.Errorf("body_hash = %q, want %q (should be the overwritten content's hash, not the seeded original's)", hash, want)
 	}
 }
 

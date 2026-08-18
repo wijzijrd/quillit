@@ -49,6 +49,11 @@ func migrate(db *sql.DB) error {
 			return fmt.Errorf("schema v4: %w", err)
 		}
 	}
+	if version < 5 {
+		if err := toV5(db); err != nil {
+			return fmt.Errorf("schema v5: %w", err)
+		}
+	}
 	return nil
 }
 
@@ -224,6 +229,32 @@ func toV4(db *sql.DB) error {
 	}
 
 	if _, err := tx.Exec(`PRAGMA user_version = 4`); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// toV5 adds entries.body_hash — the SHA-256 (hex) of the entry's raw
+// stored body, set at every body-write site (Create, Update, import
+// apply — see internal/handler/entries.go's bodyHash helper). Powers
+// #126's delta-push follow-up: the CLI compares this against a local
+// hash to decide what's actually changed before packing/uploading.
+// NULL for pre-migration rows until their next write — same convention
+// as orphaned_at (toV4): a NULL/unknown hash is always treated as
+// "changed" by the comparison, so this is a safe default, not a
+// correctness gap.
+func toV5(db *sql.DB) error {
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.Exec(`ALTER TABLE entries ADD COLUMN body_hash TEXT`); err != nil {
+		return fmt.Errorf("add entries.body_hash: %w", err)
+	}
+
+	if _, err := tx.Exec(`PRAGMA user_version = 5`); err != nil {
 		return err
 	}
 	return tx.Commit()

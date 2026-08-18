@@ -48,8 +48,46 @@ func Project(w io.Writer, root string, only string) error {
 
 	gz := gzip.NewWriter(w)
 	tw := tar.NewWriter(gz)
+	if err := walkOne(tw, root, start); err != nil {
+		return err
+	}
+	if err := tw.Close(); err != nil {
+		return err
+	}
+	return gz.Close()
+}
 
-	err := filepath.WalkDir(start, func(p string, d fs.DirEntry, err error) error {
+// Selected writes a gzipped tar containing only the given entry folders
+// (each relative to root, e.g. "characters/npcs/tom") — used by `push
+// --delta` (#126), where the caller has already computed which entries
+// are new or changed. Archive member paths stay relative to root, the
+// same shape Project always produces, so the server's import pipeline
+// sees no difference between a --delta push and an ordinary one.
+func Selected(w io.Writer, root string, paths []string) error {
+	gz := gzip.NewWriter(w)
+	tw := tar.NewWriter(gz)
+	for _, p := range paths {
+		start := filepath.Join(root, filepath.FromSlash(p))
+		info, err := os.Stat(start)
+		if err != nil || !info.IsDir() {
+			return fmt.Errorf("entry folder not found: %s", p)
+		}
+		if err := walkOne(tw, root, start); err != nil {
+			return err
+		}
+	}
+	if err := tw.Close(); err != nil {
+		return err
+	}
+	return gz.Close()
+}
+
+// walkOne tars every non-scaffolding file under start into tw, with
+// member paths relative to root (not start) — the shared body of both
+// Project (a single start, possibly root itself) and Selected (one call
+// per given path).
+func walkOne(tw *tar.Writer, root, start string) error {
+	return filepath.WalkDir(start, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -81,11 +119,4 @@ func Project(w io.Writer, root string, only string) error {
 		_, err = tw.Write(data)
 		return err
 	})
-	if err != nil {
-		return err
-	}
-	if err := tw.Close(); err != nil {
-		return err
-	}
-	return gz.Close()
 }

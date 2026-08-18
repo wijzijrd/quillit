@@ -2,7 +2,9 @@ package handler
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -52,6 +54,10 @@ type EntryMeta struct {
 	OwnerUserID   string   `json:"ownerUserId,omitempty"`
 	CreatedAt     int64    `json:"createdAt"`
 	UpdatedAt     int64    `json:"updatedAt"`
+	// BodyHash is the SHA-256 hex hash of the entry's raw stored body —
+	// empty when unset (pre-#126-migration rows that haven't been
+	// touched since). See bodyHash() and #126's delta-push design.
+	BodyHash string `json:"bodyHash,omitempty"`
 	// OrphanedAt is set once svc reports this entry's project was deleted
 	// (#44's orphan-and-report policy — see InternalHandler.ProjectDeleted).
 	// nil means the entry's project is still live.
@@ -65,13 +71,13 @@ type Entry struct {
 	Body string `json:"body"`
 }
 
-const entryMetaSelect = `SELECT id, project_id, slug, directory_path, title, tags, COALESCE(owner_user_id,''), created_at, updated_at, orphaned_at FROM entries`
+const entryMetaSelect = `SELECT id, project_id, slug, directory_path, title, tags, COALESCE(owner_user_id,''), created_at, updated_at, COALESCE(body_hash,''), orphaned_at FROM entries`
 
 func scanEntryMeta(row interface{ Scan(...any) error }) (EntryMeta, error) {
 	var m EntryMeta
 	var tagsJSON string
 	var orphanedAt sql.NullInt64
-	if err := row.Scan(&m.ID, &m.ProjectID, &m.Slug, &m.DirectoryPath, &m.Title, &tagsJSON, &m.OwnerUserID, &m.CreatedAt, &m.UpdatedAt, &orphanedAt); err != nil {
+	if err := row.Scan(&m.ID, &m.ProjectID, &m.Slug, &m.DirectoryPath, &m.Title, &tagsJSON, &m.OwnerUserID, &m.CreatedAt, &m.UpdatedAt, &m.BodyHash, &orphanedAt); err != nil {
 		return m, err
 	}
 	_ = json.Unmarshal([]byte(tagsJSON), &m.Tags)
@@ -83,6 +89,16 @@ func scanEntryMeta(row interface{ Scan(...any) error }) (EntryMeta, error) {
 
 func bodyKey(id string) string {
 	return fmt.Sprintf("entries/%s/body.md", id)
+}
+
+// bodyHash is the SHA-256 (hex) of an entry's raw body bytes, stored
+// alongside every body write (Create, Update, import apply) and exposed
+// on List for #126's delta-push follow-up. No normalization: hashing the
+// exact bytes that get stored means a client hashing its own local file
+// the same way gets a directly comparable value.
+func bodyHash(data []byte) string {
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
 }
 
 func imagesPrefix(id string) string {
@@ -235,6 +251,7 @@ func (h *EntriesHandler) Create(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "blob error")
 		return
 	}
+	hash := bodyHash([]byte(req.Body))
 
 	tx, err := h.db.BeginTx(r.Context(), nil)
 	if err != nil {
@@ -244,9 +261,9 @@ func (h *EntriesHandler) Create(w http.ResponseWriter, r *http.Request) {
 	defer tx.Rollback()
 
 	_, err = tx.ExecContext(r.Context(), `
-		INSERT INTO entries (id, project_id, slug, directory_path, title, tags, owner_user_id, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, id, projectID, req.Slug, req.DirectoryPath, title, string(tagsJSON), nullStr(ownerID), now, now)
+		INSERT INTO entries (id, project_id, slug, directory_path, title, tags, owner_user_id, created_at, updated_at, body_hash)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, id, projectID, req.Slug, req.DirectoryPath, title, string(tagsJSON), nullStr(ownerID), now, now, hash)
 	if err != nil {
 		_ = h.blobs.Delete(r.Context(), bodyKey(id))
 		if isUniqueConstraintErr(err) {
@@ -357,6 +374,10 @@ func (h *EntriesHandler) Update(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	hash := existing.BodyHash
+	if bodyChanged {
+		hash = bodyHash([]byte(newBody))
+	}
 
 	now := nowUnix()
 	tagsJSON, _ := json.Marshal(tags)
@@ -369,8 +390,8 @@ func (h *EntriesHandler) Update(w http.ResponseWriter, r *http.Request) {
 	defer tx.Rollback()
 
 	_, err = tx.ExecContext(r.Context(), `
-		UPDATE entries SET slug = ?, directory_path = ?, title = ?, tags = ?, updated_at = ? WHERE id = ?
-	`, slug, dir, title, string(tagsJSON), now, id)
+		UPDATE entries SET slug = ?, directory_path = ?, title = ?, tags = ?, updated_at = ?, body_hash = ? WHERE id = ?
+	`, slug, dir, title, string(tagsJSON), now, hash, id)
 	if err != nil {
 		if isUniqueConstraintErr(err) {
 			writeError(w, http.StatusConflict, "an entry already exists at this path")
