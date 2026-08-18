@@ -100,6 +100,30 @@ func (c *Client) ListProjects() ([]Project, error) {
 	return ps, nil
 }
 
+// EntryMeta is the subset of content-svc's entry metadata the CLI needs
+// for delta-push comparison (#126) — path identity and its content hash.
+type EntryMeta struct {
+	Slug          string `json:"slug"`
+	DirectoryPath string `json:"directoryPath"`
+	BodyHash      string `json:"bodyHash"`
+}
+
+func (c *Client) ListEntries(projectID string) ([]EntryMeta, error) {
+	resp, err := c.do(http.MethodGet, "/api/content/projects/"+projectID+"/entries", nil, nil, "")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("listing entries failed (%s)", readErrorMessage(resp))
+	}
+	var out []EntryMeta
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 type ImportOptions struct {
 	Mode         string
 	OnConflict   string

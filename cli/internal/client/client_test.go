@@ -104,3 +104,44 @@ func TestImport_422IsValidationError(t *testing.T) {
 		t.Errorf("ve = %+v", ve)
 	}
 }
+
+func TestListEntries_ParsesResponse(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/content/projects/proj-1/entries" {
+			t.Errorf("unexpected path %s", r.URL.Path)
+		}
+		_, _ = w.Write([]byte(`[
+			{"id":"e1","slug":"tom","directoryPath":"characters/npcs","bodyHash":"abc123"},
+			{"id":"e2","slug":"inn","directoryPath":"locations","bodyHash":""}
+		]`))
+	}))
+	defer srv.Close()
+	c := &Client{Server: srv.URL, Token: "TOK"}
+
+	entries, err := c.ListEntries("proj-1")
+	if err != nil {
+		t.Fatalf("ListEntries: %v", err)
+	}
+	if len(entries) != 2 {
+		t.Fatalf("got %d entries, want 2", len(entries))
+	}
+	if entries[0].Slug != "tom" || entries[0].DirectoryPath != "characters/npcs" || entries[0].BodyHash != "abc123" {
+		t.Errorf("entries[0] = %+v, want slug=tom directoryPath=characters/npcs bodyHash=abc123", entries[0])
+	}
+	if entries[1].BodyHash != "" {
+		t.Errorf("entries[1].BodyHash = %q, want empty (unset remote hash)", entries[1].BodyHash)
+	}
+}
+
+func TestListEntries_ErrorStatus(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte(`{"error":"not a project member"}`))
+	}))
+	defer srv.Close()
+	c := &Client{Server: srv.URL, Token: "TOK"}
+
+	if _, err := c.ListEntries("proj-1"); err == nil {
+		t.Error("expected an error for a 403 response")
+	}
+}
