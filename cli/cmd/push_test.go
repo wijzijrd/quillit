@@ -137,6 +137,34 @@ func TestLocalEntryHashes(t *testing.T) {
 	}
 }
 
+// TestLocalEntryHashes_SkipsDotPrefixedDirectories covers the finding
+// from #126's final review: pack.walkOne skips dot-prefixed directories
+// below the walk's start point, but entry.WalkAll does not — so without
+// filtering, --delta could select an entry (e.g. under ".backup/") that
+// a plain `quillit push` would never include, and that pack.Selected then
+// packs anyway (its per-path start *is* the dot directory, so the
+// "p != start" skip guard never triggers). localEntryHashes must exclude
+// any entry whose path has a dot-prefixed segment.
+func TestLocalEntryHashes_SkipsDotPrefixedDirectories(t *testing.T) {
+	root := t.TempDir()
+	writeFileForTest(t, filepath.Join(root, "characters/npcs/tom/tom.md"), "hello tom")
+	writeFileForTest(t, filepath.Join(root, ".backup/tom/tom.md"), "backup tom")
+
+	hashes, err := localEntryHashes(root)
+	if err != nil {
+		t.Fatalf("localEntryHashes: %v", err)
+	}
+	if _, ok := hashes[".backup/tom"]; ok {
+		t.Errorf("hashes includes dot-prefixed entry .backup/tom, want it filtered out: %v", hashes)
+	}
+	if len(hashes) != 1 {
+		t.Fatalf("got %d entries, want 1: %v", len(hashes), hashes)
+	}
+	if _, ok := hashes["characters/npcs/tom"]; !ok {
+		t.Errorf("hashes missing characters/npcs/tom: %v", hashes)
+	}
+}
+
 func writeFileForTest(t *testing.T, path, content string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {

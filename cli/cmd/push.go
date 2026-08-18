@@ -152,10 +152,30 @@ func entryPath(dir, slug string) string {
 	return dir + "/" + slug
 }
 
+// hasDotSegment reports whether any "/"-separated segment of the
+// slash-normalized relative path rel starts with ".". pack.walkOne skips
+// dot-prefixed directories below its start point, so any entry path with
+// a dot segment is one a plain push would never include — --delta must
+// agree, or it can select paths pack.Selected then can't actually pack
+// without content-svc's import validation rejecting the dot segment.
+func hasDotSegment(rel string) bool {
+	for _, seg := range strings.Split(filepath.ToSlash(rel), "/") {
+		if strings.HasPrefix(seg, ".") {
+			return true
+		}
+	}
+	return false
+}
+
 // localEntryHashes walks every entry folder under root (entry.WalkAll)
 // and returns a map of project-root-relative path -> SHA-256 hex hash of
 // that entry's raw .md bytes — the exact bytes an unmodified push would
 // upload, so directly comparable to content-svc's stored body_hash.
+//
+// entry.WalkAll doesn't skip dot-prefixed directories, but pack.walkOne
+// does (below its start point) — so entries under a dot-prefixed
+// directory (e.g. ".backup/tom") are filtered out here, keeping the set
+// --delta ever considers identical to what a plain push would include.
 func localEntryHashes(root string) (map[string]string, error) {
 	paths, err := entry.WalkAll(root)
 	if err != nil {
@@ -163,6 +183,9 @@ func localEntryHashes(root string) (map[string]string, error) {
 	}
 	hashes := make(map[string]string, len(paths))
 	for _, rel := range paths {
+		if hasDotSegment(rel) {
+			continue
+		}
 		mdPath := filepath.Join(root, filepath.FromSlash(rel), filepath.Base(rel)+".md")
 		data, err := os.ReadFile(mdPath)
 		if err != nil {
@@ -286,6 +309,6 @@ func init() {
 	pushCmd.Flags().BoolVar(&pushCreateFacets, "create-facets", false, "Add facets missing from the web project's vocabulary instead of rejecting")
 	pushCmd.Flags().StringVar(&pushOutput, "output", "", "Write the tarball to this file instead of uploading")
 	pushCmd.Flags().StringVar(&pushEntry, "entry", "", "Push only this entry folder (path relative to project root)")
-	pushCmd.Flags().BoolVar(&pushDelta, "delta", false, "Only pack and upload entries that are new or changed since the target project's current state (mutually exclusive with --entry and --output)")
+	pushCmd.Flags().BoolVar(&pushDelta, "delta", false, "Only pack and upload entries that are new or changed since the target project's current state (mutually exclusive with --entry and --output) — implies --on-conflict overwrite unless you pass --on-conflict explicitly")
 	rootCmd.AddCommand(pushCmd)
 }
