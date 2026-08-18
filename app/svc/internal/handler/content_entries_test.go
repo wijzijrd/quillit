@@ -67,3 +67,31 @@ func TestContentEntriesProxy_NoJWTInContextStillProxies(t *testing.T) {
 		t.Error("Authorization header should be omitted when no JWT is in context")
 	}
 }
+
+func TestContentEntriesProxy_PassesThroughNon200StatusAndContentType(t *testing.T) {
+	content := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain")
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte(`not a member`))
+	}))
+	defer content.Close()
+
+	h := handler.NewContentEntries(content.URL)
+	router := chi.NewRouter()
+	router.Get("/api/content/projects/{id}/entries", h.ListEntries)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/content/projects/proj-1/entries", nil)
+	req = req.WithContext(middleware.WithRawJWTForTest(req.Context(), "some-jwt"))
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusForbidden {
+		t.Errorf("status = %d, want %d", rr.Code, http.StatusForbidden)
+	}
+	if ct := rr.Header().Get("Content-Type"); ct != "text/plain" {
+		t.Errorf("Content-Type = %q, want %q", ct, "text/plain")
+	}
+	if body := rr.Body.String(); body != "not a member" {
+		t.Errorf("body = %q, want %q", body, "not a member")
+	}
+}
