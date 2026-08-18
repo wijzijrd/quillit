@@ -2,15 +2,20 @@ package cmd
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
+	"sort"
 	"strings"
 	"text/tabwriter"
 
 	"github.com/spf13/cobra"
 
 	"github.com/quillit/cli/internal/client"
+	"github.com/quillit/cli/internal/entry"
 	"github.com/quillit/cli/internal/pack"
 )
 
@@ -20,6 +25,7 @@ var (
 	pushCreateFacets bool
 	pushOutput       string
 	pushEntry        string
+	pushDelta        bool
 )
 
 var pushCmd = &cobra.Command{
@@ -42,6 +48,13 @@ login needed.`,
 			return err
 		}
 
+		if pushDelta && pushEntry != "" {
+			return errors.New("--delta and --entry are mutually exclusive")
+		}
+		if pushDelta && pushOutput != "" {
+			return errors.New("--delta and --output are mutually exclusive — delta needs a live comparison against a logged-in web project")
+		}
+
 		if pushOutput != "" {
 			f, err := os.Create(pushOutput)
 			if err != nil {
@@ -59,6 +72,10 @@ login needed.`,
 		case "fail", "skip", "overwrite", "suffix":
 		default:
 			return fmt.Errorf("invalid --on-conflict %q: want fail, skip, overwrite, or suffix", pushOnConflict)
+		}
+
+		if pushDelta && !cmd.Flags().Changed("on-conflict") {
+			pushOnConflict = "overwrite"
 		}
 
 		if h.Config.Server == "" || h.Config.SessionToken == "" {
@@ -80,8 +97,28 @@ login needed.`,
 		}
 
 		var buf bytes.Buffer
-		if err := pack.Project(&buf, p.Root, pushEntry); err != nil {
-			return err
+		if pushDelta {
+			local, err := localEntryHashes(p.Root)
+			if err != nil {
+				return err
+			}
+			remote, err := c.ListEntries(webProject.ID)
+			if err != nil {
+				return err
+			}
+			plan := classifyDelta(local, remote)
+			fmt.Printf("%d changed, %d new, %d unchanged (skipped)\n", plan.changedCount, plan.newCount, plan.unchangedCount)
+			if len(plan.toPush) == 0 {
+				fmt.Printf("Nothing to push — %d entries all unchanged.\n", plan.unchangedCount)
+				return nil
+			}
+			if err := pack.Selected(&buf, p.Root, plan.toPush); err != nil {
+				return err
+			}
+		} else {
+			if err := pack.Project(&buf, p.Root, pushEntry); err != nil {
+				return err
+			}
 		}
 
 		mode := "dry-run"
@@ -101,6 +138,76 @@ login needed.`,
 		fmt.Print(renderImportReport(resp, pushApply))
 		return nil
 	},
+}
+
+// entryPath joins a directoryPath/slug pair into the same project-root-
+// relative path shape entry.WalkAll returns — content-svc's inverse,
+// entryPathOf (app/content/internal/handler/importer.go), does the same
+// join, so a remote EntryMeta's path and a local WalkAll path are
+// directly comparable once both go through this.
+func entryPath(dir, slug string) string {
+	if dir == "" {
+		return slug
+	}
+	return dir + "/" + slug
+}
+
+// localEntryHashes walks every entry folder under root (entry.WalkAll)
+// and returns a map of project-root-relative path -> SHA-256 hex hash of
+// that entry's raw .md bytes — the exact bytes an unmodified push would
+// upload, so directly comparable to content-svc's stored body_hash.
+func localEntryHashes(root string) (map[string]string, error) {
+	paths, err := entry.WalkAll(root)
+	if err != nil {
+		return nil, err
+	}
+	hashes := make(map[string]string, len(paths))
+	for _, rel := range paths {
+		mdPath := filepath.Join(root, filepath.FromSlash(rel), filepath.Base(rel)+".md")
+		data, err := os.ReadFile(mdPath)
+		if err != nil {
+			return nil, err
+		}
+		sum := sha256.Sum256(data)
+		hashes[filepath.ToSlash(rel)] = hex.EncodeToString(sum[:])
+	}
+	return hashes, nil
+}
+
+// deltaPlan is classifyDelta's result: which local entry paths need
+// packing, and the counts for the user-facing summary line.
+type deltaPlan struct {
+	toPush                                 []string
+	newCount, changedCount, unchangedCount int
+}
+
+// classifyDelta compares local entry hashes against the server's current
+// state, one local entry at a time. A remote entry with an empty BodyHash
+// (unset — either pre-#126-migration and never touched since, or the
+// server just doesn't know) is always treated as changed, never skipped
+// — see #126's design doc: "unknown is always changed."
+func classifyDelta(local map[string]string, remote []client.EntryMeta) deltaPlan {
+	remoteHash := make(map[string]string, len(remote))
+	for _, e := range remote {
+		remoteHash[entryPath(e.DirectoryPath, e.Slug)] = e.BodyHash
+	}
+
+	var plan deltaPlan
+	for path, hash := range local {
+		rh, exists := remoteHash[path]
+		switch {
+		case !exists:
+			plan.newCount++
+			plan.toPush = append(plan.toPush, path)
+		case rh == "" || rh != hash:
+			plan.changedCount++
+			plan.toPush = append(plan.toPush, path)
+		default:
+			plan.unchangedCount++
+		}
+	}
+	sort.Strings(plan.toPush)
+	return plan
 }
 
 // matchWebProject finds the target web project by exact name or id,
@@ -179,5 +286,6 @@ func init() {
 	pushCmd.Flags().BoolVar(&pushCreateFacets, "create-facets", false, "Add facets missing from the web project's vocabulary instead of rejecting")
 	pushCmd.Flags().StringVar(&pushOutput, "output", "", "Write the tarball to this file instead of uploading")
 	pushCmd.Flags().StringVar(&pushEntry, "entry", "", "Push only this entry folder (path relative to project root)")
+	pushCmd.Flags().BoolVar(&pushDelta, "delta", false, "Only pack and upload entries that are new or changed since the target project's current state (mutually exclusive with --entry and --output)")
 	rootCmd.AddCommand(pushCmd)
 }
