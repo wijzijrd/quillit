@@ -99,3 +99,57 @@ func TestProject_MissingEntryFolderErrors(t *testing.T) {
 		t.Error("missing --entry folder accepted, want error")
 	}
 }
+
+func TestSelected_PacksOnlyGivenPaths(t *testing.T) {
+	root := makeProject(t)
+	var buf bytes.Buffer
+	if err := Selected(&buf, root, []string{"characters/npcs/tom", "locations/inn"}); err != nil {
+		t.Fatalf("Selected: %v", err)
+	}
+	got := tarMembers(t, buf.Bytes())
+	want := []string{
+		"characters/npcs/tom/tom-portrait.png",
+		"characters/npcs/tom/tom.md",
+		"locations/inn/inn.md",
+	}
+	if len(got) != len(want) {
+		t.Fatalf("members = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("member %d = %q, want %q", i, got[i], want[i])
+		}
+	}
+}
+
+func TestSelected_OnePathMatchesProjectSingleEntryOutput(t *testing.T) {
+	root := makeProject(t)
+	var selBuf, projBuf bytes.Buffer
+	if err := Selected(&selBuf, root, []string{"characters/npcs/tom"}); err != nil {
+		t.Fatalf("Selected: %v", err)
+	}
+	if err := Project(&projBuf, root, "characters/npcs/tom"); err != nil {
+		t.Fatalf("Project: %v", err)
+	}
+	selMembers := tarMembers(t, selBuf.Bytes())
+	projMembers := tarMembers(t, projBuf.Bytes())
+	if len(selMembers) != len(projMembers) {
+		t.Fatalf("Selected members = %v, Project(--entry) members = %v — should match", selMembers, projMembers)
+	}
+	for i := range selMembers {
+		if selMembers[i] != projMembers[i] {
+			t.Errorf("member %d: Selected = %q, Project(--entry) = %q — should match", i, selMembers[i], projMembers[i])
+		}
+	}
+}
+
+func TestSelected_EmptyPathsProducesEmptyArchive(t *testing.T) {
+	root := makeProject(t)
+	var buf bytes.Buffer
+	if err := Selected(&buf, root, nil); err != nil {
+		t.Fatalf("Selected: %v", err)
+	}
+	if got := tarMembers(t, buf.Bytes()); len(got) != 0 {
+		t.Errorf("members = %v, want none", got)
+	}
+}
