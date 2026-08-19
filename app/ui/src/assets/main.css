@@ -341,11 +341,6 @@ html.glass.dark { --surface-alpha: 58%; }
   }
   .secret-block > *:last-child { margin-bottom: 0; }
 
-  /* Player preview hides secret content entirely — matches the CLI's
-     `player` render view (docs/cli-spec.md §4: "everything except
-     :::secret"), rather than the old dim-but-visible GM-mark treatment. */
-  .player-preview .secret-block { display: none; }
-
   /* Card block — a named-facet flash card, may nest inside a secret block. */
   .card-block {
     border: 1px solid var(--border);

@@ -1,5 +1,5 @@
 <template>
-  <div class="entry-editor" v-if="entry" :class="{ 'player-preview': previewMode }">
+  <div class="entry-editor" v-if="entry">
     <div class="popup-controls">
       <div class="popup-nav">
         <button v-if="canGoBack"    class="ctrl-btn" @click="goBack"    title="Back">    <ChevronLeft  :size="14" /></button>
@@ -62,27 +62,36 @@
         ><Layers :size="14" /></button>
         <button class="tbtn" @click="printEntry" title="Print / export PDF"><Printer :size="14" /></button>
         <span class="toolbar-spacer"></span>
-        <button
-          class="tbtn preview-btn"
-          :class="{ on: previewMode }"
-          @click="previewMode = !previewMode"
-          :title="previewMode ? 'Switch to GM view' : 'Toggle player preview'"
+        <div class="view-switcher">
+          <button class="view-btn" :class="{ on: viewMode === 'dm' }" @click="switchView('dm')" title="DM view (editable)">DM</button>
+          <button class="view-btn" :class="{ on: viewMode === 'player' }" @click="switchView('player')" title="Player preview">Player</button>
+          <button class="view-btn" :class="{ on: viewMode === 'card' }" @click="switchView('card')" title="Card preview" :disabled="!cardFacets.length">Card</button>
+        </div>
+        <select
+          v-if="viewMode === 'card'"
+          class="facet-select"
+          v-model="selectedCardFacet"
+          @change="fetchRender"
         >
-          <EyeOff v-if="previewMode" :size="14" />
-          <Eye v-else :size="14" />
-        </button>
+          <option v-for="f in cardFacets" :key="f" :value="f">{{ f }}</option>
+        </select>
         <span class="save-status">{{ saveStatus }}</span>
       </div>
     </div>
     <div class="editor-body">
       <div class="editor-content" @click="onEditorClick">
         <TiptapEditor
+          v-if="viewMode === 'dm'"
           ref="tiptapRef"
           v-model="localBody"
           :uploadImageFn="uploadImage"
-          :previewMode="previewMode"
           @update:modelValue="debouncedSave"
         />
+        <div v-else class="rendered-view">
+          <p v-if="rendering" class="rendered-status">Rendering…</p>
+          <p v-else-if="renderError" class="rendered-error">{{ renderError }}</p>
+          <div v-else class="rendered-content" v-html="renderedHtml"></div>
+        </div>
       </div>
       <div class="right-panel" :class="{ collapsed: panelCollapsed }">
         <div class="panel-tabs">
@@ -122,7 +131,7 @@
         <AnnotationPanel
           v-if="activePanel === 'annotations'"
           :entryId="entry.id"
-          :previewMode="previewMode"
+          :previewMode="viewMode !== 'dm'"
         />
         <LinkedEntriesPanel
           v-if="activePanel === 'links'"
@@ -149,11 +158,11 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import { api } from '../api/client'
+import { api, apiErrorMessage } from '../api/client'
 import {
   Bold, Italic, Heading2, Heading3, List, Minus,
   AlignLeft, AlignCenter, AlignRight, AlignJustify,
-  Pin, Eye, EyeOff, Printer, Lock, Layers, Trash2,
+  Pin, Printer, Lock, Layers, Trash2,
   PanelRightClose, PanelRightOpen, Link, LayoutList,
   ChevronLeft, ChevronRight, X, ExternalLink, Share2,
 } from 'lucide-vue-next'
@@ -200,7 +209,11 @@ const localBody = ref('')
 const localTags = ref([])
 const tagInput = ref('')
 const saveStatus = ref('')
-const previewMode = ref(false)
+const viewMode = ref<'dm' | 'player' | 'card'>('dm')
+const selectedCardFacet = ref<string>('')
+const renderedHtml = ref('')
+const renderError = ref('')
+const rendering = ref(false)
 const activePanel = ref('annotations')
 const panelCollapsed = ref(false)
 
@@ -256,6 +269,48 @@ async function save() {
   }
   setTimeout(() => saveStatus.value = '', 2000)
 }
+
+/**
+ * Switching into Player or Card view always saves first, so the preview
+ * is never stale relative to the editor — there's no separate "unsaved
+ * changes" indicator needed (issue #48's design doc §3). If the current
+ * draft doesn't save (e.g. invalid content), the error surfaces and the
+ * view stays DM rather than attempting to render a draft the server
+ * just rejected.
+ */
+async function switchView(mode: 'dm' | 'player' | 'card') {
+  if (mode === viewMode.value) return
+  if (mode === 'dm') {
+    viewMode.value = 'dm'
+    return
+  }
+  clearTimeout(saveTimer)
+  await save()
+  if (saveStatus.value === 'Save failed') return
+  viewMode.value = mode
+  if (mode === 'card' && !selectedCardFacet.value && cardFacets.value.length) selectedCardFacet.value = cardFacets.value[0]
+  await fetchRender()
+}
+
+async function fetchRender() {
+  if (!entry.value) return
+  rendering.value = true
+  renderError.value = ''
+  try {
+    const query = viewMode.value === 'card'
+      ? `card=${encodeURIComponent(selectedCardFacet.value)}`
+      : 'view=player'
+    renderedHtml.value = await api(`/content/entries/${entry.value.id}/render?${query}`, { responseType: 'text' })
+  } catch (e) {
+    renderError.value = apiErrorMessage(e, 'Could not render preview')
+  } finally {
+    rendering.value = false
+  }
+}
+
+watch(selectedCardFacet, () => {
+  if (viewMode.value === 'card') fetchRender()
+})
 
 function confirmDelete() {
   if (!confirm(`Delete "${entry.value.title}"? This cannot be undone.`)) return
@@ -491,12 +546,28 @@ function onEditorClick(e: MouseEvent) {
 .tbtn:disabled { opacity: 0.35; cursor: default; }
 .secret-btn:hover { color: #e88; }
 .card-btn:hover { color: var(--primary); }
-.preview-btn.on { background: rgba(80,200,120,0.15); color: #8e8; }
 .toolbar-divider {
   width: 1px; background: var(--border);
   height: 16px; margin: 0 var(--space-xs);
 }
 .toolbar-spacer { flex: 1; }
+
+.view-switcher { display: inline-flex; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+.view-btn {
+  background: none; border: none; padding: 0 var(--space-sm);
+  height: var(--h-sm); font-size: var(--text-xs); color: var(--muted-foreground);
+  cursor: pointer; transition: background var(--transition), color var(--transition);
+}
+.view-btn:disabled { opacity: 0.35; cursor: default; }
+.view-btn.on { background: var(--secondary); color: var(--primary); }
+.view-btn + .view-btn { border-left: 1px solid var(--border); }
+.facet-select {
+  height: var(--h-sm); border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--muted); color: var(--foreground); font-size: var(--text-xs); padding: 0 var(--space-xs);
+}
+.rendered-view { max-width: 700px; margin: 0 auto; }
+.rendered-status, .rendered-error { color: var(--muted-foreground); font-size: var(--text-sm); }
+.rendered-error { color: var(--destructive); }
 .save-status { font-size: var(--text-xs); color: var(--muted-foreground); margin-left: var(--space-sm); }
 
 .editor-body { display: flex; flex: 1; overflow: hidden; }
