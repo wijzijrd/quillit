@@ -6,8 +6,6 @@ export interface Frontmatter {
   tags: string[]
 }
 
-const FRONTMATTER_RE = /^---\n([\s\S]*?)\n---\n\n?([\s\S]*)$/
-
 /**
  * Splits a full entry body into its YAML frontmatter and the rest (what
  * TiptapEditor manages — issue #47's editor never sees or round-trips
@@ -15,23 +13,38 @@ const FRONTMATTER_RE = /^---\n([\s\S]*?)\n---\n\n?([\s\S]*)$/
  * whole body as `rest` when no `---`-delimited block is present, or when
  * the block's YAML doesn't parse — never throws, since this runs against
  * real stored content on every entry load.
+ *
+ * Ports pkg/contentengine/parse's extractFrontmatter algorithm (parse.go)
+ * rather than using a regex: CRLF-normalize first, then a line-based,
+ * TrimSpace-tolerant fence match. A regex anchored on `\n---\n` cannot
+ * correctly express this — content-svc itself produces frontmatter blocks
+ * with zero trailing newlines (app/svc/internal/migrate/convert.go's
+ * ConvertEntry, when an entry has no body sections) and CRLF-authored
+ * content arrives byte-for-byte from blob storage (importer.go doesn't
+ * normalize line endings), neither of which a `\n`-requiring regex matches.
  */
 export function decomposeFrontmatter(body: string): { frontmatter: Frontmatter; rest: string } {
-  const match = body.match(FRONTMATTER_RE)
-  if (!match) return { frontmatter: { name: '', tags: [] }, rest: body }
-
-  try {
-    const parsed = load(match[1]) as Partial<Frontmatter> | null | undefined
-    return {
-      frontmatter: {
-        name: typeof parsed?.name === 'string' ? parsed.name : '',
-        tags: Array.isArray(parsed?.tags) ? parsed.tags : [],
-      },
-      rest: match[2] ?? '',
-    }
-  } catch {
+  const text = body.replace(/\r\n/g, '\n')
+  const lines = text.split('\n')
+  if (lines[0]?.trim() !== '---') {
     return { frontmatter: { name: '', tags: [] }, rest: body }
   }
+  for (let i = 1; i < lines.length; i++) {
+    if (lines[i].trim() !== '---') continue
+    try {
+      const parsed = load(lines.slice(1, i).join('\n')) as Partial<Frontmatter> | null | undefined
+      return {
+        frontmatter: {
+          name: typeof parsed?.name === 'string' ? parsed.name : '',
+          tags: Array.isArray(parsed?.tags) ? parsed.tags.map(String) : [],
+        },
+        rest: lines.slice(i + 1).join('\n').replace(/^\n/, ''),
+      }
+    } catch {
+      return { frontmatter: { name: '', tags: [] }, rest: body }
+    }
+  }
+  return { frontmatter: { name: '', tags: [] }, rest: body }
 }
 
 /**

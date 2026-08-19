@@ -35,6 +35,32 @@ describe('decomposeFrontmatter', () => {
     expect(frontmatter).toEqual({ name: 'Solo', tags: [] })
     expect(rest).toBe('Body immediately here.\n')
   })
+
+  it('handles frontmatter with zero trailing newlines (migrate.ConvertEntry with no body sections)', () => {
+    const body = '---\nname: Tom\ntags:\n  - npc\n---'
+    const { frontmatter, rest } = decomposeFrontmatter(body)
+    expect(frontmatter).toEqual({ name: 'Tom', tags: ['npc'] })
+    expect(rest).toBe('')
+  })
+
+  it('CRLF-normalizes before matching the fences (Windows-authored content pushed verbatim)', () => {
+    const body = '---\r\nname: Tom\r\n---\r\n\r\nBody\r\n'
+    const { frontmatter, rest } = decomposeFrontmatter(body)
+    expect(frontmatter).toEqual({ name: 'Tom', tags: [] })
+    expect(rest).toBe('Body\n')
+  })
+
+  it('tolerates trailing whitespace on a fence line (TrimSpace-equivalent match)', () => {
+    const body = '---  \nname: Tom\n---\n\nBody\n'
+    const { frontmatter, rest } = decomposeFrontmatter(body)
+    expect(frontmatter).toEqual({ name: 'Tom', tags: [] })
+    expect(rest).toBe('Body\n')
+  })
+
+  it('round-trips through composeFrontmatter', () => {
+    const original = decomposeFrontmatter(composeFrontmatter({ name: 'Tom', tags: ['npc'] }, 'Body.\n'))
+    expect(original).toEqual({ frontmatter: { name: 'Tom', tags: ['npc'] }, rest: 'Body.\n' })
+  })
 })
 
 describe('composeFrontmatter', () => {
