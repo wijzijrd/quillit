@@ -17,9 +17,6 @@
           @blur="save"
           placeholder="Entry title…"
         />
-        <select v-if="inProject" class="cat-select" v-model="localCategory" @change="save">
-          <option v-for="c in (cats.projectCategories.length ? cats.projectCategories : cats.categories)" :key="c.id" :value="c.name">{{ c.icon }} {{ c.name }}</option>
-        </select>
         <button class="delete-btn icon-btn" @click="confirmDelete" title="Delete entry">
           <Trash2 :size="14" />
         </button>
@@ -29,9 +26,6 @@
           v-for="tag in localTags"
           :key="tag"
           class="tag-chip"
-          :style="tagColor
-            ? { color: tagColor, background: hexToAlpha(tagColor, 0.12), borderColor: hexToAlpha(tagColor, 0.3) }
-            : {}"
         >{{ tag }}<button class="tag-remove" @click="removeTag(tag)">×</button></span>
         <input
           class="tag-input"
@@ -40,18 +34,6 @@
           @keydown="onTagKeydown"
           @blur="addTag"
         />
-      </div>
-      <div class="tag-suggestions" v-if="suggestedTags.length > 0">
-        <button
-          v-for="tag in suggestedTags"
-          :key="tag"
-          class="tag-suggest-chip"
-          @click="applyDefaultTag(tag)"
-          type="button"
-          :style="tagColor
-            ? { color: tagColor, borderColor: hexToAlpha(tagColor, 0.4) }
-            : {}"
-        >+ {{ tag }}</button>
       </div>
       <div class="toolbar">
         <button class="tbtn" @click="editor?.chain().focus().toggleBold().run()" :class="{ on: editor?.isActive('bold') }" title="Bold (Ctrl+B)"><Bold :size="14" /></button>
@@ -181,8 +163,8 @@ import LinkedEntriesPanel from './LinkedEntriesPanel.vue'
 import QuickViewPanel from './QuickViewPanel.vue'
 import NoteSharePanel from './NoteSharePanel.vue'
 import { hexToAlpha } from '../utils/color'
-import { useEntriesStore } from '../stores/useEntriesStore'
-import { useCategoriesStore } from '../stores/useCategoriesStore'
+import { useEntryStore } from '../stores/useEntryStore'
+import { composeFrontmatter, decomposeFrontmatter } from '../lib/frontmatter'
 import { useAnnotationsStore } from '../stores/useAnnotationsStore'
 import { useFacetsStore } from '../stores/useFacetsStore'
 import { useUIStore } from '../stores/useUIStore'
@@ -191,8 +173,7 @@ import { invalidateWikilinkCache } from '../extensions/wikilinkLookup'
 
 defineProps<{ onClose?: () => void }>()
 
-const entries = useEntriesStore()
-const cats = useCategoriesStore()
+const entryStore = useEntryStore()
 const annotations = useAnnotationsStore()
 const facets = useFacetsStore()
 const ui = useUIStore()
@@ -215,13 +196,7 @@ const cardFacets = computed(() => currentProjectId.value ? (facets.projectEffect
 
 const entry = ref(null)
 const localTitle = ref('')
-const localCategory = ref('Lore')
 const localBody = ref('')
-// Still round-tripped on save (see save(), below) even though the editor no
-// longer exposes a control for it — issue #47 replaces the whole-entry
-// visibility flag with block-level :::secret content; this just preserves
-// whatever value the entry already had rather than dropping the field.
-const localVisibility = ref('private')
 const localTags = ref([])
 const tagInput = ref('')
 const saveStatus = ref('')
@@ -239,21 +214,15 @@ const editor = computed(() => tiptapRef.value?.editor)
 
 watch(() => ui.activeEntryId, async (id) => {
   if (!id) { entry.value = null; return }
-  const found = entries.getById(id)
-  if (!found) return
-  entry.value = found
-  localTitle.value = found.title
-  localCategory.value = found.category
-  localBody.value = found.body
-  localVisibility.value = found.visibility ?? 'private'
-  localTags.value = found.tags ?? []
-  // Body may be empty when stored in MinIO (list response omits it).
-  // Fetch the full entry to hydrate body content.
-  if (!found.body) {
-    try {
-      const full = await api(`/entries/${id}`)
-      localBody.value = full.body ?? ''
-    } catch { /* non-critical — editor stays empty */ }
+  try {
+    const found = await entryStore.get(id)
+    entry.value = found
+    const { frontmatter, rest } = decomposeFrontmatter(found.body)
+    localTitle.value = frontmatter.name
+    localTags.value = frontmatter.tags
+    localBody.value = rest
+  } catch {
+    entry.value = null
   }
 }, { immediate: true })
 
@@ -275,13 +244,8 @@ function debouncedSave() {
 async function save() {
   if (!entry.value) return
   try {
-    await entries.updateEntry(entry.value.id, {
-      title: localTitle.value,
-      category: localCategory.value,
-      body: localBody.value,
-      visibility: localVisibility.value,
-      tags: localTags.value,
-    })
+    const body = composeFrontmatter({ name: localTitle.value, tags: localTags.value }, localBody.value)
+    await entryStore.update(entry.value.id, body)
     // A save can newly resolve a wikilink that pointed at a since-created
     // entry, or dangle one whose target moved — drop the cached lookups
     // rather than have them go stale until the next reload.
@@ -295,7 +259,7 @@ async function save() {
 
 function confirmDelete() {
   if (!confirm(`Delete "${entry.value.title}"? This cannot be undone.`)) return
-  entries.deleteEntry(entry.value.id)
+  entryStore.remove(entry.value.id)
   ui.setActiveEntry(null)
 }
 
@@ -351,11 +315,6 @@ async function printEntry() {
   win.document.head.appendChild(style)
   win.document.title = entry.value.title
 
-  const catEl = win.document.createElement('p')
-  catEl.style.cssText = 'font-size:0.75em;text-transform:uppercase;letter-spacing:0.1em;color:#666;'
-  catEl.textContent = entry.value.category
-  win.document.body.appendChild(catEl)
-
   const titleEl = win.document.createElement('h1')
   titleEl.textContent = entry.value.title
   win.document.body.appendChild(titleEl)
@@ -402,20 +361,6 @@ async function printEntry() {
   }
 
   win.print()
-}
-
-const suggestedTags = computed(() => {
-  const defaults = cats.defaultTagsFor(localCategory.value)
-  return defaults.filter(t => !localTags.value.includes(t))
-})
-
-const tagColor = computed(() => cats.categoryFor(localCategory.value)?.color ?? null)
-
-function applyDefaultTag(tag) {
-  if (!localTags.value.includes(tag)) {
-    localTags.value = [...localTags.value, tag]
-    save()
-  }
 }
 
 function setLink() {
@@ -505,17 +450,6 @@ function onEditorClick(e: MouseEvent) {
   height: var(--h-xl);
 }
 .title-input::placeholder { color: var(--muted-foreground); }
-.cat-select {
-  background: var(--muted);
-  border: 1px solid var(--border);
-  color: var(--muted-foreground);
-  font-family: var(--font-body);
-  font-size: var(--text-sm);
-  height: var(--h-md);
-  padding: 0 var(--space-sm);
-  border-radius: var(--radius);
-  cursor: pointer;
-}
 .icon-btn {
   display: inline-flex;
   align-items: center;
@@ -668,23 +602,4 @@ function onEditorClick(e: MouseEvent) {
   height: var(--h-xs);
 }
 .tag-input::placeholder { color: var(--muted-foreground); }
-
-
-.tag-suggestions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  padding: 4px 0 6px;
-}
-.tag-suggest-chip {
-  font-size: 0.75em;
-  padding: 2px 8px;
-  border: 1px dashed var(--border);
-  border-radius: 12px;
-  background: none;
-  color: var(--muted-foreground);
-  cursor: pointer;
-  transition: color var(--transition), border-color var(--transition);
-}
-.tag-suggest-chip:hover { color: var(--primary); border-color: var(--primary); }
 </style>
