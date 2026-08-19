@@ -28,6 +28,13 @@ describe('decomposeFrontmatter', () => {
     expect(frontmatter).toEqual({ name: '', tags: [] })
     expect(rest).toBe(body)
   })
+
+  it('handles frontmatter with only a single newline before body (Go code compatibility)', () => {
+    const body = '---\nname: Solo\n---\nBody immediately here.\n'
+    const { frontmatter, rest } = decomposeFrontmatter(body)
+    expect(frontmatter).toEqual({ name: 'Solo', tags: [] })
+    expect(rest).toBe('Body immediately here.\n')
+  })
 })
 
 describe('composeFrontmatter', () => {

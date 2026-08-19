@@ -6,7 +6,7 @@ export interface Frontmatter {
   tags: string[]
 }
 
-const FRONTMATTER_RE = /^---\n([\s\S]*?)\n---\n\n([\s\S]*)$/
+const FRONTMATTER_RE = /^---\n([\s\S]*?)\n---\n\n?([\s\S]*)$/
 
 /**
  * Splits a full entry body into its YAML frontmatter and the rest (what
