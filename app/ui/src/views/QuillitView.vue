@@ -117,6 +117,16 @@ watch(projectId, (newId) => {
   else cats.projectCategories.value = []
 })
 
+// Escape hatch for /entries/:id — open the editor for the routed entry id
+// directly, independent of the (list-backed) EntryRow click path above, so
+// deep-linking works even when the list itself hasn't loaded that entry.
+// EntryEditModal only needs `.id` off this object (it forwards it as the
+// `entry-id` prop and calls ui.setActiveEntry); EntryEditor fetches the
+// full entry itself via useEntryStore.get.
+watch(() => route.params.id, (id) => {
+  if (typeof id === 'string' && id) editingEntry.value = { id }
+}, { immediate: true })
+
 const collapsed = ref({})
 const editingEntry = ref(null)
 const viewingEntry = ref(null)
