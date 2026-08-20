@@ -226,6 +226,14 @@ const tiptapRef = ref(null)
 const editor = computed(() => tiptapRef.value?.editor)
 
 watch(() => ui.activeEntryId, async (id) => {
+  // Switching entries (or closing the editor) always drops back to a clean
+  // DM view — otherwise the header updates to the new entry while a stale
+  // Player/Card render (or a selectedCardFacet the new entry/project may
+  // not even have) is left on screen from the previous one.
+  viewMode.value = 'dm'
+  renderedHtml.value = ''
+  renderError.value = ''
+  selectedCardFacet.value = ''
   if (!id) { entry.value = null; return }
   try {
     const found = await entryStore.get(id)
