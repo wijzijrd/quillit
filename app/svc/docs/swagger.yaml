@@ -509,6 +509,371 @@ paths:
       summary: Username availability
       tags:
       - auth
+  /api/content/entries/{id}:
+    delete:
+      parameters:
+      - description: Entry ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Delete an entry (proxied to content-svc)
+      tags:
+      - content
+    get:
+      parameters:
+      - description: Entry ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+      summary: Get an entry, including its resolved body (proxied to content-svc)
+      tags:
+      - content
+    patch:
+      consumes:
+      - application/json
+      parameters:
+      - description: Entry ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+      summary: Update an entry (proxied to content-svc)
+      tags:
+      - content
+  /api/content/entries/{id}/images:
+    post:
+      consumes:
+      - multipart/form-data
+      parameters:
+      - description: Entry ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Image file
+        in: formData
+        name: image
+        required: true
+        type: file
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+      summary: Upload an entry image (proxied to content-svc)
+      tags:
+      - content
+  /api/content/entries/{id}/images/{filename}:
+    get:
+      parameters:
+      - description: Entry ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Image filename
+        in: path
+        name: filename
+        required: true
+        type: string
+      produces:
+      - image/*
+      responses:
+        "200":
+          description: OK
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+      summary: Get an entry image (proxied to content-svc)
+      tags:
+      - content
+  /api/content/entries/{id}/render:
+    get:
+      description: view and card are mutually exclusive; query params pass through
+        verbatim.
+      parameters:
+      - description: Entry ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: dm (default) or player
+        in: query
+        name: view
+        type: string
+      - description: facet name
+        in: query
+        name: card
+        type: string
+      produces:
+      - text/html
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: string
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+      summary: Render an entry to an HTML fragment (proxied to content-svc)
+      tags:
+      - content
+  /api/content/facets:
+    get:
+      description: Proxies to the content service.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              type: string
+            type: array
+      summary: List global facets
+      tags:
+      - facets
+    post:
+      consumes:
+      - application/json
+      description: 'Proxies to the content service. Body: { name: string } (kebab-case).'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+        "201":
+          description: Created
+          schema:
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+      summary: Add a global facet
+      tags:
+      - facets
+  /api/content/facets/{name}:
+    delete:
+      description: Proxies to the content service. Entry bodies are untouched — the
+        response carries a reminder.
+      parameters:
+      - description: Facet name
+        in: path
+        name: name
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+      summary: Remove a global facet
+      tags:
+      - facets
+  /api/content/projects/{id}/entries:
+    get:
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              additionalProperties: true
+              type: object
+            type: array
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+      summary: List a project's entries (proxied to content-svc)
+      tags:
+      - content
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+      summary: Create an entry in a project (proxied to content-svc)
+      tags:
+      - content
+  /api/content/projects/{id}/facets:
+    get:
+      description: Proxies to the content service. Union of global facets and this
+        project's own.
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              type: string
+            type: array
+      summary: List a project's effective facet vocabulary
+      tags:
+      - facets
+    post:
+      consumes:
+      - application/json
+      description: 'Proxies to the content service. Body: { name: string } (kebab-case).'
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+        "201":
+          description: Created
+          schema:
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+      summary: Add a project-specific facet
+      tags:
+      - facets
+  /api/content/projects/{id}/facets/{name}:
+    delete:
+      description: Proxies to the content service. Only removes from this project's
+        own facets; entry bodies are untouched — the response carries a reminder.
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Facet name
+        in: path
+        name: name
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+      summary: Remove a project-specific facet
+      tags:
+      - facets
+  /api/content/projects/{id}/import:
+    post:
+      consumes:
+      - application/gzip
+      description: Requires session and membership in the target project. Body is
+        a tar.gz; query params pass through (mode, onConflict, createFacets).
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+      summary: Import a CLI project tarball (proxied to content-svc)
+      tags:
+      - content
   /api/me/settings:
     get:
       produces:

@@ -61,6 +61,44 @@ func (h *ContentImagesHandler) GetImage(w http.ResponseWriter, r *http.Request) 
 	_, _ = io.Copy(w, resp.Body)
 }
 
+// UploadImage godoc
+// @Summary      Upload an entry image (proxied to content-svc)
+// @Tags         content
+// @Accept       multipart/form-data
+// @Produce      json
+// @Param        id     path  string  true  "Entry ID"
+// @Param        image  formData  file  true  "Image file"
+// @Success      201  {object}  map[string]string
+// @Failure      400  {object}  ErrorResponse
+// @Failure      404  {object}  ErrorResponse
+// @Router       /api/content/entries/{id}/images [post]
+func (h *ContentImagesHandler) UploadImage(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+
+	reqURL := fmt.Sprintf("%s/content/entries/%s/images", h.contentURL, url.PathEscape(id))
+	req, err := http.NewRequestWithContext(r.Context(), http.MethodPost, reqURL, r.Body)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	req.Header.Set("Content-Type", r.Header.Get("Content-Type"))
+	req.ContentLength = r.ContentLength
+	if raw, ok := middleware.RawJWTFromContext(r.Context()); ok {
+		req.Header.Set("Authorization", "Bearer "+raw)
+	}
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, fmt.Sprintf("content service unavailable: %v", err))
+		return
+	}
+	defer resp.Body.Close()
+
+	copyResponseHeaders(w.Header(), resp.Header)
+	w.WriteHeader(resp.StatusCode)
+	_, _ = io.Copy(w, resp.Body)
+}
+
 // forwardedResponseHeaders is the allowlist of upstream response headers
 // this proxy forwards verbatim. It's deliberately narrow — this is a
 // proxy, not a generic passthrough, so it forwards what content-svc set
