@@ -1,5 +1,5 @@
 <template>
-  <div class="tiptap-wrapper" :class="{ 'player-preview': previewMode }">
+  <div class="tiptap-wrapper">
     <editor-content :editor="editor" />
   </div>
 </template>
@@ -15,9 +15,6 @@ const props = defineProps<{
    * in-memory projection of it). */
   modelValue?: string
   uploadImageFn?: (file: File) => Promise<string>
-  /** Hides :::secret blocks live in the editor — the "player preview"
-   * toggle in EntryEditor.vue's toolbar. */
-  previewMode?: boolean
 }>()
 const emit = defineEmits(['update:modelValue', 'selectionUpdate'])
 

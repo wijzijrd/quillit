@@ -91,6 +91,7 @@ import { useEntriesStore } from '../stores/useEntriesStore'
 import { useCategoriesStore } from '../stores/useCategoriesStore'
 import { useProjectStore } from '../stores/useProjectStore'
 import { resolveIcon } from '../utils/categoryIcons'
+import type { Entry } from '../types'
 
 const route = useRoute()
 const entries = useEntriesStore()
@@ -118,10 +119,20 @@ watch(projectId, (newId) => {
 })
 
 const collapsed = ref({})
-const editingEntry = ref(null)
+const editingEntry = ref<Entry | { id: string } | null>(null)
 const viewingEntry = ref(null)
 const viewHistory = ref([])
 const viewFuture = ref([])
+
+// Escape hatch for /entries/:id — open the editor for the routed entry id
+// directly, independent of the (list-backed) EntryRow click path above, so
+// deep-linking works even when the list itself hasn't loaded that entry.
+// EntryEditModal only needs `.id` off this object (it forwards it as the
+// `entry-id` prop and calls ui.setActiveEntry); EntryEditor fetches the
+// full entry itself via useEntryStore.get.
+watch(() => route.params.id, (id) => {
+  if (typeof id === 'string' && id) editingEntry.value = { id }
+}, { immediate: true })
 
 // Flat sorted list for global notes view
 const visibleEntries = computed(() =>

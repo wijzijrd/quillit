@@ -1,5 +1,5 @@
 <template>
-  <div class="entry-editor" v-if="entry" :class="{ 'player-preview': previewMode }">
+  <div class="entry-editor" v-if="entry">
     <div class="popup-controls">
       <div class="popup-nav">
         <button v-if="canGoBack"    class="ctrl-btn" @click="goBack"    title="Back">    <ChevronLeft  :size="14" /></button>
@@ -17,9 +17,6 @@
           @blur="save"
           placeholder="Entry title…"
         />
-        <select v-if="inProject" class="cat-select" v-model="localCategory" @change="save">
-          <option v-for="c in (cats.projectCategories.length ? cats.projectCategories : cats.categories)" :key="c.id" :value="c.name">{{ c.icon }} {{ c.name }}</option>
-        </select>
         <button class="delete-btn icon-btn" @click="confirmDelete" title="Delete entry">
           <Trash2 :size="14" />
         </button>
@@ -29,9 +26,6 @@
           v-for="tag in localTags"
           :key="tag"
           class="tag-chip"
-          :style="tagColor
-            ? { color: tagColor, background: hexToAlpha(tagColor, 0.12), borderColor: hexToAlpha(tagColor, 0.3) }
-            : {}"
         >{{ tag }}<button class="tag-remove" @click="removeTag(tag)">×</button></span>
         <input
           class="tag-input"
@@ -40,18 +34,6 @@
           @keydown="onTagKeydown"
           @blur="addTag"
         />
-      </div>
-      <div class="tag-suggestions" v-if="suggestedTags.length > 0">
-        <button
-          v-for="tag in suggestedTags"
-          :key="tag"
-          class="tag-suggest-chip"
-          @click="applyDefaultTag(tag)"
-          type="button"
-          :style="tagColor
-            ? { color: tagColor, borderColor: hexToAlpha(tagColor, 0.4) }
-            : {}"
-        >+ {{ tag }}</button>
       </div>
       <div class="toolbar">
         <button class="tbtn" @click="editor?.chain().focus().toggleBold().run()" :class="{ on: editor?.isActive('bold') }" title="Bold (Ctrl+B)"><Bold :size="14" /></button>
@@ -80,27 +62,36 @@
         ><Layers :size="14" /></button>
         <button class="tbtn" @click="printEntry" title="Print / export PDF"><Printer :size="14" /></button>
         <span class="toolbar-spacer"></span>
-        <button
-          class="tbtn preview-btn"
-          :class="{ on: previewMode }"
-          @click="previewMode = !previewMode"
-          :title="previewMode ? 'Switch to GM view' : 'Toggle player preview'"
+        <div class="view-switcher">
+          <button class="view-btn" :class="{ on: viewMode === 'dm' }" @click="switchView('dm')" title="DM view (editable)">DM</button>
+          <button class="view-btn" :class="{ on: viewMode === 'player' }" @click="switchView('player')" title="Player preview">Player</button>
+          <button class="view-btn" :class="{ on: viewMode === 'card' }" @click="switchView('card')" title="Card preview" :disabled="!cardFacets.length">Card</button>
+        </div>
+        <select
+          v-if="viewMode === 'card'"
+          class="facet-select"
+          v-model="selectedCardFacet"
+          @change="fetchRender"
         >
-          <EyeOff v-if="previewMode" :size="14" />
-          <Eye v-else :size="14" />
-        </button>
+          <option v-for="f in cardFacets" :key="f" :value="f">{{ f }}</option>
+        </select>
         <span class="save-status">{{ saveStatus }}</span>
       </div>
     </div>
     <div class="editor-body">
       <div class="editor-content" @click="onEditorClick">
         <TiptapEditor
+          v-if="viewMode === 'dm'"
           ref="tiptapRef"
           v-model="localBody"
           :uploadImageFn="uploadImage"
-          :previewMode="previewMode"
           @update:modelValue="debouncedSave"
         />
+        <div v-else class="rendered-view">
+          <p v-if="rendering" class="rendered-status">Rendering…</p>
+          <p v-else-if="renderError" class="rendered-error">{{ renderError }}</p>
+          <div v-else class="rendered-content" v-html="renderedHtml"></div>
+        </div>
       </div>
       <div class="right-panel" :class="{ collapsed: panelCollapsed }">
         <div class="panel-tabs">
@@ -140,7 +131,7 @@
         <AnnotationPanel
           v-if="activePanel === 'annotations'"
           :entryId="entry.id"
-          :previewMode="previewMode"
+          :previewMode="viewMode !== 'dm'"
         />
         <LinkedEntriesPanel
           v-if="activePanel === 'links'"
@@ -167,11 +158,11 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import { api } from '../api/client'
+import { api, apiErrorMessage } from '../api/client'
 import {
   Bold, Italic, Heading2, Heading3, List, Minus,
   AlignLeft, AlignCenter, AlignRight, AlignJustify,
-  Pin, Eye, EyeOff, Printer, Lock, Layers, Trash2,
+  Pin, Printer, Lock, Layers, Trash2,
   PanelRightClose, PanelRightOpen, Link, LayoutList,
   ChevronLeft, ChevronRight, X, ExternalLink, Share2,
 } from 'lucide-vue-next'
@@ -180,9 +171,8 @@ import AnnotationPanel from './AnnotationPanel.vue'
 import LinkedEntriesPanel from './LinkedEntriesPanel.vue'
 import QuickViewPanel from './QuickViewPanel.vue'
 import NoteSharePanel from './NoteSharePanel.vue'
-import { hexToAlpha } from '../utils/color'
-import { useEntriesStore } from '../stores/useEntriesStore'
-import { useCategoriesStore } from '../stores/useCategoriesStore'
+import { useEntryStore } from '../stores/useEntryStore'
+import { composeFrontmatter, decomposeFrontmatter } from '../lib/frontmatter'
 import { useAnnotationsStore } from '../stores/useAnnotationsStore'
 import { useFacetsStore } from '../stores/useFacetsStore'
 import { useUIStore } from '../stores/useUIStore'
@@ -191,13 +181,11 @@ import { invalidateWikilinkCache } from '../extensions/wikilinkLookup'
 
 defineProps<{ onClose?: () => void }>()
 
-const entries = useEntriesStore()
-const cats = useCategoriesStore()
+const entryStore = useEntryStore()
 const annotations = useAnnotationsStore()
 const facets = useFacetsStore()
 const ui = useUIStore()
 const route = useRoute()
-const inProject = computed(() => !!route.params.projectId)
 // The entry's own campaignIds may list multiple projects; "push to session
 // chat" cares about the project currently in context (this route), not the
 // entry's full membership list.
@@ -215,17 +203,15 @@ const cardFacets = computed(() => currentProjectId.value ? (facets.projectEffect
 
 const entry = ref(null)
 const localTitle = ref('')
-const localCategory = ref('Lore')
 const localBody = ref('')
-// Still round-tripped on save (see save(), below) even though the editor no
-// longer exposes a control for it — issue #47 replaces the whole-entry
-// visibility flag with block-level :::secret content; this just preserves
-// whatever value the entry already had rather than dropping the field.
-const localVisibility = ref('private')
 const localTags = ref([])
 const tagInput = ref('')
 const saveStatus = ref('')
-const previewMode = ref(false)
+const viewMode = ref<'dm' | 'player' | 'card'>('dm')
+const selectedCardFacet = ref<string>('')
+const renderedHtml = ref('')
+const renderError = ref('')
+const rendering = ref(false)
 const activePanel = ref('annotations')
 const panelCollapsed = ref(false)
 
@@ -238,22 +224,24 @@ const tiptapRef = ref(null)
 const editor = computed(() => tiptapRef.value?.editor)
 
 watch(() => ui.activeEntryId, async (id) => {
+  // Switching entries (or closing the editor) always drops back to a clean
+  // DM view — otherwise the header updates to the new entry while a stale
+  // Player/Card render (or a selectedCardFacet the new entry/project may
+  // not even have) is left on screen from the previous one.
+  viewMode.value = 'dm'
+  renderedHtml.value = ''
+  renderError.value = ''
+  selectedCardFacet.value = ''
   if (!id) { entry.value = null; return }
-  const found = entries.getById(id)
-  if (!found) return
-  entry.value = found
-  localTitle.value = found.title
-  localCategory.value = found.category
-  localBody.value = found.body
-  localVisibility.value = found.visibility ?? 'private'
-  localTags.value = found.tags ?? []
-  // Body may be empty when stored in MinIO (list response omits it).
-  // Fetch the full entry to hydrate body content.
-  if (!found.body) {
-    try {
-      const full = await api(`/entries/${id}`)
-      localBody.value = full.body ?? ''
-    } catch { /* non-critical — editor stays empty */ }
+  try {
+    const found = await entryStore.get(id)
+    entry.value = found
+    const { frontmatter, rest } = decomposeFrontmatter(found.body)
+    localTitle.value = frontmatter.name
+    localTags.value = frontmatter.tags
+    localBody.value = rest
+  } catch {
+    entry.value = null
   }
 }, { immediate: true })
 
@@ -275,13 +263,8 @@ function debouncedSave() {
 async function save() {
   if (!entry.value) return
   try {
-    await entries.updateEntry(entry.value.id, {
-      title: localTitle.value,
-      category: localCategory.value,
-      body: localBody.value,
-      visibility: localVisibility.value,
-      tags: localTags.value,
-    })
+    const body = composeFrontmatter({ name: localTitle.value, tags: localTags.value }, localBody.value)
+    await entryStore.update(entry.value.id, body)
     // A save can newly resolve a wikilink that pointed at a since-created
     // entry, or dangle one whose target moved — drop the cached lookups
     // rather than have them go stale until the next reload.
@@ -293,9 +276,51 @@ async function save() {
   setTimeout(() => saveStatus.value = '', 2000)
 }
 
+/**
+ * Switching into Player or Card view always saves first, so the preview
+ * is never stale relative to the editor — there's no separate "unsaved
+ * changes" indicator needed (issue #48's design doc §3). If the current
+ * draft doesn't save (e.g. invalid content), the error surfaces and the
+ * view stays DM rather than attempting to render a draft the server
+ * just rejected.
+ */
+async function switchView(mode: 'dm' | 'player' | 'card') {
+  if (mode === viewMode.value) return
+  if (mode === 'dm') {
+    viewMode.value = 'dm'
+    return
+  }
+  clearTimeout(saveTimer)
+  await save()
+  if (saveStatus.value === 'Save failed') return
+  viewMode.value = mode
+  if (mode === 'card' && !selectedCardFacet.value && cardFacets.value.length) selectedCardFacet.value = cardFacets.value[0]
+  await fetchRender()
+}
+
+async function fetchRender() {
+  if (!entry.value) return
+  rendering.value = true
+  renderError.value = ''
+  try {
+    const query = viewMode.value === 'card'
+      ? `card=${encodeURIComponent(selectedCardFacet.value)}`
+      : 'view=player'
+    renderedHtml.value = await api(`/content/entries/${entry.value.id}/render?${query}`, { responseType: 'text' })
+  } catch (e) {
+    renderError.value = apiErrorMessage(e, 'Could not render preview')
+  } finally {
+    rendering.value = false
+  }
+}
+
+watch(selectedCardFacet, () => {
+  if (viewMode.value === 'card') fetchRender()
+})
+
 function confirmDelete() {
   if (!confirm(`Delete "${entry.value.title}"? This cannot be undone.`)) return
-  entries.deleteEntry(entry.value.id)
+  entryStore.remove(entry.value.id)
   ui.setActiveEntry(null)
 }
 
@@ -351,11 +376,6 @@ async function printEntry() {
   win.document.head.appendChild(style)
   win.document.title = entry.value.title
 
-  const catEl = win.document.createElement('p')
-  catEl.style.cssText = 'font-size:0.75em;text-transform:uppercase;letter-spacing:0.1em;color:#666;'
-  catEl.textContent = entry.value.category
-  win.document.body.appendChild(catEl)
-
   const titleEl = win.document.createElement('h1')
   titleEl.textContent = entry.value.title
   win.document.body.appendChild(titleEl)
@@ -402,20 +422,6 @@ async function printEntry() {
   }
 
   win.print()
-}
-
-const suggestedTags = computed(() => {
-  const defaults = cats.defaultTagsFor(localCategory.value)
-  return defaults.filter(t => !localTags.value.includes(t))
-})
-
-const tagColor = computed(() => cats.categoryFor(localCategory.value)?.color ?? null)
-
-function applyDefaultTag(tag) {
-  if (!localTags.value.includes(tag)) {
-    localTags.value = [...localTags.value, tag]
-    save()
-  }
 }
 
 function setLink() {
@@ -505,17 +511,6 @@ function onEditorClick(e: MouseEvent) {
   height: var(--h-xl);
 }
 .title-input::placeholder { color: var(--muted-foreground); }
-.cat-select {
-  background: var(--muted);
-  border: 1px solid var(--border);
-  color: var(--muted-foreground);
-  font-family: var(--font-body);
-  font-size: var(--text-sm);
-  height: var(--h-md);
-  padding: 0 var(--space-sm);
-  border-radius: var(--radius);
-  cursor: pointer;
-}
 .icon-btn {
   display: inline-flex;
   align-items: center;
@@ -557,12 +552,28 @@ function onEditorClick(e: MouseEvent) {
 .tbtn:disabled { opacity: 0.35; cursor: default; }
 .secret-btn:hover { color: #e88; }
 .card-btn:hover { color: var(--primary); }
-.preview-btn.on { background: rgba(80,200,120,0.15); color: #8e8; }
 .toolbar-divider {
   width: 1px; background: var(--border);
   height: 16px; margin: 0 var(--space-xs);
 }
 .toolbar-spacer { flex: 1; }
+
+.view-switcher { display: inline-flex; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+.view-btn {
+  background: none; border: none; padding: 0 var(--space-sm);
+  height: var(--h-sm); font-size: var(--text-xs); color: var(--muted-foreground);
+  cursor: pointer; transition: background var(--transition), color var(--transition);
+}
+.view-btn:disabled { opacity: 0.35; cursor: default; }
+.view-btn.on { background: var(--secondary); color: var(--primary); }
+.view-btn + .view-btn { border-left: 1px solid var(--border); }
+.facet-select {
+  height: var(--h-sm); border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--muted); color: var(--foreground); font-size: var(--text-xs); padding: 0 var(--space-xs);
+}
+.rendered-view { max-width: 700px; margin: 0 auto; }
+.rendered-status, .rendered-error { color: var(--muted-foreground); font-size: var(--text-sm); }
+.rendered-error { color: var(--destructive); }
 .save-status { font-size: var(--text-xs); color: var(--muted-foreground); margin-left: var(--space-sm); }
 
 .editor-body { display: flex; flex: 1; overflow: hidden; }
@@ -668,23 +679,4 @@ function onEditorClick(e: MouseEvent) {
   height: var(--h-xs);
 }
 .tag-input::placeholder { color: var(--muted-foreground); }
-
-
-.tag-suggestions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  padding: 4px 0 6px;
-}
-.tag-suggest-chip {
-  font-size: 0.75em;
-  padding: 2px 8px;
-  border: 1px dashed var(--border);
-  border-radius: 12px;
-  background: none;
-  color: var(--muted-foreground);
-  cursor: pointer;
-  transition: color var(--transition), border-color var(--transition);
-}
-.tag-suggest-chip:hover { color: var(--primary); border-color: var(--primary); }
 </style>
