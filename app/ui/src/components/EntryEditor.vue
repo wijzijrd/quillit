@@ -171,7 +171,6 @@ import AnnotationPanel from './AnnotationPanel.vue'
 import LinkedEntriesPanel from './LinkedEntriesPanel.vue'
 import QuickViewPanel from './QuickViewPanel.vue'
 import NoteSharePanel from './NoteSharePanel.vue'
-import { hexToAlpha } from '../utils/color'
 import { useEntryStore } from '../stores/useEntryStore'
 import { composeFrontmatter, decomposeFrontmatter } from '../lib/frontmatter'
 import { useAnnotationsStore } from '../stores/useAnnotationsStore'
@@ -187,7 +186,6 @@ const annotations = useAnnotationsStore()
 const facets = useFacetsStore()
 const ui = useUIStore()
 const route = useRoute()
-const inProject = computed(() => !!route.params.projectId)
 // The entry's own campaignIds may list multiple projects; "push to session
 // chat" cares about the project currently in context (this route), not the
 // entry's full membership list.
