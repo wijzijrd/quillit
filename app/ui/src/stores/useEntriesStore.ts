@@ -1,8 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { api } from '../api/client'
-import { loadEntries, saveEntries } from '../composables/usePersistence'
-import type { Entry } from '../types'
+import { useEntryStore, type ContentEntry } from './useEntryStore'
 
 /** One hit from #43's content-svc full-text search (see app/content/internal/handler/search.go's SearchResult). */
 export interface EntrySearchResult {
@@ -15,77 +14,46 @@ export interface EntrySearchResult {
 }
 
 export const useEntriesStore = defineStore('entries', () => {
-  const entries = ref<Entry[]>([])
+  const entries = ref<ContentEntry[]>([])
   const loaded = ref(false)
 
-  async function init() {
+  async function init(projectId: string) {
     if (loaded.value) return
     loaded.value = true
     try {
-      const cached = await loadEntries()
-      if (cached?.length) entries.value = cached
-      const fresh = await api('/entries')
-      entries.value = fresh
-      await saveEntries(fresh)
+      entries.value = await api(`/content/projects/${projectId}/entries`)
     } catch (e) {
       loaded.value = false
       throw e
     }
   }
 
-  async function createEntry(category = 'Lore'): Promise<Entry> {
-    const entry: Entry = await api('/entries', { method: 'POST', body: { category } })
+  async function createEntry(projectId: string, title: string): Promise<ContentEntry> {
+    const entry = await useEntryStore().create(projectId, title, '')
     entries.value.unshift(entry)
-    await saveEntries(entries.value)
     return entry
   }
 
-  async function updateEntry(id: string, patch: Partial<Entry>) {
-    const updated: Entry = await api(`/entries/${id}`, { method: 'PATCH', body: patch })
+  async function updateEntry(id: string, patch: Partial<ContentEntry>) {
+    const updated: ContentEntry = await api(`/content/entries/${id}`, { method: 'PATCH', body: patch })
     const idx = entries.value.findIndex(e => e.id === id)
     if (idx !== -1) entries.value[idx] = updated
-    await saveEntries(entries.value)
+    return updated
   }
 
   async function deleteEntry(id: string) {
-    await api(`/entries/${id}`, { method: 'DELETE' })
+    await api(`/content/entries/${id}`, { method: 'DELETE' })
     entries.value = entries.value.filter(e => e.id !== id)
-    await saveEntries(entries.value)
   }
 
-  const byCategory = computed(() => {
-    return (cat: string | null) => entries.value.filter(e => !cat || e.category === cat)
-  })
-
-  function getById(id: string): Entry | null {
+  function getById(id: string): ContentEntry | null {
     return entries.value.find(e => e.id === id) ?? null
   }
 
-  async function addLink(fromId: string, toId: string) {
-    const entry = entries.value.find(e => e.id === fromId)
-    if (!entry) return
-    const current = entry.linkedEntries ?? []
-    if (current.includes(toId)) return
-    await updateEntry(fromId, { linkedEntries: [...current, toId] })
-  }
-
-  async function removeLink(fromId: string, toId: string) {
-    const entry = entries.value.find(e => e.id === fromId)
-    if (!entry) return
-    await updateEntry(fromId, { linkedEntries: (entry.linkedEntries ?? []).filter(id => id !== toId) })
-  }
-
-  function backlinksFor(id: string): Entry[] {
-    return entries.value.filter(e => e.linkedEntries?.includes(id))
-  }
-
-  function search(query: string): Entry[] {
+  function search(query: string): ContentEntry[] {
     if (!query.trim()) return []
     const q = query.toLowerCase()
-    return entries.value.filter(e =>
-      e.title.toLowerCase().includes(q) ||
-      e.body.replace(/<[^>]+>/g, '').toLowerCase().includes(q)
-    )
+    return entries.value.filter(e => e.title.toLowerCase().includes(q))
   }
 
   /**
@@ -117,9 +85,9 @@ export const useEntriesStore = defineStore('entries', () => {
     [...new Set(entries.value.flatMap(e => e.tags ?? []))].sort()
   )
 
-  function byTag(tag: string): Entry[] {
+  function byTag(tag: string): ContentEntry[] {
     return entries.value.filter(e => e.tags?.includes(tag))
   }
 
-  return { entries, loaded, init, createEntry, updateEntry, deleteEntry, byCategory, getById, addLink, removeLink, backlinksFor, search, searchRemote, allTags, byTag }
+  return { entries, loaded, init, createEntry, updateEntry, deleteEntry, getById, search, searchRemote, allTags, byTag }
 })
