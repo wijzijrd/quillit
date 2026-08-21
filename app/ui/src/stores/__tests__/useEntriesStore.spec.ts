@@ -77,4 +77,22 @@ describe('useEntriesStore', () => {
     expect(store.getById('e1')?.title).toBe('Tom')
     expect(store.getById('missing')).toBeNull()
   })
+
+  it('search matches both title and body', async () => {
+    apiMock.mockResolvedValue([
+      { id: 'e1', title: 'Dragon Lore', body: 'A dragon is a large reptile', tags: [] },
+      { id: 'e2', title: 'Knights', body: 'A knight fights dragons', tags: [] },
+      { id: 'e3', title: 'Castle', body: 'A stone fortress', tags: [] },
+    ])
+    const store = useEntriesStore()
+    await store.init('proj-1')
+    // Query matches both title and body
+    expect(store.search('dragon')).toHaveLength(2)
+    // Query matches only body
+    expect(store.search('fights')).toHaveLength(1)
+    // Query matches only title
+    expect(store.search('knights')).toHaveLength(1)
+    // Query matches nothing
+    expect(store.search('unicorn')).toHaveLength(0)
+  })
 })

@@ -53,7 +53,10 @@ export const useEntriesStore = defineStore('entries', () => {
   function search(query: string): ContentEntry[] {
     if (!query.trim()) return []
     const q = query.toLowerCase()
-    return entries.value.filter(e => e.title.toLowerCase().includes(q))
+    return entries.value.filter(e =>
+      e.title.toLowerCase().includes(q) ||
+      e.body.toLowerCase().includes(q)
+    )
   }
 
   /**
