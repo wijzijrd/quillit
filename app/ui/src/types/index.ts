@@ -1,18 +1,3 @@
-export type EntryVisibility = 'private' | 'public'
-
-export interface Entry {
-  id: string
-  title: string
-  body: string
-  category: string
-  visibility: EntryVisibility
-  tags: string[]
-  linkedEntries: string[]
-  campaignIds?: string[]
-  projectId?: string
-  metadata?: Record<string, string>
-}
-
 export interface Project {
   id: string
   name: string
