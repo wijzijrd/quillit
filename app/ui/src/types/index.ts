@@ -58,13 +58,6 @@ export interface UserSettings {
   [key: string]: unknown
 }
 
-export interface EntryRelation {
-  id: string
-  fromId: string
-  toId: string
-  label: string
-}
-
 export interface Folder {
   id: string
   name: string
