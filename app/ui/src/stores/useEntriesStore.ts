@@ -17,13 +17,22 @@ export const useEntriesStore = defineStore('entries', () => {
   const entries = ref<ContentEntry[]>([])
   const loaded = ref(false)
 
+  // Bumped on every init() call and compared on resolution so an
+  // out-of-order response (e.g. a caller resets `loaded` and re-inits for
+  // a new project before a prior init's request has resolved — QuillitView
+  // does this on rapid in-app project switching) can't clobber `entries`
+  // with stale data once a newer call has already superseded it.
+  let initToken = 0
+
   async function init(projectId: string) {
     if (loaded.value) return
     loaded.value = true
+    const token = ++initToken
     try {
-      entries.value = await api(`/content/projects/${projectId}/entries`)
+      const result = await api(`/content/projects/${projectId}/entries`)
+      if (token === initToken) entries.value = result
     } catch (e) {
-      loaded.value = false
+      if (token === initToken) loaded.value = false
       throw e
     }
   }

@@ -80,6 +80,14 @@ onMounted(async () => {
 // so the fetch actually re-runs. Also clears the list when navigating out of
 // a project entirely (content-svc has no cross-project list, so there's
 // nothing to show there either).
+//
+// Not awaited — this is a route-driven refetch, not something to block
+// rendering on — so failures are caught explicitly rather than left as an
+// unhandled rejection. Rapid A→B→C switching firing overlapping requests is
+// safe: useEntriesStore.init has its own per-call token guard (see
+// useEntriesStore.ts) that discards a response once a newer call has
+// superseded it, so an out-of-order resolution can't clobber the currently
+// displayed project's entries.
 watch(projectId, (id) => {
   if (!id) {
     entries.entries = []
@@ -87,7 +95,7 @@ watch(projectId, (id) => {
     return
   }
   entries.loaded = false
-  entries.init(id)
+  entries.init(id).catch(() => {})
 })
 
 type EditingEntry = ContentEntry | { id: string }
