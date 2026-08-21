@@ -119,9 +119,11 @@ import { RouterLink } from 'vue-router'
 import { FileText, Search } from 'lucide-vue-next'
 import { useEntriesStore } from '../stores/useEntriesStore'
 import type { EntrySearchResult } from '../stores/useEntriesStore'
+import type { ContentEntry } from '../stores/useEntryStore'
 import { useProjectStore } from '../stores/useProjectStore'
 import { useAuthStore } from '../stores/useAuthStore'
 import { useUIStore } from '../stores/useUIStore'
+import { api } from '../api/client'
 import { inviteLink } from '../utils/links'
 
 /** Debounce for the dashboard search input — matches SearchOverlay.vue. */
@@ -142,14 +144,24 @@ const joiningInvite = ref(false)
 const activeInviteProject = ref(null)
 const pendingInviteLink = ref('')
 
+// Recents feed, populated below by loadRecents(). Deliberately NOT routed
+// through useEntriesStore's `entries`/`init()` — that store's `loaded` guard
+// and cache are designed around a single active project (see its doc
+// comment / QuillitView's usage), not multi-project accumulation. This
+// mirrors searchRemote()'s own approach: direct per-project api() calls,
+// merged client-side.
+const recentEntries = ref<ContentEntry[]>([])
+
+async function loadRecents(projectIds: string[]) {
+  const settled = await Promise.allSettled(
+    projectIds.map(id => api(`/content/projects/${id}/entries`))
+  )
+  recentEntries.value = settled.flatMap(r => (r.status === 'fulfilled' ? r.value : []))
+}
+
 onMounted(async () => {
   await Promise.all([projectStore.fetchProjects(), projectStore.fetchTypes()])
-
-  // useEntriesStore.init is project-scoped (Task 2) — this dashboard shows
-  // recents across every project the user belongs to, so fan out one init()
-  // per project and swallow per-project failures, matching searchRemote's
-  // pattern below.
-  await Promise.allSettled(projectStore.projects.map(p => entries.init(p.id)))
+  await loadRecents(projectStore.projects.map(p => p.id))
 
   // Handle ?invite= query param
   const inviteToken = route.query.invite
@@ -157,7 +169,7 @@ onMounted(async () => {
 })
 
 const recent = computed(() =>
-  [...entries.entries].sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 8)
+  [...recentEntries.value].sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 8)
 )
 
 // Real full-text search against content-svc (issue #51), replacing the old
