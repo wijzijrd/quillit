@@ -14,21 +14,6 @@ export interface Entry {
   metadata?: Record<string, string>
 }
 
-export interface Category {
-  id: string
-  name: string
-  icon: string
-  color?: string
-  isGlobal?: boolean
-  defaultTags: DefaultTag[]
-  projectId?: string
-}
-
-export interface DefaultTag {
-  id: string
-  label: string
-}
-
 export interface Project {
   id: string
   name: string
