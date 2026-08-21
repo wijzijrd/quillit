@@ -47,7 +47,7 @@ type ProjectMember struct {
 	JoinedAt  int64  `json:"joinedAt"`
 }
 ```
-Every endpoint that returns a `ProjectMember` (`ListMembers`, `AddMember`, `Join`'s 200 response, admin's `ListProjectMembers`) populates every field — including `Join`, which sets `Username: ""` explicitly rather than omitting it (no `omitempty` tag, so it serializes as `"username":""`, not absent). Added `id: string`, `projectId: string` (unused by the frontend today but genuinely part of the shape — included for fidelity, costs nothing), and `joinedAt: number` (unix seconds, matching this codebase's existing convention — cross-checked against `formatDate(unixSeconds: number)` in `src/utils/date.ts`, which is exactly what `AdminView.vue` calls it with).
+Every endpoint that returns a `ProjectMember` (`ListMembers`, `AddMember`, `Join`'s 200 response, admin's `ListProjectMembers`) populates every field — including `Join` (`projects.go:658-664`), which omits `Username` from its `ProjectMember{...}` struct literal entirely, but since the field has no `omitempty` tag, Go's zero-value default (`""`) still serializes it as `"username":""` rather than dropping it from the JSON — so the field is present either way. Added `id: string`, `projectId: string` (unused by the frontend today but genuinely part of the shape — included for fidelity, costs nothing), and `joinedAt: number` (unix seconds, matching this codebase's existing convention — cross-checked against `formatDate(unixSeconds: number)` in `src/utils/date.ts`, which is exactly what `AdminView.vue` calls it with).
 
 ### New: `UserSearchResult`
 
@@ -63,7 +63,7 @@ Added this as `UserSearchResult` in `types/index.ts` and typed `searchUsers(): P
 
 **Flag for your awareness (not fixed, out of scope):** while tracing this I found `app/svc/main.go` does **not** register any `/api/users/search` route at all — `useProjectStore.searchUsers()` calls a route that appears to 404 at runtime. This is a pre-existing routing bug, not a typecheck issue, so I left it alone, but it's worth knowing the "add member by search" feature may be broken end-to-end.
 
-### `User` — left unchanged (see AdminView.vue section below for why)
+### `User` — left unchanged in this round (see AdminView.vue section below; **revised in fix-round 2 below**)
 
 ## 2. `src/api/client.ts`
 
@@ -84,7 +84,7 @@ All per the task's guidance, cross-checked against real usage:
 
 Typing every timer as `ReturnType<typeof setTimeout> | null` (as instructed) surfaced a follow-on error at every unconditional `clearTimeout(timer)` call: this repo's `@types/node` makes `ReturnType<typeof setTimeout>` resolve to Node's `Timeout` type, and neither of `clearTimeout`'s two overloads (Node's `Timeout | undefined` or DOM's `number | undefined`) accepts `null`. `DashboardView.vue` already had this exact pattern solved (`searchDebounceTimer`) by guarding with `if (timer) clearTimeout(timer)` instead of calling it unconditionally — I applied that same established guard everywhere I introduced a nullable timer (`App.vue`, `EntryEditor.vue` ×2, `AdminView.vue` ×2, `ProjectView.vue`).
 
-## 4. `AdminView.vue` — `User.id` (deviation from the task's suggested fallback)
+## 4. `AdminView.vue` — `User.id` (deviation from the task's suggested fallback) — superseded by fix-round 2
 
 The task's diagnosis suggested: if `id` isn't always present on admin's user rows, "switch this specific call to `u.sub`... always present." I traced both endpoints instead of assuming:
 
@@ -107,7 +107,7 @@ I left `User.id?: string` and `User.sub: string` as they already were (both alre
 - `app/ui/src/views/DashboardView.vue`
 - `app/ui/src/views/SetupView.vue`
 
-## Verification run
+## Verification run (round 1)
 
 ```
 $ cd app/ui && npx vue-tsc --noEmit
@@ -115,6 +115,84 @@ $ cd app/ui && npx vue-tsc --noEmit
 
 $ cd app/ui && npm run build
 ✓ built in 1.49s
+
+$ cd app/ui && npx vitest run
+Test Files  5 passed (5)
+     Tests  52 passed (52)
+```
+
+---
+
+## Fix round 2 — independent review follow-up
+
+Independent review confirmed round 1's type tracing and zero-error result, but flagged one real gap: the round-1 `User.id?` fix only applied the "the shared type must not claim what one of its two real backend shapes doesn't have" argument in one direction. `id?: string` was correctly made optional because `MeResponse` has no `id` — but `sub: string` was left **required**, even though `UserResponse` (the shape actually backing `admin.users`) has no `sub` field either. Nothing currently reads `.sub` off an `admin.users` item, so this wasn't a live bug, but it was a real type lie reachable by any future code that did — the same category of problem the round-1 fix was trying to close, just left open on the other field.
+
+### Fix: split `User` into two types matching the two real backend shapes exactly
+
+`app/ui/src/types/index.ts`:
+
+```ts
+/**
+ * Matches svc's MeResponse (app/svc/internal/handler/auth.go, GET /api/auth/me)
+ * — the identity decoded from the session JWT cookie. All fields are set
+ * unconditionally (no omitempty tags), and this struct has no `id` field at
+ * all — the frontend equivalent must not claim one either.
+ */
+export interface AuthUser {
+  sub: string
+  email: string
+  role: 'admin' | 'user'
+  active: boolean
+}
+
+/**
+ * Matches auth-svc's UserResponse (app/auth/internal/handler/auth.go,
+ * GET /auth/users and PATCH /auth/users/{id}, both proxied through svc's
+ * admin.go unchanged) — the admin user-list/update shape. All fields are
+ * set unconditionally (no omitempty tags on any of them), and this struct
+ * has no `sub` field at all — the frontend equivalent must not claim one
+ * either.
+ */
+export interface AdminUser {
+  id: string
+  email: string
+  username: string
+  role: 'admin' | 'user'
+  active: boolean
+  createdAt: number
+}
+```
+
+Re-verified `UserResponse` in `app/auth/internal/handler/auth.go` (lines 83-90) rather than trusting the round-1 notes: `ID, Email, Username, Role, Active, CreatedAt` — none carry `omitempty`, and both `ListUsers`'s row-scan loop and `UpdateUser`'s post-update re-fetch set all six columns unconditionally on every row. So all of `AdminUser`'s fields are required, including the two items the reviewer specifically asked to double-check:
+- `active`/`role` — required (not optional): `UserResponse.Active`/`.Role` have no `omitempty` and are always scanned from `SELECT id, email, username, role, active, created_at FROM users ...`.
+- `createdAt: number` — added; was previously missing from the frontend type entirely despite `UserResponse.CreatedAt int64` (unix seconds, same convention as `ProjectMember.joinedAt`/`GameSession.startedAt` elsewhere in this file) always being set.
+
+Re-verified `MeResponse` (`app/svc/internal/handler/auth.go`, lines 47-53): `Sub, Email, Role, Active` — none carry `omitempty`, and `Me()`'s single `writeJSON` call sets all four unconditionally from the decoded JWT claims. So `AuthUser`'s fields are all required too (no `?` anywhere), which is a slight tightening from round 1's `active?: boolean` (round 1 kept the field optional because it was inherited unexamined from the original pre-existing `User` interface, not because anything in `MeResponse` actually omits it).
+
+### Call sites updated
+
+- `app/ui/src/stores/useAuthStore.ts` — `_user: ref<AuthUser | null>(null)`; `fetchMe()`'s `const data: AuthUser = await api('/auth/me')`.
+- `app/ui/src/stores/useAdminStore.ts` — `users: ref<AdminUser[]>([])`; `setUserActive()`'s `const u: AdminUser = await api(...)`.
+- `app/ui/src/views/AdminView.vue` — `toggleUserActive(u: AdminUser)` and `confirmDeleteUser(u: AdminUser)` (both previously `u: User`). The `if (!u.id) return` guards from round 1 are now **removed** from both — they existed only because the old shared `User` type couldn't guarantee `id`; `AdminUser` can, unconditionally, so the guards were dead code reflecting a type-system limitation that no longer exists. Confirmed via `grep` that no other file in `src/` still imports the old `User` name.
+
+### Also fixed per reviewer request
+
+- Removed `Project`'s dead `typeId?`/`ownerId?` fields from `types/index.ts` — round 1's report already confirmed via grep that nothing in `src/` reads either one; leaving them in as "flagged but present" was weaker than just removing them now that there's no ambiguity about whether something might need them.
+- Corrected this report's inaccurate claim about `ProjectMember`'s `ProjectMember` section above (`Join`'s omitted vs. explicit `Username: ""`) — see the strikethrough-equivalent correction inline in section 1.
+
+### Left as-is (reviewer verified safe, not worth more churn)
+
+- Redundant optional chaining on now-required `roleLabels` (e.g. `p.roleLabels?.[1]`) in `DashboardView.vue`/`ProjectView.vue`.
+- The removed local `!roleLabels`/`!project.roleLabels` guards inside `displayRole`/`isEditorOf` from round 1 — not reintroduced.
+
+### Verification run (round 2)
+
+```
+$ cd app/ui && npx vue-tsc --noEmit
+(0 errors)
+
+$ cd app/ui && npm run build
+✓ built in 0.97s
 
 $ cd app/ui && npx vitest run
 Test Files  5 passed (5)

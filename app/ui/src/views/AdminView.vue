@@ -96,7 +96,7 @@
 import { ref, onMounted } from 'vue'
 import { useAdminStore } from '../stores/useAdminStore'
 import { formatDate } from '../utils/date'
-import type { User } from '../types'
+import type { AdminUser } from '../types'
 
 const admin = useAdminStore()
 
@@ -150,18 +150,14 @@ async function toggleProjectMembers(id: string) {
   if (!admin.projectMembers[id]) await admin.fetchProjectMembers(id)
 }
 
-// admin.users always comes from auth-svc's UserResponse (ListUsers/UpdateUser
-// in app/auth/internal/handler/auth.go), which always sets `id` — but User.id
-// is genuinely optional on the shared frontend type because /api/auth/me
-// (MeResponse, used for auth.user) never includes it. These guards reflect
-// that real absence rather than asserting it away.
-function toggleUserActive(u: User) {
-  if (!u.id) return
+// admin.users is AdminUser[] (auth-svc's UserResponse), which always sets
+// `id` — unlike the old shared User type, AdminUser can't also mean
+// AuthUser (svc's MeResponse, which has no `id`), so no guard is needed here.
+function toggleUserActive(u: AdminUser) {
   admin.setUserActive(u.id, !u.active)
 }
 
-async function confirmDeleteUser(u: User) {
-  if (!u.id) return
+async function confirmDeleteUser(u: AdminUser) {
   if (!confirm(`Delete user "${u.username}" (${u.email})? This cannot be undone.`)) return
   await admin.deleteUser(u.id)
 }

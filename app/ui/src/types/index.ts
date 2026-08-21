@@ -1,8 +1,6 @@
 export interface Project {
   id: string
   name: string
-  typeId?: string
-  ownerId?: string
   /**
    * Project type, e.g. "campaign". Always present — svc's own Project and
    * AdminProject response structs both set it unconditionally (see
@@ -59,13 +57,36 @@ export interface ProjectInvite {
   expiresAt?: string
 }
 
-export interface User {
-  id?: string
+/**
+ * Matches svc's MeResponse (app/svc/internal/handler/auth.go, GET /api/auth/me)
+ * — the identity decoded from the session JWT cookie. All fields are set
+ * unconditionally (no omitempty tags), and this struct has no `id` field at
+ * all — the frontend equivalent must not claim one either.
+ */
+export interface AuthUser {
   sub: string
   email: string
-  username?: string
   role: 'admin' | 'user'
-  active?: boolean
+  active: boolean
+}
+
+/**
+ * Matches auth-svc's UserResponse (app/auth/internal/handler/auth.go,
+ * GET /auth/users and PATCH /auth/users/{id}, both proxied through svc's
+ * admin.go unchanged) — the admin user-list/update shape. All fields are
+ * set unconditionally (no omitempty tags on any of them), and this struct
+ * has no `sub` field at all — the frontend equivalent must not claim one
+ * either. (Distinct from AuthUser: the two real backend shapes disagree on
+ * which identifier field exists, so one shared "User" type can't honestly
+ * represent both — see typecheck-fix-report.md's fix-round-2 notes.)
+ */
+export interface AdminUser {
+  id: string
+  email: string
+  username: string
+  role: 'admin' | 'user'
+  active: boolean
+  createdAt: number
 }
 
 export type Season = 'spring' | 'summer' | 'autumn' | 'winter'

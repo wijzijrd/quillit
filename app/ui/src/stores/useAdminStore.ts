@@ -1,10 +1,10 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { api } from '../api/client'
-import type { User, Project, ProjectMember } from '../types'
+import type { AdminUser, Project, ProjectMember } from '../types'
 
 export const useAdminStore = defineStore('admin', () => {
-  const users = ref<User[]>([])
+  const users = ref<AdminUser[]>([])
   const projects = ref<Project[]>([])
   const projectMembers = ref<Record<string, ProjectMember[]>>({})
 
@@ -13,7 +13,7 @@ export const useAdminStore = defineStore('admin', () => {
   }
 
   async function setUserActive(id: string, active: boolean) {
-    const u: User = await api(`/admin/users/${id}`, { method: 'PATCH', body: { active } })
+    const u: AdminUser = await api(`/admin/users/${id}`, { method: 'PATCH', body: { active } })
     const idx = users.value.findIndex(x => x.id === id)
     if (idx !== -1) users.value[idx] = u
   }
