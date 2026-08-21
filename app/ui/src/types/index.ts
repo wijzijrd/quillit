@@ -1,4 +1,3 @@
-export type AnnotationVisibility = 'gm' | 'shared' | 'player'
 export type EntryVisibility = 'private' | 'public'
 
 export interface Entry {
@@ -38,14 +37,6 @@ export interface ProjectInvite {
   token: string
   role: string
   expiresAt?: string
-}
-
-export interface Annotation {
-  id: string
-  entryId: string
-  text: string
-  visibility: AnnotationVisibility
-  sharedWith: string[]
 }
 
 export interface User {
