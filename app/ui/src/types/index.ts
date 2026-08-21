@@ -58,15 +58,6 @@ export interface UserSettings {
   [key: string]: unknown
 }
 
-export interface QuickViewField {
-  key: string
-  label: string
-  type: 'text' | 'textarea' | 'select'
-  options?: string[]
-}
-
-export type QuickViewTemplates = Record<string, QuickViewField[]>
-
 export interface EntryRelation {
   id: string
   fromId: string
