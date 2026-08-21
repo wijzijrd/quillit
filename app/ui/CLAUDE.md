@@ -18,7 +18,7 @@ Vue 3 + Vite + TypeScript + Tailwind v4 + shadcn-vue frontend.
 - `src/components/` — reusable Vue components
 - `src/components/ui/` — shadcn-vue generated components (owned source)
 - `src/views/` — page-level components
-- `src/stores/` — Pinia stores (entries, categories, auth, campaign, project, annotations, ui, quickView, admin, member, entryRelations)
+- `src/stores/` — Pinia stores (entries, entry, auth, project, facets, import, liveSession, ui, admin)
 - `src/composables/` — composables
 - `src/api/` — API layer (typed with ofetch)
 - `src/types/index.ts` — shared domain interfaces (Entry, Category, Campaign, etc.)

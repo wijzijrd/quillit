@@ -11,22 +11,6 @@
       <RouterLink to="/entries" class="nav-item" active-class="nav-active" title="Entries">
         <BookOpen :size="16" class="flex-shrink-0" />
       </RouterLink>
-      <RouterLink to="/member" class="nav-item" active-class="nav-active" title="Member">
-        <BookMarked :size="16" class="flex-shrink-0" />
-      </RouterLink>
-    </div>
-
-    <div v-if="inProject" class="px-1 mb-2 border-t border-[var(--border)] pt-2">
-      <button
-        v-for="cat in cats.projectCategories"
-        :key="cat.id"
-        class="nav-item"
-        :class="{ 'nav-active': ui.activeCategory === cat.name }"
-        :title="cat.name"
-        @click="ui.setCategory(ui.activeCategory === cat.name ? null : cat.name)"
-      >
-        <component :is="resolveIcon(cat.icon)" :size="16" :style="{ color: cat.color }" />
-      </button>
     </div>
 
     <div class="mt-auto border-t border-[var(--border)] p-1">
@@ -47,22 +31,11 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
-import { RouterLink, useRoute } from 'vue-router'
-import { LayoutDashboard, BookOpen, BookMarked, UserCircle, Settings } from 'lucide-vue-next'
-import { useUIStore } from '../stores/useUIStore'
-import { useEntriesStore } from '../stores/useEntriesStore'
-import { useCategoriesStore } from '../stores/useCategoriesStore'
+import { RouterLink } from 'vue-router'
+import { LayoutDashboard, BookOpen, UserCircle, Settings } from 'lucide-vue-next'
 import { useAuthStore } from '../stores/useAuthStore'
-import { resolveIcon } from '../utils/categoryIcons'
 
-const ui = useUIStore()
-const entries = useEntriesStore()
-const cats = useCategoriesStore()
 const auth = useAuthStore()
-
-const route = useRoute()
-const inProject = computed(() => !!route.params.projectId)
 </script>
 
 <style scoped>

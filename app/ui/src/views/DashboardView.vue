@@ -6,15 +6,6 @@
           <h1>Quillit</h1>
           <p class="dash-sub">Your workspace, organised.</p>
         </div>
-        <div class="dash-actions">
-          <button class="btn-icon" @click="exportData" title="Export data as JSON">
-            <Download :size="18" />
-          </button>
-          <label class="btn-icon" title="Import from a backup file">
-            <Upload :size="18" />
-            <input ref="importInputRef" type="file" accept=".json" @change="handleImport" hidden />
-          </label>
-        </div>
       </div>
 
       <div class="dash-search">
@@ -39,12 +30,7 @@
             class="recent-item"
             @click="ui.setActiveEntry(entry.id)"
           >
-            <component
-              :is="resolveIcon(cats.categoryFor(categoryOf(entry.id))?.icon ?? '')"
-              :size="14"
-              class="ri-cat"
-              :style="{ color: cats.categoryFor(categoryOf(entry.id))?.color ?? 'var(--muted-foreground)' }"
-            />
+            <FileText :size="14" class="ri-cat" />
             <span class="ri-title">{{ entry.title }}</span>
             <span class="ri-project-badge" v-if="projectStore.projects.length > 1">{{ projectNameFor(entry.projectId) }}</span>
             <span class="ri-match-badge" v-if="matchedInBody(entry)">Matched in content</span>
@@ -59,12 +45,7 @@
             class="recent-item"
             @click="ui.setActiveEntry(entry.id)"
           >
-            <component
-              :is="resolveIcon(cats.categoryFor(entry.category)?.icon ?? '')"
-              :size="14"
-              class="ri-cat"
-              :style="{ color: cats.categoryFor(entry.category)?.color ?? 'var(--muted-foreground)' }"
-            />
+            <FileText :size="14" class="ri-cat" />
             <span class="ri-title">{{ entry.title }}</span>
           </RouterLink>
           <p v-if="recent.length === 0" class="no-recent">
@@ -128,8 +109,6 @@
         No projects yet. Create one above to get started.
       </p>
     </section>
-
-    <p v-if="importError" class="import-error">{{ importError }}</p>
   </div>
 </template>
 
@@ -137,12 +116,10 @@
 import { ref, computed, watch, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { RouterLink } from 'vue-router'
-import { Download, Upload, Search } from 'lucide-vue-next'
-import { resolveIcon } from '../utils/categoryIcons'
+import { FileText, Search } from 'lucide-vue-next'
 import { useEntriesStore } from '../stores/useEntriesStore'
 import type { EntrySearchResult } from '../stores/useEntriesStore'
-import { useCategoriesStore } from '../stores/useCategoriesStore'
-import { useAnnotationsStore } from '../stores/useAnnotationsStore'
+import type { ContentEntry } from '../stores/useEntryStore'
 import { useProjectStore } from '../stores/useProjectStore'
 import { useAuthStore } from '../stores/useAuthStore'
 import { useUIStore } from '../stores/useUIStore'
@@ -155,14 +132,10 @@ const SEARCH_DEBOUNCE_MS = 300
 const route = useRoute()
 const router = useRouter()
 const entries = useEntriesStore()
-const cats = useCategoriesStore()
-const annotations = useAnnotationsStore()
 const projectStore = useProjectStore()
 const auth = useAuthStore()
 const ui = useUIStore()
 
-const importInputRef = ref(null)
-const importError = ref('')
 const searchQuery = ref('')
 const showNewProject = ref(false)
 const newProject = ref({ name: '', type: 'campaign' })
@@ -171,9 +144,24 @@ const joiningInvite = ref(false)
 const activeInviteProject = ref(null)
 const pendingInviteLink = ref('')
 
+// Recents feed, populated below by loadRecents(). Deliberately NOT routed
+// through useEntriesStore's `entries`/`init()` — that store's `loaded` guard
+// and cache are designed around a single active project (see its doc
+// comment / QuillitView's usage), not multi-project accumulation. This
+// mirrors searchRemote()'s own approach: direct per-project api() calls,
+// merged client-side.
+const recentEntries = ref<ContentEntry[]>([])
+
+async function loadRecents(projectIds: string[]) {
+  const settled = await Promise.allSettled(
+    projectIds.map(id => api(`/content/projects/${id}/entries`))
+  )
+  recentEntries.value = settled.flatMap(r => (r.status === 'fulfilled' ? r.value : []))
+}
+
 onMounted(async () => {
-  await entries.init()
   await Promise.all([projectStore.fetchProjects(), projectStore.fetchTypes()])
+  await loadRecents(projectStore.projects.map(p => p.id))
 
   // Handle ?invite= query param
   const inviteToken = route.query.invite
@@ -181,7 +169,7 @@ onMounted(async () => {
 })
 
 const recent = computed(() =>
-  [...entries.entries].sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 8)
+  [...recentEntries.value].sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 8)
 )
 
 // Real full-text search against content-svc (issue #51), replacing the old
@@ -215,11 +203,6 @@ async function runSearch(q: string) {
   searchResults.value = results.slice(0, 20)
   appliedSearchQuery.value = q
   searching.value = false
-}
-
-/** Category comes from the locally-cached full entry — search hits don't carry it. */
-function categoryOf(entryId: string): string {
-  return entries.getById(entryId)?.category ?? ''
 }
 
 function projectNameFor(projectId: string): string {
@@ -297,42 +280,6 @@ async function redeemInvite() {
     joiningInvite.value = false
   }
 }
-
-function exportData() {
-  const data = {
-    version: 1,
-    exportedAt: Date.now(),
-    entries: entries.entries,
-    annotations: annotations.annotations,
-  }
-  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = `quillit-export.json`
-  a.click()
-  URL.revokeObjectURL(url)
-}
-
-async function handleImport(e) {
-  importError.value = ''
-  const file = e.target.files?.[0]
-  if (!file) return
-  try {
-    const text = await file.text()
-    const data = JSON.parse(text)
-    if (data.version !== 1) { importError.value = 'Unrecognised export format.'; return }
-    if (!confirm('This will replace all current data. Continue?')) return
-    const result = await api('/migrate/import', { method: 'POST', body: data })
-    const c = result.imported
-    alert(`Imported: ${c.entries} entries, ${c.annotations} annotations, ${c.campaigns} campaigns`)
-    window.location.reload()
-  } catch {
-    importError.value = 'Failed to import — the file may be corrupted.'
-  } finally {
-    e.target.value = ''
-  }
-}
 </script>
 
 <style scoped>
@@ -341,17 +288,6 @@ async function handleImport(e) {
 .dash-title-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
 .dash-header h1 { font-family: var(--font-display); font-size: 2em; color: var(--primary); letter-spacing: 0.06em; }
 .dash-sub { color: var(--muted-foreground); margin-top: 4px; }
-.dash-actions { display: flex; gap: 8px; align-items: center; padding-top: 6px; }
-.btn-icon {
-  display: inline-flex; align-items: center; justify-content: center;
-  width: 32px; height: 32px;
-  background: var(--muted);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  color: var(--muted-foreground); cursor: pointer;
-  transition: background var(--transition), color var(--transition);
-}
-.btn-icon:hover { background: var(--muted); color: var(--foreground); }
 
 .dash-search {
   position: relative; display: flex; align-items: center;
@@ -485,5 +421,4 @@ async function handleImport(e) {
 }
 
 .no-projects { color: var(--muted-foreground); font-size: 0.9em; padding: 24px 0; }
-.import-error { margin-top: 12px; color: var(--destructive); font-size: 0.88em; }
 </style>

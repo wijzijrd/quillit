@@ -16,16 +16,13 @@
       <!-- Title header: metadata left, content actions right -->
       <div class="entry-header">
         <div class="entry-meta">
-          <span class="entry-category" :style="{ color: catColor ?? 'var(--muted-foreground)' }">
-            {{ entry?.category }}
-          </span>
           <h2 class="entry-title">{{ entry?.title }}</h2>
           <div class="entry-tags" v-if="entry?.tags?.length">
             <span
               v-for="tag in entry.tags"
               :key="tag"
               class="tag-chip"
-              :style="tagColor ? { color: tagColor, background: hexToAlpha(tagColor, 0.12), borderColor: hexToAlpha(tagColor, 0.3) } : { color: 'var(--muted-foreground)', borderColor: 'var(--border)' }"
+              :style="{ color: 'var(--muted-foreground)', borderColor: 'var(--border)' }"
             >{{ tag }}</span>
           </div>
         </div>
@@ -42,7 +39,6 @@
           v-html="renderedBody"
           @click="handleBodyClick"
         />
-        <LinkedEntriesPanel v-if="entry" :entry-id="entryId" class="border-l border-[var(--border)] overflow-y-auto flex-shrink-0" />
       </div>
     </DialogContent>
   </Dialog>
@@ -51,12 +47,9 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { Pencil, ChevronLeft, ChevronRight, X } from 'lucide-vue-next'
-import { api } from '../api/client'
 import { Dialog, DialogContent } from './ui/dialog'
-import LinkedEntriesPanel from './LinkedEntriesPanel.vue'
 import { useEntriesStore } from '../stores/useEntriesStore'
-import { useCategoriesStore } from '../stores/useCategoriesStore'
-import { hexToAlpha } from '../utils/color'
+import { useEntryStore } from '../stores/useEntryStore'
 import { renderMarkdownToHtml } from '../composables/useMarkdownRender'
 
 const props = defineProps<{
@@ -67,11 +60,9 @@ const props = defineProps<{
 const emit = defineEmits<{ close: []; edit: []; navigate: [id: string]; back: []; forward: [] }>()
 
 const entries = useEntriesStore()
-const cats = useCategoriesStore()
+const entryStore = useEntryStore()
 
 const entry = computed(() => entries.getById(props.entryId ?? ''))
-const catColor = computed(() => cats.categoryFor(entry.value?.category ?? '')?.color ?? null)
-const tagColor = catColor
 
 const hydratedBody = ref('')
 
@@ -91,7 +82,7 @@ watch(() => props.entryId, async (id) => {
   // Fetch the full entry to hydrate body content.
   if (!found.body) {
     try {
-      const full = await api(`/entries/${id}`)
+      const full = await entryStore.get(id)
       hydratedBody.value = full.body ?? ''
     } catch { /* non-critical — view stays empty */ }
   }
@@ -150,12 +141,6 @@ function handleBodyClick(e: MouseEvent) {
   flex-shrink: 0;
 }
 .entry-meta { display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 0; }
-.entry-category {
-  font-size: 0.72em;
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-  font-weight: 600;
-}
 .entry-title {
   font-family: var(--font-display);
   font-size: 1.5em;
