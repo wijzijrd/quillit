@@ -90,7 +90,7 @@ onMounted(async () => {
 // displayed project's entries.
 watch(projectId, (id) => {
   if (!id) {
-    entries.entries = []
+    entries.clear()
     return
   }
   entries.init(id).catch(() => {})

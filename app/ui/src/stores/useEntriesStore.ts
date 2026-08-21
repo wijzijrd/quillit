@@ -60,6 +60,19 @@ export const useEntriesStore = defineStore('entries', () => {
     entries.value = entries.value.filter(e => e.id !== id)
   }
 
+  /**
+   * Drops the cached project and its entries — used when navigating out of
+   * project context entirely (content-svc has no cross-project list, so
+   * there's nothing to show there either). Resetting `loadedProjectId` here
+   * (not just `entries`) matters: without it, navigating away and back to
+   * the *same* project would see `loadedProjectId` still matching and
+   * `init` would no-op, leaving the just-cleared empty list on screen.
+   */
+  function clear() {
+    entries.value = []
+    loadedProjectId.value = null
+  }
+
   function getById(id: string): ContentEntry | null {
     return entries.value.find(e => e.id === id) ?? null
   }
@@ -96,5 +109,5 @@ export const useEntriesStore = defineStore('entries', () => {
     return entries.value.filter(e => e.tags?.includes(tag))
   }
 
-  return { entries, loaded, init, createEntry, updateEntry, deleteEntry, getById, searchRemote, allTags, byTag }
+  return { entries, loaded, init, clear, createEntry, updateEntry, deleteEntry, getById, searchRemote, allTags, byTag }
 })
