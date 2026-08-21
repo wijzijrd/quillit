@@ -1,8 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { api } from '../api/client'
-import { loadEntries, saveEntries } from '../composables/usePersistence'
-import type { Entry } from '../types'
+import { useEntryStore, type ContentEntry } from './useEntryStore'
 
 /** One hit from #43's content-svc full-text search (see app/content/internal/handler/search.go's SearchResult). */
 export interface EntrySearchResult {
@@ -15,85 +14,74 @@ export interface EntrySearchResult {
 }
 
 export const useEntriesStore = defineStore('entries', () => {
-  const entries = ref<Entry[]>([])
-  const loaded = ref(false)
+  const entries = ref<ContentEntry[]>([])
 
-  async function init() {
-    if (loaded.value) return
-    loaded.value = true
+  // Keyed by project id (not a plain boolean) so a fresh component mount for
+  // a *different* project still triggers a fetch — see QuillitView.vue's
+  // onMounted/watch, which both just call init(id) and rely on this guard to
+  // no-op only when the requested project is already loaded.
+  const loadedProjectId = ref<string | null>(null)
+  const loaded = computed(() => loadedProjectId.value !== null)
+
+  // Bumped on every init() call and compared on resolution so an
+  // out-of-order response (e.g. rapid in-app project switching firing
+  // overlapping requests — QuillitView does this) can't clobber `entries`
+  // with stale data once a newer call has already superseded it.
+  let initToken = 0
+
+  async function init(projectId: string) {
+    if (loadedProjectId.value === projectId) return
+    const token = ++initToken
+    loadedProjectId.value = projectId
     try {
-      const cached = await loadEntries()
-      if (cached?.length) entries.value = cached
-      const fresh = await api('/entries')
-      entries.value = fresh
-      await saveEntries(fresh)
+      const result = await api(`/content/projects/${projectId}/entries`)
+      if (token === initToken) entries.value = result
     } catch (e) {
-      loaded.value = false
+      if (token === initToken) loadedProjectId.value = null
       throw e
     }
   }
 
-  async function createEntry(category = 'Lore'): Promise<Entry> {
-    const entry: Entry = await api('/entries', { method: 'POST', body: { category } })
+  async function createEntry(projectId: string, title: string): Promise<ContentEntry> {
+    const entry = await useEntryStore().create(projectId, title, '')
     entries.value.unshift(entry)
-    await saveEntries(entries.value)
     return entry
   }
 
-  async function updateEntry(id: string, patch: Partial<Entry>) {
-    const updated: Entry = await api(`/entries/${id}`, { method: 'PATCH', body: patch })
+  async function updateEntry(id: string, patch: Partial<ContentEntry>) {
+    const updated: ContentEntry = await api(`/content/entries/${id}`, { method: 'PATCH', body: patch })
     const idx = entries.value.findIndex(e => e.id === id)
     if (idx !== -1) entries.value[idx] = updated
-    await saveEntries(entries.value)
+    return updated
   }
 
   async function deleteEntry(id: string) {
-    await api(`/entries/${id}`, { method: 'DELETE' })
+    await api(`/content/entries/${id}`, { method: 'DELETE' })
     entries.value = entries.value.filter(e => e.id !== id)
-    await saveEntries(entries.value)
-  }
-
-  const byCategory = computed(() => {
-    return (cat: string | null) => entries.value.filter(e => !cat || e.category === cat)
-  })
-
-  function getById(id: string): Entry | null {
-    return entries.value.find(e => e.id === id) ?? null
-  }
-
-  async function addLink(fromId: string, toId: string) {
-    const entry = entries.value.find(e => e.id === fromId)
-    if (!entry) return
-    const current = entry.linkedEntries ?? []
-    if (current.includes(toId)) return
-    await updateEntry(fromId, { linkedEntries: [...current, toId] })
-  }
-
-  async function removeLink(fromId: string, toId: string) {
-    const entry = entries.value.find(e => e.id === fromId)
-    if (!entry) return
-    await updateEntry(fromId, { linkedEntries: (entry.linkedEntries ?? []).filter(id => id !== toId) })
-  }
-
-  function backlinksFor(id: string): Entry[] {
-    return entries.value.filter(e => e.linkedEntries?.includes(id))
-  }
-
-  function search(query: string): Entry[] {
-    if (!query.trim()) return []
-    const q = query.toLowerCase()
-    return entries.value.filter(e =>
-      e.title.toLowerCase().includes(q) ||
-      e.body.replace(/<[^>]+>/g, '').toLowerCase().includes(q)
-    )
   }
 
   /**
-   * Real full-text search (issue #51), replacing the naive client-side
-   * `.filter()` in `search()` above (kept for now — still used by the
-   * unwired SearchBar.vue). Hits content-svc's project-scoped search
-   * endpoint (GET /content/projects/{id}/search?q=), which is FTS5-backed
-   * and actually indexes body content, not just whatever's cached locally.
+   * Drops the cached project and its entries — used when navigating out of
+   * project context entirely (content-svc has no cross-project list, so
+   * there's nothing to show there either). Resetting `loadedProjectId` here
+   * (not just `entries`) matters: without it, navigating away and back to
+   * the *same* project would see `loadedProjectId` still matching and
+   * `init` would no-op, leaving the just-cleared empty list on screen.
+   */
+  function clear() {
+    entries.value = []
+    loadedProjectId.value = null
+  }
+
+  function getById(id: string): ContentEntry | null {
+    return entries.value.find(e => e.id === id) ?? null
+  }
+
+  /**
+   * Real full-text search (issue #51). Hits content-svc's project-scoped
+   * search endpoint (GET /content/projects/{id}/search?q=), which is
+   * FTS5-backed and actually indexes body content, not just whatever's
+   * cached locally.
    *
    * The endpoint is per-project, but the dashboard/global search this backs
    * has always searched across every project a user belongs to — so this
@@ -117,9 +105,9 @@ export const useEntriesStore = defineStore('entries', () => {
     [...new Set(entries.value.flatMap(e => e.tags ?? []))].sort()
   )
 
-  function byTag(tag: string): Entry[] {
+  function byTag(tag: string): ContentEntry[] {
     return entries.value.filter(e => e.tags?.includes(tag))
   }
 
-  return { entries, loaded, init, createEntry, updateEntry, deleteEntry, byCategory, getById, addLink, removeLink, backlinksFor, search, searchRemote, allTags, byTag }
+  return { entries, loaded, init, clear, createEntry, updateEntry, deleteEntry, getById, searchRemote, allTags, byTag }
 })

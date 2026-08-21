@@ -1,9 +1,12 @@
 package handler_test
 
 import (
+	"bytes"
 	"context"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/go-chi/chi/v5"
@@ -125,5 +128,55 @@ func TestContentImagesProxy_PassesThroughUpstreamErrorStatus(t *testing.T) {
 	}
 	if ct := rr.Header().Get("Content-Type"); ct != "application/json" {
 		t.Errorf("Content-Type = %q, want application/json", ct)
+	}
+}
+
+func TestUploadImage(t *testing.T) {
+	var gotMethod, gotPath, gotAuth, gotContentType string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotMethod = r.Method
+		gotPath = r.URL.Path
+		gotAuth = r.Header.Get("Authorization")
+		gotContentType = r.Header.Get("Content-Type")
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"url":"/api/content/entries/e1/images/photo.png"}`))
+	}))
+	defer upstream.Close()
+
+	h := handler.NewContentImages(upstream.URL)
+	r := chi.NewRouter()
+	r.Post("/api/content/entries/{id}/images", h.UploadImage)
+
+	body := &bytes.Buffer{}
+	mw := multipart.NewWriter(body)
+	part, _ := mw.CreateFormFile("image", "photo.png")
+	_, _ = part.Write([]byte("fake-png-bytes"))
+	_ = mw.Close()
+
+	req := httptest.NewRequest(http.MethodPost, "/api/content/entries/e1/images", body)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	ctx := middleware.WithRawJWTForTest(req.Context(), "test-jwt")
+	req = req.WithContext(ctx)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if gotMethod != http.MethodPost {
+		t.Errorf("upstream method = %q, want POST", gotMethod)
+	}
+	if gotPath != "/content/entries/e1/images" {
+		t.Errorf("upstream path = %q, want /content/entries/e1/images", gotPath)
+	}
+	if gotAuth != "Bearer test-jwt" {
+		t.Errorf("upstream Authorization = %q, want Bearer test-jwt", gotAuth)
+	}
+	if !strings.HasPrefix(gotContentType, "multipart/form-data") {
+		t.Errorf("upstream Content-Type = %q, want multipart/form-data prefix", gotContentType)
+	}
+	if w.Code != http.StatusCreated {
+		t.Errorf("response status = %d, want 201", w.Code)
+	}
+	if !strings.Contains(w.Body.String(), "photo.png") {
+		t.Errorf("response body = %q, want it to contain the upstream JSON", w.Body.String())
 	}
 }

@@ -24,24 +24,44 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import EntryCard from '../components/EntryCard.vue'
 import EntryEditor from '../components/EntryEditor.vue'
-import { useEntriesStore } from '../stores/useEntriesStore'
+import { useProjectStore } from '../stores/useProjectStore'
 import { useUIStore } from '../stores/useUIStore'
+import { api } from '../api/client'
+import type { ContentEntry } from '../stores/useEntryStore'
 
-const entries = useEntriesStore()
+const projectStore = useProjectStore()
 const ui = useUIStore()
 const route = useRoute()
 
-onMounted(() => entries.init())
+// /tag/:tag has no :projectId — it's always been a cross-project tag
+// browser — so, matching DashboardView.vue's loadRecents()/recentEntries,
+// this fans out one direct api() call per project the user belongs to
+// rather than routing through useEntriesStore (single-active-project cache).
+const allEntries = ref<ContentEntry[]>([])
 
-const tagEntries = computed(() =>
-  entries.byTag(route.params.tag)
+async function loadAllEntries(projectIds: string[]) {
+  const settled = await Promise.allSettled(
+    projectIds.map(id => api(`/content/projects/${id}/entries`))
+  )
+  allEntries.value = settled.flatMap(r => (r.status === 'fulfilled' ? r.value : []))
+}
+
+onMounted(async () => {
+  await projectStore.fetchProjects()
+  await loadAllEntries(projectStore.projects.map(p => p.id))
+})
+
+const tagEntries = computed(() => {
+  const tag = String(route.params.tag)
+  return allEntries.value
+    .filter(e => e.tags?.includes(tag))
     .slice()
     .sort((a, b) => b.updatedAt - a.updatedAt)
-)
+})
 </script>
 
 <style scoped>

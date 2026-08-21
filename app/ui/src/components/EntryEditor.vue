@@ -93,60 +93,6 @@
           <div v-else class="rendered-content" v-html="renderedHtml"></div>
         </div>
       </div>
-      <div class="right-panel" :class="{ collapsed: panelCollapsed }">
-        <div class="panel-tabs">
-          <button
-            class="panel-tab"
-            :class="{ active: activePanel === 'annotations' }"
-            @click="activePanel = 'annotations'; panelCollapsed = false"
-            title="Notes"
-          ><Pin :size="13" /><span class="tab-label">Notes</span></button>
-          <button
-            class="panel-tab"
-            :class="{ active: activePanel === 'links' }"
-            @click="activePanel = 'links'; panelCollapsed = false"
-            title="Links"
-          ><Link :size="13" /><span class="tab-label">Links</span></button>
-          <button
-            class="panel-tab"
-            :class="{ active: activePanel === 'quickview' }"
-            @click="activePanel = 'quickview'; panelCollapsed = false"
-            title="Quick Info"
-          ><LayoutList :size="13" /><span class="tab-label">Info</span></button>
-          <button
-            class="panel-tab"
-            :class="{ active: activePanel === 'share' }"
-            @click="activePanel = 'share'; panelCollapsed = false"
-            title="Share"
-          ><Share2 :size="13" /><span class="tab-label">Share</span></button>
-          <button
-            class="panel-collapse-btn"
-            @click="panelCollapsed = !panelCollapsed"
-            :title="panelCollapsed ? 'Expand panel' : 'Collapse panel'"
-          >
-            <PanelRightClose v-if="!panelCollapsed" :size="13" />
-            <PanelRightOpen v-else :size="13" />
-          </button>
-        </div>
-        <AnnotationPanel
-          v-if="activePanel === 'annotations'"
-          :entryId="entry.id"
-          :previewMode="viewMode !== 'dm'"
-        />
-        <LinkedEntriesPanel
-          v-if="activePanel === 'links'"
-          :entryId="entry.id"
-        />
-        <QuickViewPanel
-          v-if="activePanel === 'quickview'"
-          :entryId="entry.id"
-        />
-        <NoteSharePanel
-          v-if="activePanel === 'share'"
-          :entryId="entry.id"
-          :projectId="currentProjectId"
-        />
-      </div>
     </div>
   </div>
 
@@ -162,18 +108,12 @@ import { api, apiErrorMessage } from '../api/client'
 import {
   Bold, Italic, Heading2, Heading3, List, Minus,
   AlignLeft, AlignCenter, AlignRight, AlignJustify,
-  Pin, Printer, Lock, Layers, Trash2,
-  PanelRightClose, PanelRightOpen, Link, LayoutList,
-  ChevronLeft, ChevronRight, X, ExternalLink, Share2,
+  Printer, Lock, Layers, Trash2,
+  ChevronLeft, ChevronRight, X, ExternalLink,
 } from 'lucide-vue-next'
 import TiptapEditor from './TiptapEditor.vue'
-import AnnotationPanel from './AnnotationPanel.vue'
-import LinkedEntriesPanel from './LinkedEntriesPanel.vue'
-import QuickViewPanel from './QuickViewPanel.vue'
-import NoteSharePanel from './NoteSharePanel.vue'
 import { useEntryStore } from '../stores/useEntryStore'
 import { composeFrontmatter, decomposeFrontmatter } from '../lib/frontmatter'
-import { useAnnotationsStore } from '../stores/useAnnotationsStore'
 import { useFacetsStore } from '../stores/useFacetsStore'
 import { useUIStore } from '../stores/useUIStore'
 import { renderMarkdownToHtml } from '../composables/useMarkdownRender'
@@ -182,7 +122,6 @@ import { invalidateWikilinkCache } from '../extensions/wikilinkLookup'
 defineProps<{ onClose?: () => void }>()
 
 const entryStore = useEntryStore()
-const annotations = useAnnotationsStore()
 const facets = useFacetsStore()
 const ui = useUIStore()
 const route = useRoute()
@@ -212,8 +151,6 @@ const selectedCardFacet = ref<string>('')
 const renderedHtml = ref('')
 const renderError = ref('')
 const rendering = ref(false)
-const activePanel = ref('annotations')
-const panelCollapsed = ref(false)
 
 const localHistory = ref<string[]>([])
 const localFuture = ref<string[]>([])
@@ -249,7 +186,7 @@ async function uploadImage(file: File): Promise<string> {
   if (!entry.value) throw new Error('no entry')
   const form = new FormData()
   form.append('image', file)
-  const res = await api(`/entries/${entry.value.id}/images`, { method: 'POST', body: form })
+  const res = await api(`/content/entries/${entry.value.id}/images`, { method: 'POST', body: form })
   return res.url
 }
 
@@ -390,36 +327,6 @@ async function printEntry() {
     content.appendChild(win.document.importNode(node, true))
   })
   win.document.body.appendChild(content)
-
-  // Annotation footer: list player/shared annotations
-  const entryAnnotations = annotations.getByEntry(entry.value.id)
-    .filter(a => a.visibility !== 'gm')
-  if (entryAnnotations.length > 0) {
-    const hr = win.document.createElement('hr')
-    hr.style.cssText = 'margin:24px 0 12px;border:none;border-top:1px solid #ccc;'
-    win.document.body.appendChild(hr)
-
-    const footer = win.document.createElement('section')
-    footer.className = 'ann-print-footer'
-    footer.style.cssText = 'font-size:0.85em;color:#444;'
-
-    const heading = win.document.createElement('p')
-    heading.style.cssText = 'font-weight:600;margin-bottom:8px;text-transform:uppercase;letter-spacing:0.06em;font-size:0.8em;color:#888;'
-    heading.textContent = 'Notes'
-    footer.appendChild(heading)
-
-    entryAnnotations.forEach(ann => {
-      const item = win.document.createElement('p')
-      item.style.cssText = 'margin-bottom:6px;'
-      const prefix = win.document.createElement('span')
-      prefix.style.cssText = 'font-weight:600;margin-right:4px;'
-      prefix.textContent = '•'
-      item.appendChild(prefix)
-      item.appendChild(win.document.createTextNode(' ' + ann.text))
-      footer.appendChild(item)
-    })
-    win.document.body.appendChild(footer)
-  }
 
   win.print()
 }
@@ -578,68 +485,6 @@ function onEditorClick(e: MouseEvent) {
 
 .editor-body { display: flex; flex: 1; overflow: hidden; }
 .editor-content { flex: 1; padding: var(--space-xl) var(--space-2xl); overflow-y: auto; }
-
-.right-panel {
-  width: 260px;
-  min-width: 260px;
-  border-left: 1px solid var(--border);
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  background: var(--card);
-  transition: width 160ms ease, min-width 160ms ease;
-}
-.right-panel.collapsed {
-  width: var(--h-lg);
-  min-width: var(--h-lg);
-}
-
-.panel-tabs {
-  display: flex;
-  border-bottom: 1px solid var(--border);
-  flex-shrink: 0;
-  align-items: center;
-}
-.panel-tab {
-  flex: 1;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--space-xs);
-  background: none;
-  border: none;
-  border-bottom: 2px solid transparent;
-  color: var(--muted-foreground);
-  height: var(--h-md);
-  cursor: pointer;
-  transition: color var(--transition), border-color var(--transition);
-  margin-bottom: -1px;
-  white-space: nowrap;
-  overflow: hidden;
-}
-.panel-tab:hover { color: var(--muted-foreground); }
-.panel-tab.active { color: var(--foreground); border-bottom-color: var(--primary); }
-.tab-label {
-  font-family: var(--font-body);
-  font-size: var(--text-xs);
-}
-.right-panel.collapsed .tab-label { display: none; }
-.right-panel.collapsed .panel-tab { flex: none; width: var(--h-lg); }
-
-.panel-collapse-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: var(--h-sm);
-  height: var(--h-md);
-  background: none;
-  border: none;
-  color: var(--muted-foreground);
-  cursor: pointer;
-  flex-shrink: 0;
-  transition: color var(--transition);
-}
-.panel-collapse-btn:hover { color: var(--foreground); }
 
 .editor-empty {
   display: flex; align-items: center; justify-content: center;

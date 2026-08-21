@@ -114,6 +114,7 @@ func main() {
 		r.Post("/api/content/projects/{id}/facets", contentFacets.CreateForProject)
 		r.Delete("/api/content/projects/{id}/facets/{name}", contentFacets.DeleteForProject)
 		r.Get("/api/content/entries/{id}/images/{filename}", contentImages.GetImage)
+		r.Post("/api/content/entries/{id}/images", contentImages.UploadImage)
 		r.Get("/api/content/projects/{id}/entries", contentEntries.ListEntries)
 		r.Get("/api/content/entries/{id}", contentEntries.GetEntry)
 		r.Patch("/api/content/entries/{id}", contentEntries.UpdateEntry)

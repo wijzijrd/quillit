@@ -6,59 +6,19 @@
     </div>
 
     <div class="browser-scroll">
-      <div class="browser-empty" v-if="inProject ? groupedEntries.length === 0 : visibleEntries.length === 0">
+      <div class="browser-empty" v-if="visibleEntries.length === 0">
         No entries yet.
       </div>
 
-      <!-- Flat list: no project context -->
-      <template v-if="!inProject">
-        <EntryRow
-          v-for="entry in visibleEntries"
-          :key="entry.id"
-          :entry="entry"
-          @view="openView(entry)"
-          @edit="openEdit(entry)"
-          @links="openView(entry)"
-          @delete="deleteEntry(entry)"
-        />
-      </template>
-
-      <!-- Grouped by category: inside a project -->
-      <template v-else>
-        <div
-          class="category-group"
-          v-for="group in groupedEntries"
-          :key="group.category"
-        >
-          <button class="cat-group-header" @click="toggle(group.category)">
-            <component
-              :is="catIcon(group.category)"
-              :size="14"
-              :style="{ color: catColor(group.category) }"
-            />
-            <span class="cat-group-name" :style="{ color: catColor(group.category) }">
-              {{ group.category }}
-            </span>
-            <span class="cat-group-count">{{ group.entries.length }}</span>
-            <ChevronDown
-              :size="13"
-              class="chevron"
-              :class="{ rotated: collapsed[group.category] }"
-            />
-          </button>
-          <div class="cat-group-entries" v-show="!collapsed[group.category]">
-            <EntryRow
-              v-for="entry in group.entries"
-              :key="entry.id"
-              :entry="entry"
-              @view="openView(entry)"
-              @edit="openEdit(entry)"
-              @links="openView(entry)"
-              @delete="deleteEntry(entry)"
-            />
-          </div>
-        </div>
-      </template>
+      <EntryRow
+        v-for="entry in visibleEntries"
+        :key="entry.id"
+        :entry="entry"
+        @view="openView(entry)"
+        @edit="openEdit(entry)"
+        @links="openView(entry)"
+        @delete="deleteEntry(entry)"
+      />
     </div>
   </div>
 
@@ -83,46 +43,65 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import { ChevronDown } from 'lucide-vue-next'
 import EntryRow from '../components/EntryRow.vue'
 import EntryEditModal from '../components/EntryEditModal.vue'
 import EntryViewModal from '../components/EntryViewModal.vue'
 import { useEntriesStore } from '../stores/useEntriesStore'
-import { useCategoriesStore } from '../stores/useCategoriesStore'
 import { useProjectStore } from '../stores/useProjectStore'
-import { resolveIcon } from '../utils/categoryIcons'
-import type { Entry } from '../types'
+import type { ContentEntry } from '../stores/useEntryStore'
 
 const route = useRoute()
 const entries = useEntriesStore()
-const cats = useCategoriesStore()
 const projectStore = useProjectStore()
 
-const projectId = computed(() => route.params.projectId ?? null)
+const projectId = computed(() => {
+  const p = route.params.projectId
+  return typeof p === 'string' ? p : null
+})
 const inProject = computed(() => !!projectId.value)
 const project = computed(() => projectStore.projects.find(p => p.id === projectId.value) ?? null)
 
 onMounted(async () => {
-  await entries.init()
-  if (inProject.value) {
+  const id = projectId.value
+  if (id) {
     await Promise.all([
-      cats.init(),
-      cats.initForProject(projectId.value),
+      entries.init(id),
       projectStore.fetchProjects(),
     ])
   }
 })
 
-watch(projectId, (newId) => {
-  if (newId) cats.initForProject(newId)
-  else cats.projectCategories.value = []
+// Vue Router reuses this component instance across /projects/:projectId/entries
+// navigations (same matched component, different param) — onMounted alone
+// only fires once, so without this watcher switching projects in-app would
+// leave the previous project's entries on screen. useEntriesStore.init's
+// guard is keyed by project id (not a plain boolean), so calling it again
+// here for the new id re-fetches correctly without needing to poke any
+// store-internal state first. Also clears the list when navigating out of
+// a project entirely (content-svc has no cross-project list, so there's
+// nothing to show there either).
+//
+// Not awaited — this is a route-driven refetch, not something to block
+// rendering on — so failures are caught explicitly rather than left as an
+// unhandled rejection. Rapid A→B→C switching firing overlapping requests is
+// safe: useEntriesStore.init has its own per-call token guard (see
+// useEntriesStore.ts) that discards a response once a newer call has
+// superseded it, so an out-of-order resolution can't clobber the currently
+// displayed project's entries.
+watch(projectId, (id) => {
+  if (!id) {
+    entries.clear()
+    return
+  }
+  entries.init(id).catch(() => {})
 })
 
-const collapsed = ref({})
-const editingEntry = ref<Entry | { id: string } | null>(null)
-const viewingEntry = ref(null)
-const viewHistory = ref([])
-const viewFuture = ref([])
+type EditingEntry = ContentEntry | { id: string }
+
+const editingEntry = ref<EditingEntry | null>(null)
+const viewingEntry = ref<ContentEntry | null>(null)
+const viewHistory = ref<ContentEntry[]>([])
+const viewFuture = ref<ContentEntry[]>([])
 
 // Escape hatch for /entries/:id — open the editor for the routed entry id
 // directly, independent of the (list-backed) EntryRow click path above, so
@@ -134,61 +113,29 @@ watch(() => route.params.id, (id) => {
   if (typeof id === 'string' && id) editingEntry.value = { id }
 }, { immediate: true })
 
-// Flat sorted list for global notes view
+// Flat, title-sorted list of every loaded entry.
 const visibleEntries = computed(() =>
   [...entries.entries].sort((a, b) => a.title.localeCompare(b.title))
 )
 
-// Grouped list for project view
-const groupedEntries = computed(() => {
-  if (!inProject.value) return []
-  const order = cats.projectCategories.map(c => c.name)
-  const map = {}
-  for (const e of [...entries.entries].sort((a, b) => a.title.localeCompare(b.title))) {
-    if (!map[e.category]) map[e.category] = []
-    map[e.category].push(e)
-  }
-  const known = order.filter(name => map[name]?.length).map(name => ({ category: name, entries: map[name] }))
-  const extra = Object.keys(map).filter(name => !order.includes(name)).map(name => ({ category: name, entries: map[name] }))
-  return [...known, ...extra]
-})
-
-function toggle(category) {
-  collapsed.value[category] = !collapsed.value[category]
-}
-
-function catIcon(categoryName) {
-  const c = cats.projectCategoryFor(categoryName)
-  return c ? resolveIcon(c.icon) : resolveIcon('')
-}
-
-function catColor(categoryName) {
-  return cats.projectCategoryFor(categoryName)?.color ?? 'var(--muted-foreground)'
-}
-
 async function createNew() {
-  if (inProject.value) {
-    await cats.initForProject(projectId.value)
-    const category = cats.projectCategories[0]?.name ?? 'Characters'
-    const entry = await entries.createEntry(category)
-    editingEntry.value = entry
-  } else {
-    const entry = await entries.createEntry('Characters')
-    editingEntry.value = entry
-  }
+  const id = projectId.value
+  if (!id) return
+  const entry = await entries.createEntry(id, 'Untitled')
+  editingEntry.value = entry
 }
 
-function openEdit(entry) {
+function openEdit(entry: ContentEntry) {
   viewingEntry.value = null
   editingEntry.value = entry
 }
 
-function openView(entry) {
+function openView(entry: ContentEntry) {
   editingEntry.value = null
   viewingEntry.value = entry
 }
 
-async function deleteEntry(entry) {
+async function deleteEntry(entry: ContentEntry) {
   if (!confirm(`Delete "${entry.title}"?`)) return
   await entries.deleteEntry(entry.id)
   if (editingEntry.value?.id === entry.id) editingEntry.value = null
@@ -211,15 +158,15 @@ function navigateTo(id: string) {
 }
 
 function viewGoBack() {
-  if (!viewHistory.value.length) return
+  if (!viewHistory.value.length || !viewingEntry.value) return
   viewFuture.value.unshift(viewingEntry.value)
-  viewingEntry.value = viewHistory.value.pop()
+  viewingEntry.value = viewHistory.value.pop() ?? null
 }
 
 function viewGoForward() {
-  if (!viewFuture.value.length) return
+  if (!viewFuture.value.length || !viewingEntry.value) return
   viewHistory.value.push(viewingEntry.value)
-  viewingEntry.value = viewFuture.value.shift()
+  viewingEntry.value = viewFuture.value.shift() ?? null
 }
 
 function closeViewModal() {
@@ -237,12 +184,4 @@ function closeViewModal() {
 .new-btn:hover { background: var(--primary); color: var(--background); }
 .browser-scroll { flex: 1; overflow-y: auto; }
 .browser-empty { color: var(--muted-foreground); font-size: 0.9em; padding: 32px 0; }
-.category-group { margin-bottom: 4px; }
-.cat-group-header { display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px 12px; background: none; border: none; cursor: pointer; border-radius: var(--radius); font-family: var(--font-body); font-size: 0.82em; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; transition: background var(--transition); }
-.cat-group-header:hover { background: var(--muted); }
-.cat-group-name { flex: 1; text-align: left; }
-.cat-group-count { font-size: 0.75em; font-weight: normal; color: var(--muted-foreground); background: var(--muted); border-radius: 10px; padding: 1px 7px; }
-.chevron { color: var(--muted-foreground); transition: transform 0.15s ease; flex-shrink: 0; }
-.chevron.rotated { transform: rotate(-90deg); }
-.cat-group-entries { padding-bottom: 8px; }
 </style>

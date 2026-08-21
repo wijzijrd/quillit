@@ -163,7 +163,6 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRoute, RouterLink } from 'vue-router'
 import { useProjectStore } from '../stores/useProjectStore'
-import { useMemberStore } from '../stores/useMemberStore'
 import { useAuthStore } from '../stores/useAuthStore'
 import { useFacetsStore } from '../stores/useFacetsStore'
 import { apiErrorMessage } from '../api/client'
@@ -173,7 +172,6 @@ import { isKebabCase } from '../utils/facets'
 
 const route = useRoute()
 const projectStore = useProjectStore()
-const memberStore = useMemberStore()
 const auth = useAuthStore()
 const facets = useFacetsStore()
 
@@ -219,7 +217,7 @@ function onSearch() {
   if (searchQuery.value.trim().length < 2) return
   searchTimer = setTimeout(async () => {
     try {
-      searchResults.value = await memberStore.searchUsers(searchQuery.value.trim())
+      searchResults.value = await projectStore.searchUsers(searchQuery.value.trim())
     } catch (e: unknown) {
       error.value = apiErrorMessage(e, 'Could not search users')
     }

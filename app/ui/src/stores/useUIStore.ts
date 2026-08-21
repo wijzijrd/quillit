@@ -33,7 +33,6 @@ function legacyThemeToSeason(theme: 'light' | 'dark'): Season {
 
 export const useUIStore = defineStore('ui', () => {
   const activeEntryId = ref<string | null>(null)
-  const activeCategory = ref<string | null>(null)
   const searchOverlayOpen = ref(false)
   const navigationHistory = ref<string[]>([])
 
@@ -137,15 +136,14 @@ export const useUIStore = defineStore('ui', () => {
 
   const canGoBack = computed(() => navigationHistory.value.length > 0)
 
-  function setCategory(cat: string | null) { activeCategory.value = cat }
   function toggleSearchOverlay() { searchOverlayOpen.value = !searchOverlayOpen.value }
   function closeSearchOverlay() { searchOverlayOpen.value = false }
 
   return {
-    activeEntryId, activeCategory, searchOverlayOpen,
+    activeEntryId, searchOverlayOpen,
     navigationHistory, canGoBack,
     season, glass, isDark,
-    setActiveEntry, goBack, setCategory, toggleSearchOverlay, closeSearchOverlay,
+    setActiveEntry, goBack, toggleSearchOverlay, closeSearchOverlay,
     initTheme, setSeason, setGlass, syncSettingsFromServer,
   }
 })
