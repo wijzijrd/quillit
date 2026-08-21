@@ -74,10 +74,10 @@ onMounted(async () => {
 // Vue Router reuses this component instance across /projects/:projectId/entries
 // navigations (same matched component, different param) — onMounted alone
 // only fires once, so without this watcher switching projects in-app would
-// leave the previous project's entries on screen. useEntriesStore.init is a
-// single shared cache keyed by its own `loaded` flag, not per-project, so its
-// short-circuit guard would otherwise no-op on the second call; reset it here
-// so the fetch actually re-runs. Also clears the list when navigating out of
+// leave the previous project's entries on screen. useEntriesStore.init's
+// guard is keyed by project id (not a plain boolean), so calling it again
+// here for the new id re-fetches correctly without needing to poke any
+// store-internal state first. Also clears the list when navigating out of
 // a project entirely (content-svc has no cross-project list, so there's
 // nothing to show there either).
 //
@@ -91,10 +91,8 @@ onMounted(async () => {
 watch(projectId, (id) => {
   if (!id) {
     entries.entries = []
-    entries.loaded = false
     return
   }
-  entries.loaded = false
   entries.init(id).catch(() => {})
 })
 

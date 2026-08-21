@@ -15,24 +15,29 @@ export interface EntrySearchResult {
 
 export const useEntriesStore = defineStore('entries', () => {
   const entries = ref<ContentEntry[]>([])
-  const loaded = ref(false)
+
+  // Keyed by project id (not a plain boolean) so a fresh component mount for
+  // a *different* project still triggers a fetch — see QuillitView.vue's
+  // onMounted/watch, which both just call init(id) and rely on this guard to
+  // no-op only when the requested project is already loaded.
+  const loadedProjectId = ref<string | null>(null)
+  const loaded = computed(() => loadedProjectId.value !== null)
 
   // Bumped on every init() call and compared on resolution so an
-  // out-of-order response (e.g. a caller resets `loaded` and re-inits for
-  // a new project before a prior init's request has resolved — QuillitView
-  // does this on rapid in-app project switching) can't clobber `entries`
+  // out-of-order response (e.g. rapid in-app project switching firing
+  // overlapping requests — QuillitView does this) can't clobber `entries`
   // with stale data once a newer call has already superseded it.
   let initToken = 0
 
   async function init(projectId: string) {
-    if (loaded.value) return
-    loaded.value = true
+    if (loadedProjectId.value === projectId) return
     const token = ++initToken
+    loadedProjectId.value = projectId
     try {
       const result = await api(`/content/projects/${projectId}/entries`)
       if (token === initToken) entries.value = result
     } catch (e) {
-      if (token === initToken) loaded.value = false
+      if (token === initToken) loadedProjectId.value = null
       throw e
     }
   }
@@ -59,21 +64,11 @@ export const useEntriesStore = defineStore('entries', () => {
     return entries.value.find(e => e.id === id) ?? null
   }
 
-  function search(query: string): ContentEntry[] {
-    if (!query.trim()) return []
-    const q = query.toLowerCase()
-    return entries.value.filter(e =>
-      e.title.toLowerCase().includes(q) ||
-      e.body.toLowerCase().includes(q)
-    )
-  }
-
   /**
-   * Real full-text search (issue #51), replacing the naive client-side
-   * `.filter()` in `search()` above (kept for now — still used by the
-   * unwired SearchBar.vue). Hits content-svc's project-scoped search
-   * endpoint (GET /content/projects/{id}/search?q=), which is FTS5-backed
-   * and actually indexes body content, not just whatever's cached locally.
+   * Real full-text search (issue #51). Hits content-svc's project-scoped
+   * search endpoint (GET /content/projects/{id}/search?q=), which is
+   * FTS5-backed and actually indexes body content, not just whatever's
+   * cached locally.
    *
    * The endpoint is per-project, but the dashboard/global search this backs
    * has always searched across every project a user belongs to — so this
@@ -101,5 +96,5 @@ export const useEntriesStore = defineStore('entries', () => {
     return entries.value.filter(e => e.tags?.includes(tag))
   }
 
-  return { entries, loaded, init, createEntry, updateEntry, deleteEntry, getById, search, searchRemote, allTags, byTag }
+  return { entries, loaded, init, createEntry, updateEntry, deleteEntry, getById, searchRemote, allTags, byTag }
 })

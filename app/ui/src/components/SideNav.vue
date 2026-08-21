@@ -33,10 +33,8 @@
 <script setup lang="ts">
 import { RouterLink } from 'vue-router'
 import { LayoutDashboard, BookOpen, UserCircle, Settings } from 'lucide-vue-next'
-import { useUIStore } from '../stores/useUIStore'
 import { useAuthStore } from '../stores/useAuthStore'
 
-const ui = useUIStore()
 const auth = useAuthStore()
 </script>
 

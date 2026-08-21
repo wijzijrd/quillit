@@ -27,12 +27,24 @@ describe('useEntriesStore', () => {
     expect(store.loaded).toBe(true)
   })
 
-  it('init only fetches once per store instance', async () => {
+  it('init only fetches once per project', async () => {
     apiMock.mockResolvedValue([])
     const store = useEntriesStore()
     await store.init('proj-1')
     await store.init('proj-1')
     expect(apiMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('init refetches when the requested project changes', async () => {
+    apiMock.mockResolvedValueOnce([{ id: 'e1', title: 'Tom', tags: [] }])
+    apiMock.mockResolvedValueOnce([{ id: 'e2', title: 'Jerry', tags: [] }])
+    const store = useEntriesStore()
+    await store.init('proj-1')
+    expect(store.entries).toEqual([{ id: 'e1', title: 'Tom', tags: [] }])
+    await store.init('proj-2')
+    expect(apiMock).toHaveBeenCalledTimes(2)
+    expect(apiMock).toHaveBeenLastCalledWith('/content/projects/proj-2/entries')
+    expect(store.entries).toEqual([{ id: 'e2', title: 'Jerry', tags: [] }])
   })
 
   it('init resets loaded on failure so a retry is possible', async () => {
@@ -76,23 +88,5 @@ describe('useEntriesStore', () => {
     await store.init('proj-1')
     expect(store.getById('e1')?.title).toBe('Tom')
     expect(store.getById('missing')).toBeNull()
-  })
-
-  it('search matches both title and body', async () => {
-    apiMock.mockResolvedValue([
-      { id: 'e1', title: 'Dragon Lore', body: 'A dragon is a large reptile', tags: [] },
-      { id: 'e2', title: 'Knights', body: 'A knight fights dragons', tags: [] },
-      { id: 'e3', title: 'Castle', body: 'A stone fortress', tags: [] },
-    ])
-    const store = useEntriesStore()
-    await store.init('proj-1')
-    // Query matches both title and body
-    expect(store.search('dragon')).toHaveLength(2)
-    // Query matches only body
-    expect(store.search('fights')).toHaveLength(1)
-    // Query matches only title
-    expect(store.search('knights')).toHaveLength(1)
-    // Query matches nothing
-    expect(store.search('unicorn')).toHaveLength(0)
   })
 })

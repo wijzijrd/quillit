@@ -37,10 +37,6 @@
               :class="{ 'bg-[var(--muted)]': i === focusedIdx }"
               @mousedown.prevent="select(entry)"
             >
-              <span
-                class="text-[0.65em] uppercase tracking-widest font-semibold w-[60px] flex-shrink-0 pt-0.5"
-                :style="{ color: categoryColorOf(entry.id) }"
-              >{{ categoryOf(entry.id) }}</span>
               <div class="flex flex-col gap-0.5 min-w-0 flex-1">
                 <span class="text-sm text-[var(--foreground)] truncate">{{ entry.title }}</span>
               </div>
@@ -104,8 +100,8 @@ watch(() => ui.searchOverlayOpen, async (open) => {
     focusedIdx.value = 0
     await nextTick()
     // Make sure the project list (needed to fan the search out, and to
-    // resolve categories/names for display) is loaded before the user types.
-    await Promise.all([entries.init(), projectStore.fetchProjects()])
+    // resolve names for display) is loaded before the user types.
+    await projectStore.fetchProjects()
   }
 })
 
@@ -130,16 +126,6 @@ async function runSearch(q: string) {
   results.value = hits.slice(0, 12)
   appliedQuery.value = q
   searching.value = false
-}
-
-/** Category/name for a hit comes from the locally-cached full entry — search hits don't carry it. */
-function categoryOf(entryId: string): string {
-  return entries.getById(entryId)?.category ?? ''
-}
-
-function categoryColorOf(entryId: string): string {
-  const category = categoryOf(entryId)
-  return category ? `var(--cat-${category.toLowerCase()})` : 'var(--muted-foreground)'
 }
 
 function projectNameOf(projectId: string): string {
