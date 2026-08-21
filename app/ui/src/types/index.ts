@@ -58,20 +58,6 @@ export interface UserSettings {
   [key: string]: unknown
 }
 
-export interface Folder {
-  id: string
-  name: string
-}
-
-export interface SessionNote {
-  id: string
-  title: string
-  body: string
-  category: string
-  visibility: string
-  tags: string[]
-}
-
 export type GameSessionStatus = 'running' | 'stopped'
 
 export interface GameSession {

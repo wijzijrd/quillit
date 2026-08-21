@@ -83,9 +83,14 @@ export const useProjectStore = defineStore('projects', () => {
 
   function init() { return fetchProjects() }
 
+  async function searchUsers(q: string) {
+    return await api(`/users/search?q=${encodeURIComponent(q)}`)
+  }
+
   return {
     projects, types, loaded, membersCache, invitesCache,
     fetchProjects, fetchTypes, createProject, updateProject, deleteProject,
     fetchMembers, addMember, removeMember, generateInvite, revokeInvite, join, init,
+    searchUsers,
   }
 })

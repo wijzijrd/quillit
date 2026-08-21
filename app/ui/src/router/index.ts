@@ -17,7 +17,6 @@ const router = createRouter({
     { path: '/projects/:projectId/game', component: () => import('../views/GameView.vue') },
     { path: '/projects/:projectId/entries', component: QuillitView },
     { path: '/projects/:projectId/notes', redirect: (to) => `/projects/${to.params.projectId}/entries` },
-    { path: '/member', component: () => import('../views/MemberView.vue') },
     { path: '/tag/:tag', component: () => import('../views/TagView.vue') },
     { path: '/profile', component: () => import('../views/ProfileView.vue') },
     { path: '/login', component: () => import('../views/LoginView.vue'), meta: { public: true } },

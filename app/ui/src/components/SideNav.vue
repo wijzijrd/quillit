@@ -11,9 +11,6 @@
       <RouterLink to="/entries" class="nav-item" active-class="nav-active" title="Entries">
         <BookOpen :size="16" class="flex-shrink-0" />
       </RouterLink>
-      <RouterLink to="/member" class="nav-item" active-class="nav-active" title="Member">
-        <BookMarked :size="16" class="flex-shrink-0" />
-      </RouterLink>
     </div>
 
     <div class="mt-auto border-t border-[var(--border)] p-1">
@@ -34,19 +31,13 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
-import { RouterLink, useRoute } from 'vue-router'
-import { LayoutDashboard, BookOpen, BookMarked, UserCircle, Settings } from 'lucide-vue-next'
+import { RouterLink } from 'vue-router'
+import { LayoutDashboard, BookOpen, UserCircle, Settings } from 'lucide-vue-next'
 import { useUIStore } from '../stores/useUIStore'
-import { useEntriesStore } from '../stores/useEntriesStore'
 import { useAuthStore } from '../stores/useAuthStore'
 
 const ui = useUIStore()
-const entries = useEntriesStore()
 const auth = useAuthStore()
-
-const route = useRoute()
-const inProject = computed(() => !!route.params.projectId)
 </script>
 
 <style scoped>

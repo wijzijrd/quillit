@@ -34,8 +34,8 @@ export const useLiveSessionStore = defineStore('liveSession', () => {
     // Status is scoped per-project, so once we know which project this
     // refresh is for, don't leave a stale cross-project connection silently
     // receiving messages into the shared state. Same-project refreshes
-    // (including the socket's own shouldReconnect check, and NoteSharePanel/
-    // LiveSessionPanel both polling the same project) are a no-op here.
+    // (including the socket's own shouldReconnect check and LiveSessionPanel
+    // polling the same project) are a no-op here.
     if (connectedProjectId && connectedProjectId !== projectId) {
       disconnect()
     }
