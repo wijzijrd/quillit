@@ -23,11 +23,11 @@ onMounted(() => {
 onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 
 let shiftCount = 0
-let shiftTimer = null
-function onKeydown(e) {
+let shiftTimer: ReturnType<typeof setTimeout> | null = null
+function onKeydown(e: KeyboardEvent) {
   if (e.key === 'Shift' && !e.ctrlKey && !e.altKey && !e.metaKey) {
     shiftCount++
-    clearTimeout(shiftTimer)
+    if (shiftTimer) clearTimeout(shiftTimer)
     shiftTimer = setTimeout(() => { shiftCount = 0 }, 500)
     if (shiftCount >= 3) {
       shiftCount = 0

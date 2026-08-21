@@ -38,7 +38,7 @@
               <td class="action-cell">
                 <button
                   class="btn-ghost btn-sm"
-                  @click="admin.setUserActive(u.id, !u.active)"
+                  @click="toggleUserActive(u)"
                 >
                   {{ u.active ? 'Disable' : 'Enable' }}
                 </button>
@@ -96,6 +96,7 @@
 import { ref, onMounted } from 'vue'
 import { useAdminStore } from '../stores/useAdminStore'
 import { formatDate } from '../utils/date'
+import type { User } from '../types'
 
 const admin = useAdminStore()
 
@@ -104,25 +105,25 @@ const userQuery = ref('')
 const projectQuery = ref('')
 const usersLoaded = ref(false)
 const projectsLoaded = ref(false)
-const expandedProject = ref(null)
+const expandedProject = ref<string | null>(null)
 
 onMounted(async () => {
   await admin.fetchUsers()
   usersLoaded.value = true
 })
 
-let userTimer = null
+let userTimer: ReturnType<typeof setTimeout> | null = null
 function searchUsers() {
-  clearTimeout(userTimer)
+  if (userTimer) clearTimeout(userTimer)
   userTimer = setTimeout(async () => {
     await admin.fetchUsers(userQuery.value)
     usersLoaded.value = true
   }, 300)
 }
 
-let projectTimer = null
+let projectTimer: ReturnType<typeof setTimeout> | null = null
 async function searchProjects() {
-  clearTimeout(projectTimer)
+  if (projectTimer) clearTimeout(projectTimer)
   projectTimer = setTimeout(async () => {
     await admin.fetchProjects(projectQuery.value)
     projectsLoaded.value = true
@@ -140,7 +141,7 @@ async function onTabChange() {
 import { watch } from 'vue'
 watch(tab, onTabChange)
 
-async function toggleProjectMembers(id) {
+async function toggleProjectMembers(id: string) {
   if (expandedProject.value === id) {
     expandedProject.value = null
     return
@@ -149,8 +150,18 @@ async function toggleProjectMembers(id) {
   if (!admin.projectMembers[id]) await admin.fetchProjectMembers(id)
 }
 
+// admin.users always comes from auth-svc's UserResponse (ListUsers/UpdateUser
+// in app/auth/internal/handler/auth.go), which always sets `id` — but User.id
+// is genuinely optional on the shared frontend type because /api/auth/me
+// (MeResponse, used for auth.user) never includes it. These guards reflect
+// that real absence rather than asserting it away.
+function toggleUserActive(u: User) {
+  if (!u.id) return
+  admin.setUserActive(u.id, !u.active)
+}
 
-async function confirmDeleteUser(u) {
+async function confirmDeleteUser(u: User) {
+  if (!u.id) return
   if (!confirm(`Delete user "${u.username}" (${u.email})? This cannot be undone.`)) return
   await admin.deleteUser(u.id)
 }

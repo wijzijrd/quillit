@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { api } from '../api/client'
-import type { Project, ProjectType, ProjectMember, ProjectInvite } from '../types'
+import type { Project, ProjectType, ProjectMember, ProjectInvite, UserSearchResult } from '../types'
 
 export const useProjectStore = defineStore('projects', () => {
   const projects = ref<Project[]>([])
@@ -83,7 +83,7 @@ export const useProjectStore = defineStore('projects', () => {
 
   function init() { return fetchProjects() }
 
-  async function searchUsers(q: string) {
+  async function searchUsers(q: string): Promise<UserSearchResult[]> {
     return await api(`/users/search?q=${encodeURIComponent(q)}`)
   }
 

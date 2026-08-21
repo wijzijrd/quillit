@@ -54,7 +54,7 @@ import { Input } from '../components/ui/input'
 import { FormField } from '../components/ui/form-field'
 import type { ValidationResult } from '../components/ui/form-field'
 import { Button } from '../components/ui/button'
-import { api } from '../api/client'
+import { api, apiErrorMessage, apiErrorField } from '../api/client'
 
 const router = useRouter()
 const route = useRoute()
@@ -68,7 +68,7 @@ const confirm = ref('')
 const error = ref('')
 const emailTaken = ref(false)
 const loading = ref(false)
-const inviteToken = ref(null)
+const inviteToken = ref<string | null>(null)
 
 const usernameField = ref<{ validateNow: (v: string | number) => Promise<ValidationResult | null> } | null>(null)
 
@@ -86,14 +86,16 @@ async function checkUsernameAvailable(value: string | number): Promise<Validatio
 }
 
 onMounted(async () => {
-  inviteToken.value = route.query.invite ?? null
+  const raw = route.query.invite
+  inviteToken.value = typeof raw === 'string' ? raw : null
   await auth.fetchMe()
 
   if (auth.isLoggedIn) {
-    if (inviteToken.value) {
+    const token = inviteToken.value
+    if (token) {
       // Already logged in — redeem the invite and go straight to the project.
       try {
-        const membership = await projects.join(inviteToken.value)
+        const membership = await projects.join(token)
         router.push(`/projects/${membership.projectId}/entries`)
       } catch {
         router.push('/')
@@ -127,9 +129,10 @@ async function submit() {
   loading.value = true
   try {
     await auth.register(email.value, username.value, password.value)
-    if (inviteToken.value) {
+    const token = inviteToken.value
+    if (token) {
       try {
-        const membership = await projects.join(inviteToken.value)
+        const membership = await projects.join(token)
         router.push(`/projects/${membership.projectId}/entries`)
         return
       } catch {
@@ -138,10 +141,10 @@ async function submit() {
     }
     router.push('/')
   } catch (e) {
-    if (e?.data?.field === 'email') {
+    if (apiErrorField(e) === 'email') {
       emailTaken.value = true
     } else {
-      error.value = e?.data?.error ?? 'Registration failed'
+      error.value = apiErrorMessage(e, 'Registration failed')
     }
   } finally {
     loading.value = false

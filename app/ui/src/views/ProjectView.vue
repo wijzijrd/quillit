@@ -169,20 +169,21 @@ import { apiErrorMessage } from '../api/client'
 import ImportPanel from '../components/ImportPanel.vue'
 import { inviteLink as buildInviteLink } from '../utils/links'
 import { isKebabCase } from '../utils/facets'
+import type { ProjectMember, UserSearchResult } from '../types'
 
 const route = useRoute()
 const projectStore = useProjectStore()
 const auth = useAuthStore()
 const facets = useFacetsStore()
 
-const projectId = computed(() => route.params.projectId)
+const projectId = computed(() => String(route.params.projectId))
 const project = computed(() => projectStore.projects.find(p => p.id === projectId.value) ?? null)
-const members = ref([])
+const members = ref<ProjectMember[]>([])
 const searchQuery = ref('')
-const searchResults = ref([])
+const searchResults = ref<UserSearchResult[]>([])
 const inviteLink = ref('')
 const error = ref('')
-let searchTimer = null
+let searchTimer: ReturnType<typeof setTimeout> | null = null
 
 const facetsLoaded = ref(false)
 const newGlobalFacet = ref('')
@@ -212,7 +213,7 @@ onMounted(async () => {
 })
 
 function onSearch() {
-  clearTimeout(searchTimer)
+  if (searchTimer) clearTimeout(searchTimer)
   searchResults.value = []
   if (searchQuery.value.trim().length < 2) return
   searchTimer = setTimeout(async () => {
@@ -224,7 +225,7 @@ function onSearch() {
   }, 280)
 }
 
-async function addUser(user: { id: string; username: string }) {
+async function addUser(user: UserSearchResult) {
   error.value = ''
   const memberRole = project.value?.roleLabels?.[1]?.toLowerCase() ?? 'member'
   try {

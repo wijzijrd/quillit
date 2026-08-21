@@ -125,6 +125,7 @@ import { useAuthStore } from '../stores/useAuthStore'
 import { useUIStore } from '../stores/useUIStore'
 import { api } from '../api/client'
 import { inviteLink } from '../utils/links'
+import type { Project } from '../types'
 
 /** Debounce for the dashboard search input — matches SearchOverlay.vue. */
 const SEARCH_DEBOUNCE_MS = 300
@@ -139,9 +140,9 @@ const ui = useUIStore()
 const searchQuery = ref('')
 const showNewProject = ref(false)
 const newProject = ref({ name: '', type: 'campaign' })
-const pendingInvite = ref(null)
+const pendingInvite = ref<string | null>(null)
 const joiningInvite = ref(false)
-const activeInviteProject = ref(null)
+const activeInviteProject = ref<string | null>(null)
 const pendingInviteLink = ref('')
 
 // Recents feed, populated below by loadRecents(). Deliberately NOT routed
@@ -165,7 +166,7 @@ onMounted(async () => {
 
   // Handle ?invite= query param
   const inviteToken = route.query.invite
-  if (inviteToken) pendingInvite.value = inviteToken
+  if (typeof inviteToken === 'string') pendingInvite.value = inviteToken
 })
 
 const recent = computed(() =>
@@ -226,15 +227,14 @@ function matchedInBody(entry: EntrySearchResult): boolean {
   return !inTitle && !inTags
 }
 
-function displayRole(role, roleLabels) {
-  if (!roleLabels) return role
+function displayRole(role: string, roleLabels: [string, string]) {
   if (role === roleLabels[0]?.toLowerCase() || role === roleLabels[0]) return roleLabels[0]
   if (role === roleLabels[1]?.toLowerCase() || role === roleLabels[1]) return roleLabels[1]
   return role
 }
 
-function isEditorOf(project) {
-  if (!project.roleLabels || !project.myRole) return false
+function isEditorOf(project: Project) {
+  if (!project.myRole) return false
   return project.myRole === project.roleLabels[0]?.toLowerCase() ||
     project.myRole === project.roleLabels[0] ||
     auth.user?.role === 'admin'
@@ -247,12 +247,12 @@ async function createProject() {
   newProject.value = { name: '', type: 'campaign' }
 }
 
-async function confirmDeleteProject(p) {
+async function confirmDeleteProject(p: Project) {
   if (!confirm(`Delete project "${p.name}"? This cannot be undone.`)) return
   await projectStore.deleteProject(p.id)
 }
 
-async function openProjectInvite(p) {
+async function openProjectInvite(p: Project) {
   if (activeInviteProject.value === p.id) {
     activeInviteProject.value = null
     pendingInviteLink.value = ''
@@ -269,9 +269,11 @@ function copyInvite() {
 }
 
 async function redeemInvite() {
+  const token = pendingInvite.value
+  if (!token) return
   joiningInvite.value = true
   try {
-    await projectStore.join(pendingInvite.value)
+    await projectStore.join(token)
     pendingInvite.value = null
     alert('You have joined the project!')
   } catch {

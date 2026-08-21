@@ -113,6 +113,7 @@ import {
 } from 'lucide-vue-next'
 import TiptapEditor from './TiptapEditor.vue'
 import { useEntryStore } from '../stores/useEntryStore'
+import type { ContentEntry } from '../stores/useEntryStore'
 import { composeFrontmatter, decomposeFrontmatter } from '../lib/frontmatter'
 import { useFacetsStore } from '../stores/useFacetsStore'
 import { useUIStore } from '../stores/useUIStore'
@@ -140,10 +141,10 @@ watch(currentProjectId, (id) => {
 }, { immediate: true })
 const cardFacets = computed(() => currentProjectId.value ? (facets.projectEffective[currentProjectId.value] ?? []) : [])
 
-const entry = ref(null)
+const entry = ref<ContentEntry | null>(null)
 const localTitle = ref('')
 const localBody = ref('')
-const localTags = ref([])
+const localTags = ref<string[]>([])
 const tagInput = ref('')
 const saveStatus = ref('')
 const viewMode = ref<'dm' | 'player' | 'card'>('dm')
@@ -157,7 +158,7 @@ const localFuture = ref<string[]>([])
 const canGoBack = computed(() => localHistory.value.length > 0)
 const canGoForward = computed(() => localFuture.value.length > 0)
 
-const tiptapRef = ref(null)
+const tiptapRef = ref<InstanceType<typeof TiptapEditor> | null>(null)
 const editor = computed(() => tiptapRef.value?.editor)
 
 watch(() => ui.activeEntryId, async (id) => {
@@ -190,10 +191,10 @@ async function uploadImage(file: File): Promise<string> {
   return res.url
 }
 
-let saveTimer = null
+let saveTimer: ReturnType<typeof setTimeout> | null = null
 function debouncedSave() {
   saveStatus.value = 'Unsaved…'
-  clearTimeout(saveTimer)
+  if (saveTimer) clearTimeout(saveTimer)
   saveTimer = setTimeout(save, 800)
 }
 
@@ -227,7 +228,7 @@ async function switchView(mode: 'dm' | 'player' | 'card') {
     viewMode.value = 'dm'
     return
   }
-  clearTimeout(saveTimer)
+  if (saveTimer) clearTimeout(saveTimer)
   await save()
   if (saveStatus.value === 'Save failed') return
   viewMode.value = mode
@@ -256,6 +257,7 @@ watch(selectedCardFacet, () => {
 })
 
 function confirmDelete() {
+  if (!entry.value) return
   if (!confirm(`Delete "${entry.value.title}"? This cannot be undone.`)) return
   entryStore.remove(entry.value.id)
   ui.setActiveEntry(null)
@@ -287,12 +289,12 @@ function addTag() {
   tagInput.value = ''
 }
 
-function removeTag(tag) {
+function removeTag(tag: string) {
   localTags.value = localTags.value.filter(t => t !== tag)
   save()
 }
 
-function onTagKeydown(e) {
+function onTagKeydown(e: KeyboardEvent) {
   if (e.key === 'Enter' || e.key === ',') {
     e.preventDefault()
     addTag()
