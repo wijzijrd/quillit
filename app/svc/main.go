@@ -1,6 +1,6 @@
 // @title           Quillit BFF API
 // @version         1.0
-// @description     Backend-for-frontend: session management, entries, annotations.
+// @description     Backend-for-frontend: session management, projects, game mode, content proxy.
 // @host            localhost:3000
 // @BasePath        /
 

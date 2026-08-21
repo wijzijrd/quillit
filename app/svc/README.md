@@ -55,20 +55,41 @@ This starts `quillit-auth-svc` (:3002), `quillit-svc` (:3000), and `quillit-ui` 
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/auth/status` | Is the GM account set up? |
-| POST | `/auth/setup` | `{ "password" }` → create account + session |
-| POST | `/auth/login` | `{ "password" }` → verify + session |
-| POST | `/auth/logout` | Clear session cookie |
-| GET | `/auth/me` | Confirm active session |
+| GET | `/api/auth/status` | Is the deployment set up? |
+| GET | `/api/auth/users/available` | List usernames available for login |
+| POST | `/api/auth/register` | Create account + session |
+| POST | `/api/auth/login` | Verify credentials + session |
+| POST | `/api/auth/logout` | Clear session cookie |
+| GET | `/api/auth/me` | Confirm active session |
+| POST | `/api/auth/forgot-password` | Request a password reset |
+| POST | `/api/auth/reset-password` | Complete a password reset |
 
-### GM routes (session cookie required)
+### Session routes (session cookie required)
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET/POST | `/api/entries` | List / create entries |
-| GET/PATCH/DELETE | `/api/entries/:id` | Get / update / delete entry |
-| GET/POST | `/api/annotations` | List / create annotations |
-| PATCH/DELETE | `/api/annotations/:id` | Update / delete annotation |
-| GET | `/api/quickview` | List quick-view templates |
-| PUT/DELETE | `/api/quickview/:category` | Upsert / delete template |
-| POST | `/api/migrate/import` | Bulk import (clears existing data) |
+| GET/PATCH | `/api/me/settings` | Get / update the current user's settings |
+| GET | `/api/projects/types` | List available project types |
+| GET/POST | `/api/projects` | List / create projects |
+| POST | `/api/projects/join` | Join a project via invite |
+| PATCH/DELETE | `/api/projects/:id` | Update / delete a project |
+| GET/POST | `/api/projects/:id/members` | List / add members |
+| DELETE | `/api/projects/:id/members/:userId` | Remove a member |
+| POST | `/api/projects/:id/invite` | Create an invite |
+| DELETE | `/api/projects/:id/invite/:token` | Revoke an invite |
+| GET/POST/DELETE | `/api/content/facets*` | Proxy to `quillit-content`: facet vocabulary |
+| GET/PATCH/DELETE | `/api/content/entries/:id` | Proxy to `quillit-content`: get / update / delete an entry |
+| POST | `/api/content/projects/:id/entries` | Proxy to `quillit-content`: create an entry |
+| GET | `/api/content/entries/:id/render` | Proxy to `quillit-content`: rendered entry HTML |
+| GET | `/api/content/entries/:id/images/:filename` | Proxy to `quillit-content`: entry image |
+| POST | `/api/content/projects/:id/import` | Proxy to `quillit-content`: bulk import |
+| POST/GET | `/api/projects/:projectId/session/*` | Game Mode session actions |
+| GET | `/api/projects/:projectId/sessions` | List game sessions |
+| GET | `/api/projects/:projectId/session/socket` | Game Mode WebSocket |
+
+### Admin routes (admin session required)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET/PATCH/DELETE | `/api/admin/users*` | Manage users |
+| GET | `/api/admin/projects*` | Manage projects |
