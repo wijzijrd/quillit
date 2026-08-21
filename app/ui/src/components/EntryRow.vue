@@ -1,5 +1,6 @@
 <template>
   <div class="entry-row" @click="$emit('edit')">
+    <FileText :size="14" class="er-icon" />
     <span class="er-title">{{ entry.title }}</span>
     <div class="er-actions">
       <button class="er-btn" @click.stop="$emit('links')" title="Linked entries">
@@ -19,16 +20,11 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
-import { Link2, Pencil, Eye, Trash2 } from 'lucide-vue-next'
-import { useCategoriesStore } from '../stores/useCategoriesStore'
-import type { Entry } from '../types'
+import { FileText, Link2, Pencil, Eye, Trash2 } from 'lucide-vue-next'
+import type { ContentEntry } from '../stores/useEntryStore'
 
-const props = defineProps<{ entry: Entry }>()
+defineProps<{ entry: ContentEntry }>()
 defineEmits<{ view: []; edit: []; links: []; delete: [] }>()
-
-const cats = useCategoriesStore()
-const catColor = computed(() => cats.categoryFor(props.entry?.category)?.color ?? 'var(--muted-foreground)')
 </script>
 
 <style scoped>
@@ -45,6 +41,10 @@ const catColor = computed(() => cats.categoryFor(props.entry?.category)?.color ?
   transition: background var(--transition), border-color var(--transition);
 }
 .entry-row:hover { background: var(--muted); border-color: var(--secondary); }
+.er-icon {
+  color: var(--muted-foreground);
+  flex-shrink: 0;
+}
 .er-title {
   flex: 1;
   font-size: 0.9em;
