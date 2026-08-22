@@ -62,14 +62,15 @@
 import { computed, inject, nextTick, ref } from 'vue'
 import { ChevronRight } from 'lucide-vue-next'
 import EntryRow from './EntryRow.vue'
-import { directoryTreeActionsKey, type DirNode } from '../lib/directoryTree'
+import { directoryTreeActionsKey, type DirNode, type DirectoryTreeActions } from '../lib/directoryTree'
 
 const props = defineProps<{ node: DirNode; depth: number }>()
 
-const actions = inject(directoryTreeActionsKey)!
-if (!actions) {
+const injected = inject(directoryTreeActionsKey)
+if (!injected) {
   throw new Error('DirectoryNode must be rendered under a component that provides directoryTreeActionsKey')
 }
+const actions: DirectoryTreeActions = injected
 
 const isRoot = computed(() => props.depth === 0)
 const isOpen = computed(() => actions.isExpanded(props.node.path))
