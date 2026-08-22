@@ -1,5 +1,5 @@
 <template>
-  <div class="notes-browser">
+  <div class="entries-browser">
     <div class="browser-header">
       <span class="browser-title">{{ inProject ? project?.name ?? 'Entries' : 'Entries' }}</span>
       <button class="new-btn" @click="createNew">+ New</button>
@@ -177,7 +177,7 @@ function closeViewModal() {
 </script>
 
 <style scoped>
-.notes-browser { display: flex; flex-direction: column; height: 100vh; padding: 0 24px; }
+.entries-browser { display: flex; flex-direction: column; height: 100vh; padding: 0 24px; }
 .browser-header { display: flex; align-items: center; justify-content: space-between; padding: 28px 0 20px; flex-shrink: 0; }
 .browser-title { font-family: var(--font-display); font-size: 1.1em; letter-spacing: 0.06em; color: var(--muted-foreground); }
 .new-btn { background: var(--secondary); border: none; color: var(--primary); font-size: 0.82em; padding: 5px 12px; border-radius: var(--radius); cursor: pointer; transition: background var(--transition); }
