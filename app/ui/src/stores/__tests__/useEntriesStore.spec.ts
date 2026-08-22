@@ -1,65 +1,114 @@
-import { defineStore } from 'pinia'
-import { api, apiErrorMessage } from '../api/client'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { createPinia, setActivePinia } from 'pinia'
 
-/** content-svc's Entry shape (app/content/internal/handler/entries.go's EntryMeta + Body). */
-export interface ContentEntry {
-  id: string
-  projectId: string
-  slug: string
-  directoryPath: string
-  title: string
-  tags: string[]
-  body: string
-  createdAt: number
-  updatedAt: number
-}
+const apiMock = vi.fn()
+vi.mock('../../api/client', () => ({
+  api: (...args: unknown[]) => apiMock(...args),
+  apiErrorMessage: (e: unknown, fallback: string) => {
+    const data = (e as { data?: { error?: string } } | undefined)?.data
+    return data?.error ?? fallback
+  },
+}))
 
-const MAX_SLUG_ATTEMPTS = 20
+import { useEntriesStore } from '../useEntriesStore'
 
-/** Kebab-cases a title into a slug matching content-svc's CHECK constraint (lowercase letters, digits, hyphens only), defaulting to "untitled" for a blank/all-punctuation title. */
-function kebabCase(input: string): string {
-  const slug = input.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
-  return slug || 'untitled'
-}
+describe('useEntriesStore', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    apiMock.mockReset()
+  })
 
-function is409(e: unknown): boolean {
-  return (e as { response?: { status?: number } } | undefined)?.response?.status === 409
-}
+  it('init lists entries for the given project', async () => {
+    apiMock.mockResolvedValue([{ id: 'e1', title: 'Tom', tags: [] }])
+    const store = useEntriesStore()
+    await store.init('proj-1')
+    expect(apiMock).toHaveBeenCalledWith('/content/projects/proj-1/entries')
+    expect(store.entries).toEqual([{ id: 'e1', title: 'Tom', tags: [] }])
+    expect(store.loaded).toBe(true)
+  })
 
-export const useEntryStore = defineStore('entry', () => {
-  async function get(id: string): Promise<ContentEntry> {
-    return await api(`/content/entries/${id}`)
-  }
+  it('init only fetches once per project', async () => {
+    apiMock.mockResolvedValue([])
+    const store = useEntriesStore()
+    await store.init('proj-1')
+    await store.init('proj-1')
+    expect(apiMock).toHaveBeenCalledTimes(1)
+  })
 
-  async function update(id: string, body: string): Promise<ContentEntry> {
-    return await api(`/content/entries/${id}`, { method: 'PATCH', body: { body } })
-  }
+  it('init refetches when the requested project changes', async () => {
+    apiMock.mockResolvedValueOnce([{ id: 'e1', title: 'Tom', tags: [] }])
+    apiMock.mockResolvedValueOnce([{ id: 'e2', title: 'Jerry', tags: [] }])
+    const store = useEntriesStore()
+    await store.init('proj-1')
+    expect(store.entries).toEqual([{ id: 'e1', title: 'Tom', tags: [] }])
+    await store.init('proj-2')
+    expect(apiMock).toHaveBeenCalledTimes(2)
+    expect(apiMock).toHaveBeenLastCalledWith('/content/projects/proj-2/entries')
+    expect(store.entries).toEqual([{ id: 'e2', title: 'Jerry', tags: [] }])
+  })
 
-  async function remove(id: string): Promise<void> {
-    await api(`/content/entries/${id}`, { method: 'DELETE' })
-  }
+  it('init resets loaded on failure so a retry is possible', async () => {
+    apiMock.mockRejectedValue(new Error('network error'))
+    const store = useEntriesStore()
+    await expect(store.init('proj-1')).rejects.toThrow()
+    expect(store.loaded).toBe(false)
+  })
 
-  /**
-   * Creates an entry at the project root (no directoryPath — assigning
-   * into a directory is #49's job). Retries with a "-2", "-3", ...
-   * suffix on a 409 slug conflict, bounded, matching the CLI's own
-   * onConflict=suffix idea but client-side.
-   */
-  async function create(projectId: string, title: string, body: string): Promise<ContentEntry> {
-    const base = kebabCase(title)
-    for (let attempt = 0; attempt < MAX_SLUG_ATTEMPTS; attempt++) {
-      const slug = attempt === 0 ? base : `${base}-${attempt + 1}`
-      try {
-        return await api(`/content/projects/${projectId}/entries`, {
-          method: 'POST',
-          body: { slug, directoryPath: '', body },
-        })
-      } catch (e: unknown) {
-        if (!is409(e)) throw new Error(apiErrorMessage(e, 'Could not create entry'))
-      }
-    }
-    throw new Error(`Could not create entry: too many slug conflicts for "${base}"`)
-  }
+  it('createEntry delegates to useEntryStore.create and prepends the result', async () => {
+    apiMock.mockResolvedValue({ id: 'e2', title: 'Untitled', tags: [] })
+    const store = useEntriesStore()
+    const entry = await store.createEntry('proj-1', 'Untitled')
+    expect(apiMock).toHaveBeenCalledWith('/content/projects/proj-1/entries', expect.objectContaining({ method: 'POST' }))
+    expect(store.entries[0]).toEqual(entry)
+  })
 
-  return { get, update, remove, create }
+  it('updateEntry PATCHes and updates the cached copy', async () => {
+    apiMock.mockResolvedValueOnce([{ id: 'e1', title: 'Tom', tags: [] }])
+    apiMock.mockResolvedValueOnce({ id: 'e1', title: 'Tomas', tags: [] })
+    const store = useEntriesStore()
+    await store.init('proj-1')
+    await store.updateEntry('e1', { title: 'Tomas' })
+    expect(apiMock).toHaveBeenCalledWith('/content/entries/e1', { method: 'PATCH', body: { title: 'Tomas' } })
+    expect(store.entries[0].title).toBe('Tomas')
+  })
+
+  it('assignEntry POSTs to the assign endpoint and updates the cached copy', async () => {
+    apiMock.mockResolvedValueOnce([{ id: 'e1', title: 'Tom', tags: [], directoryPath: '' }])
+    apiMock.mockResolvedValueOnce({ id: 'e1', title: 'Tom', tags: [], directoryPath: 'characters/npcs' })
+    const store = useEntriesStore()
+    await store.init('proj-1')
+    await store.assignEntry('e1', 'characters/npcs')
+    expect(apiMock).toHaveBeenCalledWith('/content/entries/e1/assign', {
+      method: 'POST',
+      body: { directory_path: 'characters/npcs' },
+    })
+    expect(store.entries[0].directoryPath).toBe('characters/npcs')
+  })
+
+  it('assignEntry leaves the cached copy untouched on failure', async () => {
+    apiMock.mockResolvedValueOnce([{ id: 'e1', title: 'Tom', tags: [], directoryPath: '' }])
+    apiMock.mockRejectedValueOnce(new Error('conflict'))
+    const store = useEntriesStore()
+    await store.init('proj-1')
+    await expect(store.assignEntry('e1', 'characters/npcs')).rejects.toThrow()
+    expect(store.entries[0].directoryPath).toBe('')
+  })
+
+  it('deleteEntry DELETEs and drops the cached copy', async () => {
+    apiMock.mockResolvedValueOnce([{ id: 'e1', title: 'Tom', tags: [] }])
+    apiMock.mockResolvedValueOnce(undefined)
+    const store = useEntriesStore()
+    await store.init('proj-1')
+    await store.deleteEntry('e1')
+    expect(apiMock).toHaveBeenCalledWith('/content/entries/e1', { method: 'DELETE' })
+    expect(store.entries).toHaveLength(0)
+  })
+
+  it('getById finds a cached entry', async () => {
+    apiMock.mockResolvedValue([{ id: 'e1', title: 'Tom', tags: [] }])
+    const store = useEntriesStore()
+    await store.init('proj-1')
+    expect(store.getById('e1')?.title).toBe('Tom')
+    expect(store.getById('missing')).toBeNull()
+  })
 })
