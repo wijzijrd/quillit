@@ -55,6 +55,16 @@ export const useEntriesStore = defineStore('entries', () => {
     return updated
   }
 
+  async function assignEntry(id: string, directoryPath: string): Promise<ContentEntry> {
+    const updated: ContentEntry = await api(`/content/entries/${id}/assign`, {
+      method: 'POST',
+      body: { directory_path: directoryPath },
+    })
+    const idx = entries.value.findIndex(e => e.id === id)
+    if (idx !== -1) entries.value[idx] = updated
+    return updated
+  }
+
   async function deleteEntry(id: string) {
     await api(`/content/entries/${id}`, { method: 'DELETE' })
     entries.value = entries.value.filter(e => e.id !== id)
@@ -109,5 +119,5 @@ export const useEntriesStore = defineStore('entries', () => {
     return entries.value.filter(e => e.tags?.includes(tag))
   }
 
-  return { entries, loaded, init, clear, createEntry, updateEntry, deleteEntry, getById, searchRemote, allTags, byTag }
+  return { entries, loaded, init, clear, createEntry, updateEntry, assignEntry, deleteEntry, getById, searchRemote, allTags, byTag }
 })

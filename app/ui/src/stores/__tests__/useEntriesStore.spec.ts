@@ -72,6 +72,28 @@ describe('useEntriesStore', () => {
     expect(store.entries[0].title).toBe('Tomas')
   })
 
+  it('assignEntry POSTs to the assign endpoint and updates the cached copy', async () => {
+    apiMock.mockResolvedValueOnce([{ id: 'e1', title: 'Tom', tags: [], directoryPath: '' }])
+    apiMock.mockResolvedValueOnce({ id: 'e1', title: 'Tom', tags: [], directoryPath: 'characters/npcs' })
+    const store = useEntriesStore()
+    await store.init('proj-1')
+    await store.assignEntry('e1', 'characters/npcs')
+    expect(apiMock).toHaveBeenCalledWith('/content/entries/e1/assign', {
+      method: 'POST',
+      body: { directory_path: 'characters/npcs' },
+    })
+    expect(store.entries[0].directoryPath).toBe('characters/npcs')
+  })
+
+  it('assignEntry leaves the cached copy untouched on failure', async () => {
+    apiMock.mockResolvedValueOnce([{ id: 'e1', title: 'Tom', tags: [], directoryPath: '' }])
+    apiMock.mockRejectedValueOnce(new Error('conflict'))
+    const store = useEntriesStore()
+    await store.init('proj-1')
+    await expect(store.assignEntry('e1', 'characters/npcs')).rejects.toThrow()
+    expect(store.entries[0].directoryPath).toBe('')
+  })
+
   it('deleteEntry DELETEs and drops the cached copy', async () => {
     apiMock.mockResolvedValueOnce([{ id: 'e1', title: 'Tom', tags: [] }])
     apiMock.mockResolvedValueOnce(undefined)

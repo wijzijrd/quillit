@@ -121,6 +121,7 @@ func main() {
 		r.Delete("/api/content/entries/{id}", contentEntries.DeleteEntry)
 		r.Post("/api/content/projects/{id}/entries", contentEntries.CreateEntry)
 		r.Get("/api/content/entries/{id}/render", contentEntries.RenderEntry)
+		r.Post("/api/content/entries/{id}/assign", contentEntries.Assign)
 
 		// CLI project import: proxied to content-svc (not externally reachable)
 		r.Post("/api/content/projects/{id}/import", contentProxy.ImportProject)
