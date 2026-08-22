@@ -44,8 +44,21 @@ jobs:
       # the mounted Caddyfile + compose overlay. This fails loudly (rather
       # than no-op) if the caddy overlay isn't part of QUILLIT_COMPOSE_OVERLAYS
       # on a given server, since `caddy` wouldn't resolve as a known service.
+      #
+      # --force-recreate is required, not optional: the Caddyfile bind
+      # mount's source is this run's ephemeral $CHECKOUT_DIR, deleted by the
+      # cleanup step below once this job ends. Compose only recreates a
+      # container when it detects the service config changed — the compose
+      # file's *relative* volume path (./infra/Caddyfile) is identical on
+      # every run, so without --force-recreate Compose sees no diff and just
+      # `start`s the existing container against its original (now-deleted)
+      # absolute mount path, which fails. This bit a real deploy on
+      # 2026-08-17 (caddy's task creation failed against the boneyard-swept
+      # checkout of an earlier run, and nothing re-triggered until this
+      # workflow ran again) — force-recreating every run makes each one
+      # rebind against its own, still-valid checkout instead.
       - name: Restart caddy
-        run: cd "$CHECKOUT_DIR" && $COMPOSE up -d --no-deps caddy
+        run: cd "$CHECKOUT_DIR" && $COMPOSE up -d --no-deps --force-recreate caddy
 
       - name: Clean up ephemeral checkout
         if: always()
