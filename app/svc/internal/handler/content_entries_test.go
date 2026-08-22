@@ -267,3 +267,33 @@ func TestContentEntriesProxy_RenderEntry_PassesThroughNon200Status(t *testing.T)
 		t.Errorf("Content-Type = %q, want application/json", ct)
 	}
 }
+
+func TestContentEntriesProxy_Assign_ForwardsBody(t *testing.T) {
+	var gotMethod, gotPath, gotBody string
+	content := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotMethod, gotPath = r.Method, r.URL.Path
+		b, _ := io.ReadAll(r.Body)
+		gotBody = string(b)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"e1","directoryPath":"characters/npcs"}`))
+	}))
+	defer content.Close()
+
+	h := handler.NewContentEntries(content.URL)
+	router := chi.NewRouter()
+	router.Post("/api/content/entries/{id}/assign", h.Assign)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/content/entries/e1/assign", strings.NewReader(`{"directory_path":"characters/npcs"}`))
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rr.Code, rr.Body.String())
+	}
+	if gotMethod != http.MethodPost || gotPath != "/content/entries/e1/assign" {
+		t.Errorf("proxied %s %s, want POST /content/entries/e1/assign", gotMethod, gotPath)
+	}
+	if gotBody != `{"directory_path":"characters/npcs"}` {
+		t.Errorf("proxied body = %q, want the original request body forwarded verbatim", gotBody)
+	}
+}

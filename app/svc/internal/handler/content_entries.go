@@ -89,6 +89,22 @@ func (h *ContentEntriesHandler) CreateEntry(w http.ResponseWriter, r *http.Reque
 	h.proxy(w, r, http.MethodPost, "/content/projects/"+url.PathEscape(id)+"/entries", r.Body)
 }
 
+// Assign godoc
+// @Summary      Move an entry to a new directory_path (proxied to content-svc)
+// @Tags         content
+// @Accept       json
+// @Produce      json
+// @Param        id    path  string  true  "Entry ID"
+// @Success      200   {object}  map[string]any
+// @Failure      400   {object}  ErrorResponse
+// @Failure      404   {object}  ErrorResponse
+// @Failure      409   {object}  ErrorResponse
+// @Router       /api/content/entries/{id}/assign [post]
+func (h *ContentEntriesHandler) Assign(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	h.proxy(w, r, http.MethodPost, "/content/entries/"+url.PathEscape(id)+"/assign", r.Body)
+}
+
 // RenderEntry godoc
 // @Summary      Render an entry to an HTML fragment (proxied to content-svc)
 // @Description  view and card are mutually exclusive; query params pass through verbatim.
