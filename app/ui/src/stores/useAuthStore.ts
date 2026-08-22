@@ -1,17 +1,17 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { api } from '../api/client'
-import type { User } from '../types'
+import type { AuthUser } from '../types'
 
 export const useAuthStore = defineStore('auth', () => {
   const _loggedIn = ref<boolean | null>(null)
-  const _user = ref<User | null>(null)
+  const _user = ref<AuthUser | null>(null)
   const isLoggedIn = computed(() => _loggedIn.value === true)
   const user = computed(() => _user.value)
 
   async function fetchMe() {
     try {
-      const data: User = await api('/auth/me')
+      const data: AuthUser = await api('/auth/me')
       _user.value = data
       _loggedIn.value = true
     } catch {
