@@ -575,6 +575,74 @@ paths:
       summary: Update an entry (proxied to content-svc)
       tags:
       - content
+  /api/content/entries/{id}/assign:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Entry ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+      summary: Move an entry to a new directory_path (proxied to content-svc)
+      tags:
+      - content
+  /api/content/entries/{id}/images:
+    post:
+      consumes:
+      - multipart/form-data
+      parameters:
+      - description: Entry ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Image file
+        in: formData
+        name: image
+        required: true
+        type: file
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+      summary: Upload an entry image (proxied to content-svc)
+      tags:
+      - content
   /api/content/entries/{id}/images/{filename}:
     get:
       parameters:
