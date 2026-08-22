@@ -1,5 +1,9 @@
 # Overlay for HTTPS via Caddy.
-# Usage: docker compose -f infra/docker-compose.yml -f infra/docker-compose.caddy.yml --project-directory . up -d
+# Usage: docker compose -f infra/docker-compose.yml -f infra/docker-compose.caddy.yml up -d
+# (run from repo root; do NOT pass --project-directory — the base compose
+# file's build contexts (../app/ui etc.) rely on Compose's default project
+# directory, the directory of the first -f file, i.e. infra/. This overlay's
+# own relative paths are written to match that same convention.)
 #
 # Requirements:
 #   - Docker Compose v2.24+ (ships with Docker Engine 25+)
@@ -25,7 +29,7 @@ services:
       - "443:443"
       - "443:443/udp"
     volumes:
-      - ./infra/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy-data:/data
       - caddy-config:/config
     depends_on:
