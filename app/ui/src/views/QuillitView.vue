@@ -5,20 +5,17 @@
       <button class="new-btn" @click="createNew">+ New</button>
     </div>
 
+    <p v-if="moveError" class="move-error">
+      {{ moveError }}
+      <button class="move-error-dismiss" @click="moveError = null">×</button>
+    </p>
+
     <div class="browser-scroll">
-      <div class="browser-empty" v-if="visibleEntries.length === 0">
+      <div class="browser-empty" v-if="entries.entries.length === 0">
         No entries yet.
       </div>
 
-      <EntryRow
-        v-for="entry in visibleEntries"
-        :key="entry.id"
-        :entry="entry"
-        @view="openView(entry)"
-        @edit="openEdit(entry)"
-        @links="openView(entry)"
-        @delete="deleteEntry(entry)"
-      />
+      <DirectoryNode v-else :node="tree" :depth="0" />
     </div>
   </div>
 
@@ -41,13 +38,15 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, provide, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import EntryRow from '../components/EntryRow.vue'
+import DirectoryNode from '../components/DirectoryNode.vue'
 import EntryEditModal from '../components/EntryEditModal.vue'
 import EntryViewModal from '../components/EntryViewModal.vue'
 import { useEntriesStore } from '../stores/useEntriesStore'
 import { useProjectStore } from '../stores/useProjectStore'
+import { apiErrorMessage } from '../api/client'
+import { buildDirectoryTree, directoryTreeActionsKey, type DirectoryTreeActions } from '../lib/directoryTree'
 import type { ContentEntry } from '../stores/useEntryStore'
 
 const route = useRoute()
@@ -113,10 +112,47 @@ watch(() => route.params.id, (id) => {
   if (typeof id === 'string' && id) editingEntry.value = { id }
 }, { immediate: true })
 
-// Flat, title-sorted list of every loaded entry.
-const visibleEntries = computed(() =>
-  [...entries.entries].sort((a, b) => a.title.localeCompare(b.title))
-)
+const pendingFolders = ref<Set<string>>(new Set())
+const tree = computed(() => buildDirectoryTree(entries.entries, [...pendingFolders.value]))
+
+const collapsedPaths = ref<Set<string>>(new Set())
+function isExpanded(path: string) {
+  return !collapsedPaths.value.has(path)
+}
+function onToggle(path: string) {
+  const next = new Set(collapsedPaths.value)
+  if (next.has(path)) next.delete(path)
+  else next.add(path)
+  collapsedPaths.value = next
+}
+
+const moveError = ref<string | null>(null)
+async function handleMove(entryId: string, destPath: string) {
+  const entry = entries.getById(entryId)
+  if (!entry || entry.directoryPath === destPath) return
+  try {
+    await entries.assignEntry(entryId, destPath)
+    moveError.value = null
+  } catch (e) {
+    moveError.value = apiErrorMessage(e, 'Could not move entry')
+  }
+}
+
+function handleCreateFolder(parentPath: string, name: string) {
+  const path = parentPath ? `${parentPath}/${name}` : name
+  pendingFolders.value = new Set([...pendingFolders.value, path])
+}
+
+provide<DirectoryTreeActions>(directoryTreeActionsKey, {
+  isExpanded,
+  onToggle,
+  onMove: handleMove,
+  onCreateFolder: handleCreateFolder,
+  onView: openView,
+  onEdit: openEdit,
+  onLinks: openView,
+  onDelete: deleteEntry,
+})
 
 async function createNew() {
   const id = projectId.value
@@ -184,4 +220,26 @@ function closeViewModal() {
 .new-btn:hover { background: var(--primary); color: var(--background); }
 .browser-scroll { flex: 1; overflow-y: auto; }
 .browser-empty { color: var(--muted-foreground); font-size: 0.9em; padding: 32px 0; }
+.move-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  background: rgba(220, 38, 38, 0.1);
+  color: var(--destructive);
+  font-size: 0.85em;
+  padding: 8px 12px;
+  border-radius: var(--radius);
+  margin-bottom: 8px;
+  flex-shrink: 0;
+}
+.move-error-dismiss {
+  background: none;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  font-size: 1.1em;
+  line-height: 1;
+  padding: 0 4px;
+}
 </style>
