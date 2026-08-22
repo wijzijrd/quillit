@@ -12,7 +12,6 @@ Vue 3 + Vite + TypeScript + Tailwind v4 + shadcn-vue frontend.
 - Rich text: Tiptap with custom extensions (`src/extensions/`)
 - Icons: lucide-vue-next
 - HTTP: ofetch (`src/api/`)
-- Storage: idb-keyval (IndexedDB)
 
 ## Structure
 - `src/components/` — reusable Vue components

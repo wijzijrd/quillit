@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { api, apiErrorMessage } from '../api/client'
 
-/** content-svc's Entry shape (app/content/internal/handler/entries.go's EntryMeta + Body) — deliberately not the legacy `Entry` type in ../types, which has no content-svc equivalent for category/visibility. */
+/** content-svc's Entry shape (app/content/internal/handler/entries.go's EntryMeta + Body). */
 export interface ContentEntry {
   id: string
   projectId: string
