@@ -1,5 +1,5 @@
 <template>
-  <div class="entry-row" @click="$emit('edit')">
+  <div class="entry-row" draggable="true" @dragstart="onDragStart" @click="$emit('edit')">
     <FileText :size="14" class="er-icon" />
     <span class="er-title">{{ entry.title }}</span>
     <div class="er-actions">
@@ -23,8 +23,12 @@
 import { FileText, Link2, Pencil, Eye, Trash2 } from 'lucide-vue-next'
 import type { ContentEntry } from '../stores/useEntryStore'
 
-defineProps<{ entry: ContentEntry }>()
+const props = defineProps<{ entry: ContentEntry }>()
 defineEmits<{ view: []; edit: []; links: []; delete: [] }>()
+
+function onDragStart(e: DragEvent) {
+  e.dataTransfer?.setData('text/plain', props.entry.id)
+}
 </script>
 
 <style scoped>
