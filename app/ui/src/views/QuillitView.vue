@@ -60,6 +60,16 @@ const projectId = computed(() => {
 const inProject = computed(() => !!projectId.value)
 const project = computed(() => projectStore.projects.find(p => p.id === projectId.value) ?? null)
 
+// Directory-tree UI-local state (Task 6). Declared here, ahead of the
+// projectId watcher below, so that watcher can reset all three on every
+// project switch — see the reset lines in that watcher for why: without it,
+// a pending folder, a collapsed path, or a stale move error from the
+// previous project would otherwise leak into the newly loaded project's
+// tree.
+const pendingFolders = ref<Set<string>>(new Set())
+const collapsedPaths = ref<Set<string>>(new Set())
+const moveError = ref<string | null>(null)
+
 onMounted(async () => {
   const id = projectId.value
   if (id) {
@@ -88,6 +98,9 @@ onMounted(async () => {
 // superseded it, so an out-of-order resolution can't clobber the currently
 // displayed project's entries.
 watch(projectId, (id) => {
+  pendingFolders.value = new Set()
+  collapsedPaths.value = new Set()
+  moveError.value = null
   if (!id) {
     entries.clear()
     return
@@ -112,10 +125,8 @@ watch(() => route.params.id, (id) => {
   if (typeof id === 'string' && id) editingEntry.value = { id }
 }, { immediate: true })
 
-const pendingFolders = ref<Set<string>>(new Set())
 const tree = computed(() => buildDirectoryTree(entries.entries, [...pendingFolders.value]))
 
-const collapsedPaths = ref<Set<string>>(new Set())
 function isExpanded(path: string) {
   return !collapsedPaths.value.has(path)
 }
@@ -126,7 +137,6 @@ function onToggle(path: string) {
   collapsedPaths.value = next
 }
 
-const moveError = ref<string | null>(null)
 async function handleMove(entryId: string, destPath: string) {
   const entry = entries.getById(entryId)
   if (!entry || entry.directoryPath === destPath) return

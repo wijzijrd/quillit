@@ -93,7 +93,7 @@ async function startCreateFolder() {
 }
 function confirmCreateFolder() {
   const name = newFolderName.value.trim()
-  if (name) actions.onCreateFolder(props.node.path, name)
+  if (name && !name.includes('/')) actions.onCreateFolder(props.node.path, name)
   cancelCreateFolder()
 }
 function cancelCreateFolder() {

@@ -62,4 +62,18 @@ describe('buildDirectoryTree', () => {
     const tree = buildDirectoryTree([], ['zoo', 'archive'])
     expect(tree.children.map(c => c.name)).toEqual(['archive', 'zoo'])
   })
+
+  // Folder names are now free text typed by the user (DirectoryNode.vue's
+  // confirmCreateFolder), so a slash-containing extraPath is no longer an
+  // unrealistic input to guard against here — it's rejected upstream at the
+  // UI layer instead (confirmCreateFolder refuses names containing '/').
+  // This test just documents that buildDirectoryTree itself stays
+  // well-defined (doesn't throw) if malformed input ever reaches it anyway.
+  it('handles a path with an empty segment (e.g. a trailing slash) without crashing', () => {
+    const tree = buildDirectoryTree([], ['characters/'])
+    expect(tree.children).toHaveLength(1)
+    expect(tree.children[0].path).toBe('characters')
+    expect(tree.children[0].children).toHaveLength(1)
+    expect(tree.children[0].children[0].name).toBe('')
+  })
 })
