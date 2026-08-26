@@ -205,6 +205,9 @@ jobs:
     # skipped job's result is "skipped", not "failure".
     if: always() && needs.preflight.result == 'success' && !contains(needs.*.result, 'failure')
     runs-on: [self-hosted, quillit]
+    # Every job on the self-hosted runner requires manual approval — see
+    # the home-server environment's required reviewers.
+    environment: home-server
     steps:
       # `exec` only targets already-running containers of the pinned "quillit"
       # project — no build/up here — but the Compose CLI still needs a local
