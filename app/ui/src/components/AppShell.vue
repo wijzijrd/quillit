@@ -8,7 +8,7 @@
       </main>
     </template>
     <template v-else>
-      <div class="grid h-full grid-cols-[56px_1fr] gap-3 p-3">
+      <div class="grid h-full grid-cols-[var(--sidenav-w)_1fr] gap-3 p-3">
         <SideNav class="surface rounded-lg" />
         <main class="surface overflow-y-auto rounded-lg">
           <RouterView />

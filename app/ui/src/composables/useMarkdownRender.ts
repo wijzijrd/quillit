@@ -9,7 +9,7 @@ export interface RenderMarkdownOptions {
    * `player` view semantics (docs/cli-spec.md §4). */
   stripSecrets?: boolean
   /** Resolve wikilink dangling/resolved status and enable click-to-navigate
-   * data attributes. Default true (EntryViewModal wants this); print
+   * data attributes. Default true (EntryViewPane wants this); print
    * passes false since a printed/new-tab document can't be clicked and
    * shouldn't fire a round of lookup requests for links nobody can use. */
   interactiveLinks?: boolean
@@ -17,7 +17,7 @@ export interface RenderMarkdownOptions {
 
 /**
  * Renders a markdown entry body to read-only HTML, for surfaces that don't
- * need a live editable Tiptap instance (EntryViewModal.vue, print).
+ * need a live editable Tiptap instance (EntryViewPane.vue, print).
  *
  * Uses the exact same extension list — same schema, same markdown parser —
  * as the interactive editor (TiptapEditor.vue), via a headless

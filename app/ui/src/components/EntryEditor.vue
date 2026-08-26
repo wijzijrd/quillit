@@ -1,11 +1,7 @@
 <template>
   <div class="entry-editor" v-if="entry">
-    <div class="popup-controls">
-      <div class="popup-nav">
-        <button v-if="canGoBack"    class="ctrl-btn" @click="goBack"    title="Back">    <ChevronLeft  :size="14" /></button>
-        <button v-if="canGoForward" class="ctrl-btn" @click="goForward" title="Forward"> <ChevronRight :size="14" /></button>
-      </div>
-      <button v-if="onClose" class="ctrl-btn" @click="onClose()" title="Close">
+    <div class="popup-controls" v-if="onClose">
+      <button class="ctrl-btn" @click="onClose()" title="Done editing">
         <X :size="14" />
       </button>
     </div>
@@ -103,13 +99,12 @@
 
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { api, apiErrorMessage } from '../api/client'
 import {
   Bold, Italic, Heading2, Heading3, List, Minus,
   AlignLeft, AlignCenter, AlignRight, AlignJustify,
-  Printer, Lock, Layers, Trash2,
-  ChevronLeft, ChevronRight, X, ExternalLink,
+  Printer, Lock, Layers, Trash2, X, ExternalLink,
 } from 'lucide-vue-next'
 import TiptapEditor from './TiptapEditor.vue'
 import { useEntryStore } from '../stores/useEntryStore'
@@ -119,6 +114,7 @@ import { useFacetsStore } from '../stores/useFacetsStore'
 import { useUIStore } from '../stores/useUIStore'
 import { renderMarkdownToHtml } from '../composables/useMarkdownRender'
 import { invalidateWikilinkCache } from '../extensions/wikilinkLookup'
+import { entryPath } from '../utils/links'
 
 defineProps<{ onClose?: () => void }>()
 
@@ -126,6 +122,7 @@ const entryStore = useEntryStore()
 const facets = useFacetsStore()
 const ui = useUIStore()
 const route = useRoute()
+const router = useRouter()
 // The entry's own campaignIds may list multiple projects; "push to session
 // chat" cares about the project currently in context (this route), not the
 // entry's full membership list.
@@ -152,11 +149,6 @@ const selectedCardFacet = ref<string>('')
 const renderedHtml = ref('')
 const renderError = ref('')
 const rendering = ref(false)
-
-const localHistory = ref<string[]>([])
-const localFuture = ref<string[]>([])
-const canGoBack = computed(() => localHistory.value.length > 0)
-const canGoForward = computed(() => localFuture.value.length > 0)
 
 const tiptapRef = ref<InstanceType<typeof TiptapEditor> | null>(null)
 const editor = computed(() => tiptapRef.value?.editor)
@@ -256,11 +248,14 @@ watch(selectedCardFacet, () => {
   if (viewMode.value === 'card') fetchRender()
 })
 
-function confirmDelete() {
+async function confirmDelete() {
   if (!entry.value) return
   if (!confirm(`Delete "${entry.value.title}"? This cannot be undone.`)) return
-  entryStore.remove(entry.value.id)
-  ui.setActiveEntry(null)
+  await entryStore.remove(entry.value.id)
+  // Route is the single source of truth for the active entry (QuillitView) —
+  // navigate away rather than poking ui.activeEntryId directly, so it stays
+  // in sync with the URL.
+  router.push(currentProjectId.value ? `/projects/${currentProjectId.value}/entries` : '/entries')
 }
 
 function insertSecretBlock() {
@@ -345,33 +340,15 @@ function setLink() {
   }
 }
 
-function goBack() {
-  if (!localHistory.value.length) return
-  localFuture.value.unshift(ui.activeEntryId!)
-  ui.setActiveEntry(localHistory.value.pop()!)
-}
-
-function goForward() {
-  if (!localFuture.value.length) return
-  localHistory.value.push(ui.activeEntryId!)
-  ui.setActiveEntry(localFuture.value.shift()!)
-}
-
 function onEditorClick(e: MouseEvent) {
   // Wikilink's node view (Wikilink.ts) resolves the target async and stamps
-  // data-resolved-id once it knows the entry id — navigation + back/forward
-  // history live here rather than in the node view itself, matching how
-  // the old .entry-mention delegation worked.
+  // data-resolved-id once it knows the entry id. Navigation goes through the
+  // router — with the active entry driven off route.params.id (QuillitView),
+  // browser back/forward already retraces wikilink jumps for free.
   const link = (e.target as HTMLElement).closest('.wikilink') as HTMLElement | null
   if (link?.dataset.resolvedId) {
     e.preventDefault()
-    const nextId = link.dataset.resolvedId
-    const currId = ui.activeEntryId
-    if (currId) {
-      localHistory.value.push(currId)
-      localFuture.value = []
-    }
-    ui.setActiveEntry(nextId)
+    router.push(entryPath(currentProjectId.value ?? null, link.dataset.resolvedId))
   }
 }
 </script>
@@ -382,12 +359,11 @@ function onEditorClick(e: MouseEvent) {
 .popup-controls {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   padding: 6px 10px;
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
 }
-.popup-nav { display: flex; gap: 2px; }
 .ctrl-btn {
   display: inline-flex;
   align-items: center;

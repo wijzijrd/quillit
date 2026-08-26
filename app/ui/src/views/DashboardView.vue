@@ -28,7 +28,6 @@
             :key="entry.id"
             :to="`/entries/${entry.id}`"
             class="recent-item"
-            @click="ui.setActiveEntry(entry.id)"
           >
             <FileText :size="14" class="ri-cat" />
             <span class="ri-title">{{ entry.title }}</span>
@@ -43,7 +42,6 @@
             :key="entry.id"
             :to="`/entries/${entry.id}`"
             class="recent-item"
-            @click="ui.setActiveEntry(entry.id)"
           >
             <FileText :size="14" class="ri-cat" />
             <span class="ri-title">{{ entry.title }}</span>
@@ -122,7 +120,6 @@ import type { EntrySearchResult } from '../stores/useEntriesStore'
 import type { ContentEntry } from '../stores/useEntryStore'
 import { useProjectStore } from '../stores/useProjectStore'
 import { useAuthStore } from '../stores/useAuthStore'
-import { useUIStore } from '../stores/useUIStore'
 import { api } from '../api/client'
 import { inviteLink } from '../utils/links'
 import type { Project } from '../types'
@@ -135,7 +132,6 @@ const router = useRouter()
 const entries = useEntriesStore()
 const projectStore = useProjectStore()
 const auth = useAuthStore()
-const ui = useUIStore()
 
 const searchQuery = ref('')
 const showNewProject = ref(false)
