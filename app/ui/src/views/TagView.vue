@@ -12,30 +12,25 @@
           v-for="entry in tagEntries"
           :key="entry.id"
           :entry="entry"
-          @select="ui.setActiveEntry(entry.id)"
+          @select="router.push(`/entries/${entry.id}`)"
         />
         <p v-if="tagEntries.length === 0" class="list-empty">No entries with this tag.</p>
       </div>
-    </div>
-    <div class="editor-panel">
-      <EntryEditor />
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import EntryCard from '../components/EntryCard.vue'
-import EntryEditor from '../components/EntryEditor.vue'
 import { useProjectStore } from '../stores/useProjectStore'
-import { useUIStore } from '../stores/useUIStore'
 import { api } from '../api/client'
 import type { ContentEntry } from '../stores/useEntryStore'
 
 const projectStore = useProjectStore()
-const ui = useUIStore()
 const route = useRoute()
+const router = useRouter()
 
 // /tag/:tag has no :projectId — it's always been a cross-project tag
 // browser — so, matching DashboardView.vue's loadRecents()/recentEntries,
@@ -66,28 +61,28 @@ const tagEntries = computed(() => {
 
 <style scoped>
 .quillit-view {
-  display: grid;
-  grid-template-columns: 280px 1fr;
   height: 100vh;
-}
-.entry-list {
-  background: var(--card);
-  border-right: 1px solid var(--border);
+  max-width: 640px;
+  margin: 0 auto;
   display: flex;
   flex-direction: column;
 }
+.entry-list {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1;
+}
 .list-header {
-  padding: 16px;
-  border-bottom: 1px solid var(--border);
+  padding: 20px 16px 16px;
 }
 .list-title {
   font-family: var(--font-display);
-  font-size: 0.82em;
+  font-size: 1.1em;
   letter-spacing: 0.06em;
   color: var(--muted-foreground);
 }
 .list-title em { color: var(--muted-foreground); font-style: normal; }
-.list-scroll { overflow-y: auto; flex: 1; }
-.list-empty { padding: 24px 16px; color: var(--muted-foreground); font-size: 0.88em; }
-.editor-panel { overflow-y: auto; }
+.list-scroll { overflow-y: auto; flex: 1; padding: 0 16px; }
+.list-empty { padding: 24px 0; color: var(--muted-foreground); font-size: 0.88em; }
 </style>

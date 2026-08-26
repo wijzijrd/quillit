@@ -34,7 +34,6 @@ function legacyThemeToSeason(theme: 'light' | 'dark'): Season {
 export const useUIStore = defineStore('ui', () => {
   const activeEntryId = ref<string | null>(null)
   const searchOverlayOpen = ref(false)
-  const navigationHistory = ref<string[]>([])
 
   const season = ref<Season>('spring')
   const glass = ref(true)
@@ -120,30 +119,16 @@ export const useUIStore = defineStore('ui', () => {
   }
 
   function setActiveEntry(id: string | null) {
-    if (activeEntryId.value && activeEntryId.value !== id) {
-      navigationHistory.value = [...navigationHistory.value, activeEntryId.value].slice(-50)
-    }
     activeEntryId.value = id
   }
-
-  function goBack(): string | null {
-    if (navigationHistory.value.length === 0) return null
-    const prev = navigationHistory.value[navigationHistory.value.length - 1]
-    navigationHistory.value = navigationHistory.value.slice(0, -1)
-    activeEntryId.value = prev
-    return prev
-  }
-
-  const canGoBack = computed(() => navigationHistory.value.length > 0)
 
   function toggleSearchOverlay() { searchOverlayOpen.value = !searchOverlayOpen.value }
   function closeSearchOverlay() { searchOverlayOpen.value = false }
 
   return {
     activeEntryId, searchOverlayOpen,
-    navigationHistory, canGoBack,
     season, glass, isDark,
-    setActiveEntry, goBack, toggleSearchOverlay, closeSearchOverlay,
+    setActiveEntry, toggleSearchOverlay, closeSearchOverlay,
     initTheme, setSeason, setGlass, syncSettingsFromServer,
   }
 })

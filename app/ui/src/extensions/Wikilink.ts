@@ -38,7 +38,7 @@ export const Wikilink = Node.create({
     return {
       // Whether the node view resolves link status (dangling vs. resolved)
       // and stamps data-resolved-id for click-to-navigate. On by default
-      // for both the interactive editor and EntryViewModal's read-only
+      // for both the interactive editor and EntryViewPane's read-only
       // view; turned off for the throwaway headless render print uses, so
       // a print job doesn't fire a round of lookup requests for links
       // nobody can click in a printed/new-tab document anyway.

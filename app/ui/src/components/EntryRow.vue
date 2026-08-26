@@ -1,5 +1,5 @@
 <template>
-  <div class="entry-row" draggable="true" @dragstart="onDragStart" @click="$emit('edit')">
+  <div class="entry-row" draggable="true" @dragstart="onDragStart" @click="$emit('view')">
     <FileText :size="14" class="er-icon" />
     <span class="er-title">{{ entry.title }}</span>
     <div class="er-actions">

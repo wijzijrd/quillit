@@ -1,57 +1,51 @@
 <template>
   <div class="entries-browser">
-    <div class="browser-header">
-      <span class="browser-title">{{ inProject ? project?.name ?? 'Entries' : 'Entries' }}</span>
-      <button class="new-btn" @click="createNew">+ New</button>
-    </div>
-
-    <p v-if="moveError" class="move-error">
-      {{ moveError }}
-      <button class="move-error-dismiss" @click="moveError = null">×</button>
-    </p>
-
-    <div class="browser-scroll">
-      <div class="browser-empty" v-if="entries.entries.length === 0">
-        No entries yet.
+    <div class="tree-col" v-if="!isMobile || !hasActiveEntry">
+      <div class="browser-header">
+        <span class="browser-title">{{ inProject ? project?.name ?? 'Entries' : 'Entries' }}</span>
+        <button class="new-btn" @click="createNew">+ New</button>
       </div>
 
-      <DirectoryNode v-else :node="tree" :depth="0" />
+      <p v-if="moveError" class="move-error">
+        {{ moveError }}
+        <button class="move-error-dismiss" @click="moveError = null">×</button>
+      </p>
+
+      <div class="browser-scroll">
+        <div class="browser-empty" v-if="entries.entries.length === 0">
+          No entries yet.
+        </div>
+
+        <DirectoryNode v-else :node="tree" :depth="0" />
+      </div>
+    </div>
+
+    <div class="pane-col" v-if="!isMobile || hasActiveEntry">
+      <EntryPane v-model:mode="paneMode" />
     </div>
   </div>
-
-  <EntryEditModal
-    v-if="editingEntry"
-    :entry-id="editingEntry.id"
-    @close="editingEntry = null"
-  />
-  <EntryViewModal
-    v-if="viewingEntry"
-    :entry-id="viewingEntry.id"
-    :can-go-back="viewHistory.length > 0"
-    :can-go-forward="viewFuture.length > 0"
-    @close="closeViewModal"
-    @edit="switchToEdit"
-    @navigate="navigateTo"
-    @back="viewGoBack"
-    @forward="viewGoForward"
-  />
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, provide, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { ref, computed, onMounted, provide, watch, nextTick } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import DirectoryNode from '../components/DirectoryNode.vue'
-import EntryEditModal from '../components/EntryEditModal.vue'
-import EntryViewModal from '../components/EntryViewModal.vue'
+import EntryPane from '../components/EntryPane.vue'
 import { useEntriesStore } from '../stores/useEntriesStore'
 import { useProjectStore } from '../stores/useProjectStore'
+import { useUIStore } from '../stores/useUIStore'
 import { apiErrorMessage } from '../api/client'
 import { buildDirectoryTree, directoryTreeActionsKey, type DirectoryTreeActions } from '../lib/directoryTree'
 import type { ContentEntry } from '../stores/useEntryStore'
+import { useBreakpoint } from '../composables/useBreakpoint'
+import { entryPath } from '../utils/links'
 
 const route = useRoute()
+const router = useRouter()
 const entries = useEntriesStore()
 const projectStore = useProjectStore()
+const ui = useUIStore()
+const { isMobile } = useBreakpoint()
 
 const projectId = computed(() => {
   const p = route.params.projectId
@@ -108,21 +102,15 @@ watch(projectId, (id) => {
   entries.init(id).catch(() => {})
 })
 
-type EditingEntry = ContentEntry | { id: string }
+const hasActiveEntry = computed(() => typeof route.params.id === 'string' && !!route.params.id)
+const paneMode = ref<'view' | 'edit'>('view')
 
-const editingEntry = ref<EditingEntry | null>(null)
-const viewingEntry = ref<ContentEntry | null>(null)
-const viewHistory = ref<ContentEntry[]>([])
-const viewFuture = ref<ContentEntry[]>([])
-
-// Escape hatch for /entries/:id — open the editor for the routed entry id
-// directly, independent of the (list-backed) EntryRow click path above, so
-// deep-linking works even when the list itself hasn't loaded that entry.
-// EntryEditModal only needs `.id` off this object (it forwards it as the
-// `entry-id` prop and calls ui.setActiveEntry); EntryEditor fetches the
-// full entry itself via useEntryStore.get.
+// Single writer of the active entry — every navigation into/out of an entry
+// (tree click, wikilink, browser back/forward, deep link) flows through
+// /entries/:id, so this is the only place ui.activeEntryId gets set.
 watch(() => route.params.id, (id) => {
-  if (typeof id === 'string' && id) editingEntry.value = { id }
+  ui.setActiveEntry(typeof id === 'string' ? id : null)
+  paneMode.value = 'view'
 }, { immediate: true })
 
 const tree = computed(() => buildDirectoryTree(entries.entries, [...pendingFolders.value]))
@@ -153,6 +141,27 @@ function handleCreateFolder(parentPath: string, name: string) {
   pendingFolders.value = new Set([...pendingFolders.value, path])
 }
 
+async function openView(entry: ContentEntry) {
+  await router.push(entryPath(projectId.value, entry.id))
+  paneMode.value = 'view'
+}
+
+async function openEdit(entry: ContentEntry) {
+  await router.push(entryPath(projectId.value, entry.id))
+  // The route.params.id watcher above resets paneMode to 'view' on every
+  // navigation (Vue's pre-flush queue) — nextTick ensures that reset has
+  // already run before this explicit 'edit' wins.
+  await nextTick()
+  paneMode.value = 'edit'
+}
+
+async function deleteEntry(entry: ContentEntry) {
+  if (!confirm(`Delete "${entry.title}"?`)) return
+  const wasActive = ui.activeEntryId === entry.id
+  await entries.deleteEntry(entry.id)
+  if (wasActive) await router.push(projectId.value ? `/projects/${projectId.value}/entries` : '/entries')
+}
+
 provide<DirectoryTreeActions>(directoryTreeActionsKey, {
   isExpanded,
   onToggle,
@@ -168,62 +177,23 @@ async function createNew() {
   const id = projectId.value
   if (!id) return
   const entry = await entries.createEntry(id, 'Untitled')
-  editingEntry.value = entry
-}
-
-function openEdit(entry: ContentEntry) {
-  viewingEntry.value = null
-  editingEntry.value = entry
-}
-
-function openView(entry: ContentEntry) {
-  editingEntry.value = null
-  viewingEntry.value = entry
-}
-
-async function deleteEntry(entry: ContentEntry) {
-  if (!confirm(`Delete "${entry.title}"?`)) return
-  await entries.deleteEntry(entry.id)
-  if (editingEntry.value?.id === entry.id) editingEntry.value = null
-  if (viewingEntry.value?.id === entry.id) viewingEntry.value = null
-}
-
-function switchToEdit() {
-  if (!viewingEntry.value) return
-  const e = viewingEntry.value
-  closeViewModal()
-  editingEntry.value = e
-}
-
-function navigateTo(id: string) {
-  const next = entries.getById(id)
-  if (!next || !viewingEntry.value) return
-  viewHistory.value.push(viewingEntry.value)
-  viewFuture.value = []
-  viewingEntry.value = next
-}
-
-function viewGoBack() {
-  if (!viewHistory.value.length || !viewingEntry.value) return
-  viewFuture.value.unshift(viewingEntry.value)
-  viewingEntry.value = viewHistory.value.pop() ?? null
-}
-
-function viewGoForward() {
-  if (!viewFuture.value.length || !viewingEntry.value) return
-  viewHistory.value.push(viewingEntry.value)
-  viewingEntry.value = viewFuture.value.shift() ?? null
-}
-
-function closeViewModal() {
-  viewingEntry.value = null
-  viewHistory.value = []
-  viewFuture.value = []
+  await router.push(entryPath(id, entry.id))
+  await nextTick()
+  paneMode.value = 'edit'
 }
 </script>
 
 <style scoped>
-.entries-browser { display: flex; flex-direction: column; height: 100vh; padding: 0 24px; }
+.entries-browser { display: grid; grid-template-columns: clamp(260px, 22vw, 340px) 1fr; height: 100vh; }
+@media (max-width: 767px) {
+  .entries-browser { grid-template-columns: 1fr; }
+}
+
+.tree-col { display: flex; flex-direction: column; height: 100vh; padding: 0 20px; border-right: 1px solid var(--border); min-width: 0; }
+@media (max-width: 767px) { .tree-col { border-right: none; } }
+
+.pane-col { height: 100vh; overflow: hidden; min-width: 0; }
+
 .browser-header { display: flex; align-items: center; justify-content: space-between; padding: 28px 0 20px; flex-shrink: 0; }
 .browser-title { font-family: var(--font-display); font-size: 1.1em; letter-spacing: 0.06em; color: var(--muted-foreground); }
 .new-btn { background: var(--secondary); border: none; color: var(--primary); font-size: 0.82em; padding: 5px 12px; border-radius: var(--radius); cursor: pointer; transition: background var(--transition); }
