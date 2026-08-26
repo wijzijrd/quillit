@@ -69,6 +69,9 @@ jobs:
     needs: test
     if: always() && needs.test.result != 'failure'
     runs-on: [self-hosted, quillit]
+    # Every job on the self-hosted runner requires manual approval — see
+    # the home-server environment's required reviewers.
+    environment: home-server
     timeout-minutes: 15
     steps:
       # Ephemeral per-run checkout instead of a persistent $HOME/quillit clone.

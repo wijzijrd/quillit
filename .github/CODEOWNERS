@@ -1,0 +1,5 @@
+# Every path in this repo requires review from @wijzijrd. Combined with
+# branch protection's "Require review from Code Owners" on main, this means
+# no PR can merge — and nothing can reach the self-hosted runner via a
+# main-branch push — without their explicit approval.
+* @wijzijrd

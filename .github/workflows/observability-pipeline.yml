@@ -20,6 +20,9 @@ jobs:
     needs: validate
     if: always() && needs.validate.result == 'success'
     runs-on: [self-hosted, quillit]
+    # Every job on the self-hosted runner requires manual approval — see
+    # the home-server environment's required reviewers.
+    environment: home-server
     timeout-minutes: 10
     steps:
       # Ephemeral per-run checkout, -p quillit pinned — see app-pipeline.yml's
