@@ -2,10 +2,15 @@ package db
 
 import (
 	"database/sql"
+	"embed"
 	"fmt"
 
+	"github.com/pressly/goose/v3"
 	_ "modernc.org/sqlite"
 )
+
+//go:embed migrations/*.sql
+var migrationsFS embed.FS
 
 func Open(path string) (*sql.DB, error) {
 	db, err := sql.Open("sqlite", path)
@@ -40,134 +45,37 @@ func checkForeignKeys(db *sql.DB) error {
 	return rows.Err()
 }
 
+// migrate runs every pending goose migration in internal/db/migrations
+// (embedded via migrationsFS) against db, up to the latest version.
+//
+// Before doing so it guards against a precondition the baseline migration
+// depends on but can't enforce on its own: it's written entirely as
+// idempotent CREATE ... IF NOT EXISTS statements, which is correct for a
+// genuinely empty database (fresh goose install, PRAGMA user_version stays 0
+// — goose tracks its own progress via goose_db_version, not user_version) or
+// one already at the old hand-rolled system's v2 end state (PRAGMA
+// user_version = 2). A database still at the old system's user_version 1
+// (i.e. one that ran toV1 but never toV2) must be rejected instead of
+// silently trusted — see 00001_baseline.sql's header comment for why this
+// guard is kept even though today's specific two-step chain happens not to
+// need it for correctness.
 func migrate(db *sql.DB) error {
-	var version int
-	if err := db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
-		return fmt.Errorf("read schema version: %w", err)
+	var userVersion int
+	if err := db.QueryRow(`PRAGMA user_version`).Scan(&userVersion); err != nil {
+		return fmt.Errorf("read user_version: %w", err)
 	}
-	if version < 1 {
-		if err := toV1(db); err != nil {
-			return fmt.Errorf("schema v1: %w", err)
-		}
+	if userVersion > 0 && userVersion < 2 {
+		return fmt.Errorf("database is at legacy schema v%d; the goose baseline only "+
+			"applies to an empty database or one already at the old system's v2 end state",
+			userVersion)
 	}
-	if version < 2 {
-		if err := toV2(db); err != nil {
-			return fmt.Errorf("schema v2: %w", err)
-		}
+
+	goose.SetBaseFS(migrationsFS)
+	if err := goose.SetDialect("sqlite3"); err != nil {
+		return fmt.Errorf("set dialect: %w", err)
+	}
+	if err := goose.Up(db, "migrations"); err != nil {
+		return fmt.Errorf("goose up: %w", err)
 	}
 	return nil
-}
-
-// toV1 establishes the initial schema.
-// Roles are account-level: 'user' (default) or 'admin'.
-// Project-level roles (gm/player, author/collaborator) live in quillit-svc.
-// The active flag allows admins to disable accounts without deleting them.
-func toV1(db *sql.DB) error {
-	// Check whether the users table already exists with the old schema.
-	var tableCount int
-	if err := db.QueryRow(
-		`SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='users'`,
-	).Scan(&tableCount); err != nil {
-		return err
-	}
-
-	tx, err := db.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-
-	if tableCount > 0 {
-		// Existing install: recreate with new role constraint + active column.
-		// FK enforcement is OFF during DDL to allow DROP/RENAME safely.
-		if _, err := tx.Exec(`PRAGMA foreign_keys = OFF`); err != nil {
-			return err
-		}
-		if _, err := tx.Exec(`
-			CREATE TABLE users_new (
-				id            TEXT    PRIMARY KEY,
-				email         TEXT    NOT NULL UNIQUE,
-				username      TEXT    NOT NULL UNIQUE,
-				password_hash TEXT    NOT NULL,
-				role          TEXT    NOT NULL DEFAULT 'user'
-				              CHECK (role IN ('user', 'admin')),
-				active        INTEGER NOT NULL DEFAULT 1,
-				created_at    INTEGER NOT NULL,
-				updated_at    INTEGER NOT NULL
-			)
-		`); err != nil {
-			return err
-		}
-		if _, err := tx.Exec(`
-			INSERT INTO users_new
-				(id, email, username, password_hash, role, active, created_at, updated_at)
-			SELECT
-				id, email, username, password_hash,
-				CASE WHEN role = 'admin' THEN 'admin' ELSE 'user' END,
-				1, created_at, updated_at
-			FROM users
-		`); err != nil {
-			return err
-		}
-		if _, err := tx.Exec(`DROP TABLE users`); err != nil {
-			return err
-		}
-		if _, err := tx.Exec(`ALTER TABLE users_new RENAME TO users`); err != nil {
-			return err
-		}
-		if _, err := tx.Exec(`PRAGMA foreign_keys = ON`); err != nil {
-			return err
-		}
-	} else {
-		// Fresh install.
-		if _, err := tx.Exec(`
-			CREATE TABLE IF NOT EXISTS users (
-				id            TEXT    PRIMARY KEY,
-				email         TEXT    NOT NULL UNIQUE,
-				username      TEXT    NOT NULL UNIQUE,
-				password_hash TEXT    NOT NULL,
-				role          TEXT    NOT NULL DEFAULT 'user'
-				              CHECK (role IN ('user', 'admin')),
-				active        INTEGER NOT NULL DEFAULT 1,
-				created_at    INTEGER NOT NULL,
-				updated_at    INTEGER NOT NULL
-			)
-		`); err != nil {
-			return err
-		}
-	}
-
-	if _, err := tx.Exec(`PRAGMA user_version = 1`); err != nil {
-		return err
-	}
-	return tx.Commit()
-}
-
-// toV2 adds password reset tokens: single-use, short-lived, keyed to a user.
-func toV2(db *sql.DB) error {
-	tx, err := db.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-
-	if _, err := tx.Exec(`
-		CREATE TABLE IF NOT EXISTS password_reset_tokens (
-			id         TEXT    PRIMARY KEY,
-			user_id    TEXT    NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-			token_hash TEXT    NOT NULL UNIQUE,
-			expires_at INTEGER NOT NULL,
-			used       INTEGER NOT NULL DEFAULT 0,
-			created_at INTEGER NOT NULL
-		)
-	`); err != nil {
-		return err
-	}
-	if _, err := tx.Exec(`CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_user ON password_reset_tokens(user_id)`); err != nil {
-		return err
-	}
-	if _, err := tx.Exec(`PRAGMA user_version = 2`); err != nil {
-		return err
-	}
-	return tx.Commit()
 }

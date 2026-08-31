@@ -1,5 +1,6 @@
 BINARY := quillit-auth-svc
 SETUP_HINT := JWT_SECRET
+DB_PATH ?= ./quillit-auth.db
 
 .PHONY: check-env
 
