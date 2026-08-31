@@ -25,6 +25,17 @@
 -- Every statement is IF NOT EXISTS / OR IGNORE so this migration has zero
 -- effect against a database that already reached toV8 under the old system —
 -- goose will still record it as applied, but it changes nothing there.
+--
+-- PRECONDITION: because every statement below is IF NOT EXISTS / OR IGNORE,
+-- this migration only produces a correct schema against (a) an empty
+-- database, or (b) one already at the old hand-rolled system's v8 end state.
+-- It must never run against a database still at that old system's
+-- user_version 1-7 (i.e. one that was never cut over to v8) — some of these
+-- tables/columns already exist there in an older shape, and the IF NOT
+-- EXISTS statements would silently no-op instead of bringing them up to
+-- date, leaving a wrong-but-internally-consistent schema. db.go's migrate()
+-- enforces this precondition at runtime by checking PRAGMA user_version
+-- before goose.Up ever runs.
 
 CREATE TABLE IF NOT EXISTS sessions (
     id         TEXT    PRIMARY KEY,

@@ -249,6 +249,42 @@ func TestOpen_AgainstRealProductionShapedDB(t *testing.T) {
 	}
 }
 
+// TestOpen_RejectsLegacyPreV8Database guards the precondition the baseline
+// migration depends on but can't enforce with SQL alone: it's written
+// entirely as IF NOT EXISTS / OR IGNORE statements, which only produce a
+// correct schema against an empty database or one already at the old
+// hand-rolled system's v8 end state. A database still at that old system's
+// user_version 1-7 (never cut over to v8) must be rejected with a clear
+// error instead of silently getting a wrong schema. The schema built here is
+// intentionally minimal — the guard only inspects PRAGMA user_version, not
+// the tables present — to isolate exactly what's under test.
+func TestOpen_RejectsLegacyPreV8Database(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "quillit.db")
+	pre, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A minimal legacy-shaped table is enough: the guard fires on
+	// PRAGMA user_version alone, not on inspecting this table's columns.
+	if _, err := pre.Exec(`CREATE TABLE project_members (id TEXT PRIMARY KEY)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pre.Exec(`PRAGMA user_version = 7`); err != nil {
+		t.Fatal(err)
+	}
+	if err := pre.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = Open(path)
+	if err == nil {
+		t.Fatal("expected Open() to reject a database at legacy user_version 7, got nil error")
+	}
+	if !strings.Contains(err.Error(), "legacy schema v7") {
+		t.Errorf("expected error to mention the legacy schema version, got: %v", err)
+	}
+}
+
 // TestOpen_ChatMessagesHasNoEntriesForeignKey guards the toV8 rework that's
 // carried into the baseline: chat_messages.entry_id must not be a foreign
 // key (the entries table it used to reference doesn't exist in this schema
