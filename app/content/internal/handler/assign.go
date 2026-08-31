@@ -101,8 +101,8 @@ func (h *AssignHandler) Assign(w http.ResponseWriter, r *http.Request) {
 		UPDATE entries SET directory_path = ?, updated_at = ? WHERE id = ?
 	`, req.DirectoryPath, now, id); err != nil {
 		// Defense in depth alongside the pre-check above: the (project_id,
-		// directory_path, slug) UNIQUE constraint (db.go toV2) is the last
-		// word on collisions.
+		// directory_path, slug) UNIQUE constraint (internal/db/migrations/
+		// 00001_baseline.sql) is the last word on collisions.
 		if isUniqueConstraintErr(err) {
 			writeError(w, http.StatusConflict, fmt.Sprintf("an entry already exists at %s", newPath))
 			return

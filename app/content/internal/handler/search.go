@@ -16,7 +16,8 @@ import (
 )
 
 // SearchHandler serves #43's project-scoped full-text search, backed by the
-// entries_fts FTS5 virtual table (internal/db/db.go toV3). The same handler
+// entries_fts FTS5 virtual table (internal/db/migrations/00001_baseline.sql).
+// The same handler
 // also backs the "[[" wikilink-autocomplete lookup (mode=lookup) — one query
 // implementation, per docs/web-refactor-spec.md §6.4's "Decide whether this
 // is the same endpoint with a mode=lookup style param or a separate
