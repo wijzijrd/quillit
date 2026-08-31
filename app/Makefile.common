@@ -1,9 +1,15 @@
-# Shared targets for app/{svc,auth,messaging}. Each service's own Makefile
-# sets BINARY and SETUP_HINT, defines its own check-env, then includes this
-# file — the three services validate .env differently (svc checks JWT_SECRET
-# format, auth/messaging just check the file exists), so check-env stays
+# Shared targets for app/{svc,auth,content,messaging}. Each service's own
+# Makefile sets BINARY and SETUP_HINT, defines its own check-env, then
+# includes this file — the services validate .env differently (svc checks
+# JWT_SECRET format, others just check the file exists), so check-env stays
 # per-service rather than being parameterized here.
-.PHONY: dev build build-linux setup swagger help
+#
+# DB_PATH defaults to svc's own .env default; a service whose DB file is
+# named differently (see its .env.example) should set DB_PATH ?= ... in its
+# own Makefile before the include, the same way BINARY/SETUP_HINT are set.
+DB_PATH ?= ./quillit.db
+
+.PHONY: dev build build-linux setup swagger migrate-up migrate-status help
 
 setup:          ## Copy .env.example → .env (skips if already exists)
 	@test -f .env && echo ".env already exists, skipping" \
@@ -14,6 +20,12 @@ dev: check-env  ## Run dev server (loads .env automatically)
 
 swagger:        ## Regenerate Swagger docs
 	swag init --parseDependency --parseInternal
+
+migrate-up:      ## Apply pending goose migrations to DB_PATH
+	go tool goose -dir internal/db/migrations sqlite3 $(DB_PATH) up
+
+migrate-status:  ## Show goose migration status for DB_PATH
+	go tool goose -dir internal/db/migrations sqlite3 $(DB_PATH) status
 
 build:          ## Compile binary for current OS/arch (local dev)
 	go build -o bin/$(BINARY) .

@@ -3,6 +3,7 @@ package db
 import (
 	"database/sql"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -10,20 +11,35 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-func openMemDB(t *testing.T) *sql.DB {
+func tableExists(t *testing.T, database *sql.DB, table string) bool {
 	t.Helper()
-	database, err := sql.Open("sqlite", ":memory:")
+	var name string
+	err := database.QueryRow(`SELECT name FROM sqlite_master WHERE type='table' AND name = ?`, table).Scan(&name)
+	if err == sql.ErrNoRows {
+		return false
+	}
 	if err != nil {
 		t.Fatal(err)
 	}
-	database.SetMaxOpenConns(1)
-	if _, err := database.Exec("PRAGMA journal_mode=WAL"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := database.Exec("PRAGMA foreign_keys=ON"); err != nil {
-		t.Fatal(err)
-	}
-	return database
+	return true
+}
+
+// legacyTables is every table the old toV1..toV7 chain created that toV8
+// (issues #34/#35, the content-service cutover) then dropped — none of them
+// should exist in the schema goose's baseline migration produces.
+var legacyTables = []string{
+	"entries", "annotations", "categories", "category_default_tags",
+	"project_global_categories", "quick_view_templates", "players",
+	"player_notes", "campaigns", "entry_shares", "entry_relations",
+	"member_folders", "member_folder_entries", "member_entry_meta",
+	"facets", "project_facets", "entry_links",
+}
+
+// survivingTables is every table that toV1..toV8's end state actually
+// leaves behind — what the goose baseline migration reproduces.
+var survivingTables = []string{
+	"sessions", "projects", "project_members", "project_invites",
+	"user_settings", "game_sessions", "chat_messages",
 }
 
 func TestOpen_FreshDatabase(t *testing.T) {
@@ -37,141 +53,257 @@ func TestOpen_FreshDatabase(t *testing.T) {
 		t.Errorf("checkForeignKeys after fresh Open(): %v", err)
 	}
 
-	var version int
-	if err := database.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil {
-		t.Fatal(err)
+	for _, table := range legacyTables {
+		if tableExists(t, database, table) {
+			t.Errorf("expected legacy table %q to not exist after a fresh Open()", table)
+		}
 	}
-	if version != 8 {
-		t.Errorf("expected fresh Open() to migrate to user_version=8, got %d", version)
+	for _, table := range survivingTables {
+		if !tableExists(t, database, table) {
+			t.Errorf("expected table %q to exist after a fresh Open()", table)
+		}
 	}
 
-	for _, table := range []string{"entries", "categories", "annotations", "campaigns", "quick_view_templates"} {
+	// The system "global" project (historically seeded by toV2 to own
+	// admin-managed categories) is still expected by internal/handler/
+	// projects.go's listing filter (type != 'global'), so the baseline
+	// migration reproduces it.
+	var projectType string
+	if err := database.QueryRow(`SELECT type FROM projects WHERE id = 'global'`).Scan(&projectType); err != nil {
+		t.Fatalf("expected seeded 'global' project to exist: %v", err)
+	}
+	if projectType != "global" {
+		t.Errorf("expected 'global' project type = 'global', got %q", projectType)
+	}
+}
+
+// TestOpen_IdempotentOnAlreadyMigratedDB confirms the baseline migration has
+// zero schema effect when run a second time against a database that already
+// ran it — the exact scenario the real production database will hit when
+// this goose-based system first runs against it (it's already at the old
+// system's v8 end state). Uses a real file (not :memory:) so the second
+// Open() reopens genuinely persisted state rather than a fresh in-memory db.
+func TestOpen_IdempotentOnAlreadyMigratedDB(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "quillit.db")
+
+	first, err := Open(path)
+	if err != nil {
+		t.Fatalf("first Open() failed: %v", err)
+	}
+	var firstCount int
+	if err := first.QueryRow(`SELECT COUNT(*) FROM goose_db_version`).Scan(&firstCount); err != nil {
+		t.Fatalf("query goose_db_version after first Open(): %v", err)
+	}
+	if err := first.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	second, err := Open(path)
+	if err != nil {
+		t.Fatalf("second Open() (against an already-migrated db) failed: %v", err)
+	}
+	defer second.Close()
+
+	if err := checkForeignKeys(second); err != nil {
+		t.Errorf("checkForeignKeys after second Open(): %v", err)
+	}
+
+	var secondCount int
+	if err := second.QueryRow(`SELECT COUNT(*) FROM goose_db_version`).Scan(&secondCount); err != nil {
+		t.Fatalf("query goose_db_version after second Open(): %v", err)
+	}
+	if secondCount != firstCount {
+		t.Errorf("expected re-running the migration against an already-migrated db to record no new goose version rows, got %d rows before vs %d after", firstCount, secondCount)
+	}
+
+	for _, table := range legacyTables {
+		if tableExists(t, second, table) {
+			t.Errorf("expected legacy table %q to still not exist after second Open()", table)
+		}
+	}
+	for _, table := range survivingTables {
+		if !tableExists(t, second, table) {
+			t.Errorf("expected table %q to still exist after second Open()", table)
+		}
+	}
+
+	var projectCount int
+	if err := second.QueryRow(`SELECT COUNT(*) FROM projects WHERE id = 'global'`).Scan(&projectCount); err != nil {
+		t.Fatal(err)
+	}
+	if projectCount != 1 {
+		t.Errorf("expected re-running the migration not to duplicate the seeded 'global' project, got count=%d", projectCount)
+	}
+}
+
+// TestOpen_AgainstRealProductionShapedDB is the actual production scenario
+// this migration must handle safely: a database that already reached the
+// old hand-rolled system's v8 end state (built here with raw SQL matching
+// that end state exactly, with no goose_db_version table at all — this is
+// what the real home-server database looks like today, since it has never
+// run goose). The baseline migration must apply against it with zero schema
+// effect and without touching existing data.
+func TestOpen_AgainstRealProductionShapedDB(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "quillit.db")
+	pre, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pre.Exec(`PRAGMA foreign_keys=ON`); err != nil {
+		t.Fatal(err)
+	}
+
+	now := time.Now().Unix()
+	for _, stmt := range []string{
+		`CREATE TABLE sessions (
+			id TEXT PRIMARY KEY, jwt TEXT NOT NULL,
+			expires_at INTEGER NOT NULL, created_at INTEGER NOT NULL
+		)`,
+		`CREATE TABLE projects (
+			id TEXT PRIMARY KEY, name TEXT NOT NULL, type TEXT NOT NULL DEFAULT 'campaign',
+			created_by TEXT NOT NULL, created_at INTEGER NOT NULL
+		)`,
+		`CREATE TABLE project_members (
+			id TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+			user_id TEXT NOT NULL, role TEXT NOT NULL, joined_at INTEGER NOT NULL,
+			username TEXT NOT NULL DEFAULT '', UNIQUE(project_id, user_id)
+		)`,
+		`CREATE TABLE project_invites (
+			id TEXT PRIMARY KEY, token TEXT NOT NULL UNIQUE,
+			project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+			role TEXT NOT NULL, created_by TEXT NOT NULL, expires_at INTEGER NOT NULL,
+			used_at INTEGER, used_by TEXT
+		)`,
+		`CREATE TABLE user_settings (
+			user_id TEXT PRIMARY KEY, settings TEXT NOT NULL DEFAULT '{}', updated_at INTEGER NOT NULL
+		)`,
+		`CREATE TABLE game_sessions (
+			id TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+			status TEXT NOT NULL DEFAULT 'running', started_by TEXT NOT NULL,
+			started_at INTEGER NOT NULL, stopped_by TEXT, stopped_at INTEGER
+		)`,
+		`CREATE INDEX idx_game_sessions_project ON game_sessions(project_id, status)`,
+		`CREATE UNIQUE INDEX idx_game_sessions_one_active ON game_sessions(project_id) WHERE status = 'running'`,
+		`CREATE TABLE chat_messages (
+			id TEXT PRIMARY KEY, session_id TEXT NOT NULL REFERENCES game_sessions(id) ON DELETE CASCADE,
+			project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+			sender_id TEXT NOT NULL, type TEXT NOT NULL DEFAULT 'text', body TEXT NOT NULL DEFAULT '',
+			entry_id TEXT, card_title TEXT NOT NULL DEFAULT '', card_body TEXT NOT NULL DEFAULT '',
+			created_at INTEGER NOT NULL
+		)`,
+		`CREATE INDEX idx_chat_messages_session ON chat_messages(session_id, created_at)`,
+	} {
+		if _, err := pre.Exec(stmt); err != nil {
+			t.Fatalf("exec %q: %v", stmt, err)
+		}
+	}
+	if _, err := pre.Exec(
+		`INSERT INTO projects (id, name, type, created_by, created_at) VALUES ('global', 'Global Categories', 'global', 'system', ?)`,
+		now,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pre.Exec(
+		`INSERT INTO projects (id, name, type, created_by, created_at) VALUES ('proj-1', 'Real Campaign', 'campaign', 'user1', ?)`,
+		now,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pre.Exec(`PRAGMA user_version = 8`); err != nil {
+		t.Fatal(err)
+	}
+	if err := pre.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	database, err := Open(path)
+	if err != nil {
+		t.Fatalf("Open() against a real-production-shaped pre-goose db failed: %v", err)
+	}
+	defer database.Close()
+
+	if err := checkForeignKeys(database); err != nil {
+		t.Errorf("checkForeignKeys: %v", err)
+	}
+
+	var projectCount int
+	if err := database.QueryRow(`SELECT COUNT(*) FROM projects`).Scan(&projectCount); err != nil {
+		t.Fatal(err)
+	}
+	if projectCount != 2 {
+		t.Errorf("expected the migration to leave the 2 pre-existing projects untouched (no duplicate 'global' insert), got count=%d", projectCount)
+	}
+
+	var name string
+	if err := database.QueryRow(`SELECT name FROM projects WHERE id = 'proj-1'`).Scan(&name); err != nil {
+		t.Fatalf("pre-existing project data lost: %v", err)
+	}
+	if name != "Real Campaign" {
+		t.Errorf("pre-existing project data corrupted: got name=%q", name)
+	}
+
+	for _, table := range legacyTables {
 		if tableExists(t, database, table) {
-			t.Errorf("expected table %q to not exist after a fresh Open() at v8", table)
+			t.Errorf("expected the migration not to create legacy table %q against a real-production-shaped db", table)
 		}
 	}
 }
 
-// TestOpen_UpgradeFromV1 reproduces upgrading a real pre-existing v1 database
-// (with data already in categories/category_default_tags) through every
-// migration step. This is the regression test for the production bug: before
-// the toV2 fix, this would fail with "no such table: main.categories_v1" the
-// same way the real deployment did.
-func TestOpen_UpgradeFromV1(t *testing.T) {
-	database := openMemDB(t)
+// TestOpen_ChatMessagesHasNoEntriesForeignKey guards the toV8 rework that's
+// carried into the baseline: chat_messages.entry_id must not be a foreign
+// key (the entries table it used to reference doesn't exist in this schema
+// at all), while session_id/project_id must still reference their tables.
+func TestOpen_ChatMessagesHasNoEntriesForeignKey(t *testing.T) {
+	database, err := Open(":memory:")
+	if err != nil {
+		t.Fatalf("Open() failed: %v", err)
+	}
 	defer database.Close()
 
-	if err := toV1(database); err != nil {
-		t.Fatalf("toV1: %v", err)
-	}
-
-	now := time.Now().Unix()
-	if _, err := database.Exec(
-		`INSERT INTO categories (id, name, icon, color, sort_order, created_at, updated_at) VALUES ('cat1','Characters','User','#000',0,?,?)`,
-		now, now,
-	); err != nil {
-		t.Fatalf("seed v1 category: %v", err)
-	}
-	if _, err := database.Exec(
-		`INSERT INTO category_default_tags (id, category_id, label, sort_order) VALUES ('tag1','cat1','NPC',0)`,
-	); err != nil {
-		t.Fatalf("seed v1 category_default_tags: %v", err)
-	}
-
-	if err := migrate(database, latestSchemaVersion); err != nil {
-		t.Fatalf("migrate from v1 failed: %v", err)
-	}
-	if err := checkForeignKeys(database); err != nil {
-		t.Errorf("checkForeignKeys after upgrade: %v", err)
-	}
-
-	var version int
-	if err := database.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil {
+	rows, err := database.Query(`PRAGMA foreign_key_list(chat_messages)`)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if version != 8 {
-		t.Errorf("expected user_version=8 after full migration, got %d", version)
-	}
+	defer rows.Close()
 
-	var count int
-	if err := database.QueryRow(`SELECT COUNT(*) FROM user_settings`).Scan(&count); err != nil {
-		t.Errorf("user_settings table missing after migration: %v", err)
-	}
-}
-
-// TestOpen_RepairsBrokenV2 reproduces the exact corrupted state a real
-// deployment ended up in after running the (now-fixed) buggy toV2 — built by
-// running the real toV1, then replaying the original buggy rename sequence
-// by hand (without legacy_alter_table=ON, so SQLite rewrites
-// category_default_tags' REFERENCES clause to the soon-to-be-dropped
-// categories_v1, exactly as it did in production) — and confirms toV4 repairs it.
-func TestOpen_RepairsBrokenV2(t *testing.T) {
-	database := openMemDB(t)
-	defer database.Close()
-
-	if err := toV1(database); err != nil {
-		t.Fatalf("toV1: %v", err)
-	}
-
-	now := time.Now().Unix()
-	if _, err := database.Exec(
-		`INSERT INTO categories (id, name, icon, color, sort_order, created_at, updated_at) VALUES ('cat1','Characters','User','#000',0,?,?)`,
-		now, now,
-	); err != nil {
-		t.Fatalf("seed v1 category: %v", err)
-	}
-	if _, err := database.Exec(
-		`INSERT INTO category_default_tags (id, category_id, label, sort_order) VALUES ('tag1','cat1','NPC',0)`,
-	); err != nil {
-		t.Fatalf("seed v1 category_default_tags: %v", err)
-	}
-
-	// Replay the original buggy toV2 rename sequence by hand, deliberately
-	// WITHOUT legacy_alter_table=ON, so category_default_tags' REFERENCES
-	// clause gets silently rewritten to categories_v1, then dangles once
-	// categories_v1 is dropped — reproducing the exact production corruption.
-	if _, err := database.Exec(`PRAGMA foreign_keys=OFF`); err != nil {
+	referenced := map[string]bool{}
+	cols, err := rows.Columns()
+	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := database.Exec(`ALTER TABLE categories RENAME TO categories_v1`); err != nil {
-		t.Fatalf("simulate buggy rename: %v", err)
+	for rows.Next() {
+		vals := make([]any, len(cols))
+		ptrs := make([]any, len(cols))
+		for i := range vals {
+			ptrs[i] = &vals[i]
+		}
+		if err := rows.Scan(ptrs...); err != nil {
+			t.Fatal(err)
+		}
+		var table string
+		for i, c := range cols {
+			if c == "table" {
+				if s, ok := vals[i].(string); ok {
+					table = s
+				}
+			}
+		}
+		if table != "" {
+			referenced[table] = true
+		}
 	}
-	if _, err := database.Exec(`
-		CREATE TABLE categories (
-			id TEXT PRIMARY KEY, name TEXT NOT NULL, icon TEXT NOT NULL DEFAULT '',
-			color TEXT NOT NULL DEFAULT '', sort_order INTEGER NOT NULL DEFAULT 0,
-			project_id TEXT NOT NULL DEFAULT 'global', created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
-			UNIQUE(name, project_id)
-		)
-	`); err != nil {
-		t.Fatalf("recreate categories: %v", err)
-	}
-	if _, err := database.Exec(`
-		INSERT INTO categories (id, name, icon, color, sort_order, project_id, created_at, updated_at)
-		SELECT id, name, icon, color, sort_order, 'global', created_at, updated_at FROM categories_v1
-	`); err != nil {
-		t.Fatalf("copy categories: %v", err)
-	}
-	if _, err := database.Exec(`DROP TABLE categories_v1`); err != nil {
-		t.Fatalf("drop categories_v1: %v", err)
-	}
-	if _, err := database.Exec(`PRAGMA foreign_keys=ON`); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := database.Exec(`PRAGMA user_version = 2`); err != nil {
+	if err := rows.Err(); err != nil {
 		t.Fatal(err)
 	}
 
-	// Sanity-check the corruption actually reproduced before testing the fix.
-	if err := checkForeignKeys(database); err == nil {
-		t.Fatal("expected simulated corruption to fail foreign_key_check, but it passed")
+	if referenced["entries"] {
+		t.Error("expected chat_messages to have no foreign key referencing entries (that table doesn't exist post-cutover)")
 	}
-
-	if err := migrate(database, latestSchemaVersion); err != nil {
-		t.Fatalf("migrate() did not repair the broken schema: %v", err)
+	if !referenced["game_sessions"] {
+		t.Error("expected chat_messages.session_id to reference game_sessions")
 	}
-	if err := checkForeignKeys(database); err != nil {
-		t.Errorf("checkForeignKeys after repair: %v", err)
+	if !referenced["projects"] {
+		t.Error("expected chat_messages.project_id to reference projects")
 	}
 }
 
@@ -197,281 +329,14 @@ func hasColumn(t *testing.T, database *sql.DB, table, column string) bool {
 	return false
 }
 
-func tableExists(t *testing.T, database *sql.DB, table string) bool {
-	t.Helper()
-	var name string
-	err := database.QueryRow(`SELECT name FROM sqlite_master WHERE type='table' AND name = ?`, table).Scan(&name)
-	if err == sql.ErrNoRows {
-		return false
-	}
-	if err != nil {
-		t.Fatal(err)
-	}
-	return true
-}
-
-func upToV6(t *testing.T, database *sql.DB) {
-	t.Helper()
-	for _, step := range []func(*sql.DB) error{toV1, toV2, toV3, toV4, toV5, toV6} {
-		if err := step(database); err != nil {
-			t.Fatalf("migrate up to v6: %v", err)
-		}
-	}
-}
-
-func upToV7(t *testing.T, database *sql.DB) {
-	t.Helper()
-	for _, step := range []func(*sql.DB) error{toV1, toV2, toV3, toV4, toV5, toV6, toV7} {
-		if err := step(database); err != nil {
-			t.Fatalf("migrate up to v7: %v", err)
-		}
-	}
-}
-
-// mustExec runs a write query and fails the test immediately if it errors.
-func mustExec(t *testing.T, database *sql.DB, query string, args ...any) {
-	t.Helper()
-	if _, err := database.Exec(query, args...); err != nil {
-		t.Fatalf("exec %q: %v", query, err)
-	}
-}
-
-func TestToV7_AddsEntryColumns(t *testing.T) {
-	database := openMemDB(t)
-	defer database.Close()
-	upToV6(t, database)
-
-	if err := toV7(database); err != nil {
-		t.Fatalf("toV7: %v", err)
-	}
-
-	for _, col := range []string{"slug", "directory_path", "project_id"} {
-		if !hasColumn(t, database, "entries", col) {
-			t.Errorf("expected entries.%s to exist after toV7", col)
-		}
-	}
-}
-
-func TestToV7_CreatesFacetAndLinkTables(t *testing.T) {
-	database := openMemDB(t)
-	defer database.Close()
-	upToV6(t, database)
-
-	if err := toV7(database); err != nil {
-		t.Fatalf("toV7: %v", err)
-	}
-
-	for _, table := range []string{"facets", "project_facets", "entry_links"} {
-		if !tableExists(t, database, table) {
-			t.Errorf("expected table %s to exist after toV7", table)
-		}
-	}
-}
-
-func TestToV7_SeedsDefaultFacets(t *testing.T) {
-	database := openMemDB(t)
-	defer database.Close()
-	upToV6(t, database)
-
-	if err := toV7(database); err != nil {
-		t.Fatalf("toV7: %v", err)
-	}
-
-	for _, want := range []string{"motivation", "description", "history"} {
-		var count int
-		if err := database.QueryRow(`SELECT COUNT(*) FROM facets WHERE name = ?`, want).Scan(&count); err != nil {
-			t.Fatal(err)
-		}
-		if count != 1 {
-			t.Errorf("expected default facet %q to be seeded, got count=%d", want, count)
-		}
-	}
-}
-
-func TestToV7_SeedsFacetsFromQuickViewTemplates(t *testing.T) {
-	database := openMemDB(t)
-	defer database.Close()
-	upToV6(t, database)
-
-	if _, err := database.Exec(
-		`INSERT INTO quick_view_templates (category, fields) VALUES ('Ancient Ruins', '[]')`,
-	); err != nil {
-		t.Fatalf("seed quick_view_templates: %v", err)
-	}
-
-	if err := toV7(database); err != nil {
-		t.Fatalf("toV7: %v", err)
-	}
-
-	var count int
-	if err := database.QueryRow(`SELECT COUNT(*) FROM facets WHERE name = ?`, "ancient-ruins").Scan(&count); err != nil {
-		t.Fatal(err)
-	}
-	if count != 1 {
-		t.Errorf("expected quick_view_templates category to be seeded as kebab-case facet 'ancient-ruins', got count=%d", count)
-	}
-}
-
-func TestToV7_RejectsNonKebabCaseFacetName(t *testing.T) {
-	database := openMemDB(t)
-	defer database.Close()
-	upToV6(t, database)
-
-	if err := toV7(database); err != nil {
-		t.Fatalf("toV7: %v", err)
-	}
-
-	if _, err := database.Exec(`INSERT INTO facets (name) VALUES (?)`, "Not Kebab Case"); err == nil {
-		t.Error("expected inserting a non-kebab-case facet name to fail the CHECK constraint, but it succeeded")
-	}
-}
-
-func TestToV7_Idempotent(t *testing.T) {
-	database := openMemDB(t)
-	defer database.Close()
-	upToV6(t, database)
-
-	if err := toV7(database); err != nil {
-		t.Fatalf("first toV7: %v", err)
-	}
-	if err := toV7(database); err != nil {
-		t.Fatalf("second toV7 (idempotency): %v", err)
-	}
-
-	var count int
-	if err := database.QueryRow(`SELECT COUNT(*) FROM facets WHERE name = 'motivation'`).Scan(&count); err != nil {
-		t.Fatal(err)
-	}
-	if count != 1 {
-		t.Errorf("expected re-running toV7 not to duplicate seeded facets, got count=%d", count)
-	}
-}
-
-func TestOpen_FreshDatabase_MigratesToV8(t *testing.T) {
+func TestOpen_ProjectMembersHasUsernameColumn(t *testing.T) {
 	database, err := Open(":memory:")
 	if err != nil {
 		t.Fatalf("Open() failed: %v", err)
 	}
 	defer database.Close()
 
-	var version int
-	if err := database.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil {
-		t.Fatal(err)
-	}
-	if version != 8 {
-		t.Errorf("expected fresh Open() to migrate to user_version=8, got %d", version)
-	}
-	if err := checkForeignKeys(database); err != nil {
-		t.Errorf("checkForeignKeys after fresh Open(): %v", err)
-	}
-}
-
-func TestToV8_DropsLegacyEntryDomainTables(t *testing.T) {
-	database := openMemDB(t)
-	defer database.Close()
-	upToV7(t, database)
-
-	now := time.Now().Unix()
-	// Minimal cross-linked fixture so DROP has something real to remove and
-	// chat_messages has a live entry_id to prove the FK rework doesn't lose data.
-	mustExec(t, database, `INSERT INTO projects VALUES ('proj-1','Test','campaign','user1',?)`, now)
-	mustExec(t, database, `INSERT INTO entries (id,title,category,body,created_at,updated_at) VALUES ('e1','Mary','Lore','body',?,?)`, now, now)
-	mustExec(t, database, `INSERT INTO annotations (id,entry_id,text,created_at,updated_at) VALUES ('a1','e1','secret',?,?)`, now, now)
-	mustExec(t, database, `INSERT INTO game_sessions (id,project_id,status,started_by,started_at) VALUES ('gs1','proj-1','running','user1',?)`, now)
-	mustExec(t, database, `INSERT INTO chat_messages (id,session_id,project_id,sender_id,type,body,entry_id,card_title,card_body,created_at) VALUES ('m1','gs1','proj-1','user1','note_card','','e1','Mary','snapshot',?)`, now)
-
-	if err := toV8(database); err != nil {
-		t.Fatalf("toV8: %v", err)
-	}
-
-	dropped := []string{
-		"entries", "annotations", "quick_view_templates", "categories",
-		"category_default_tags", "project_global_categories", "entry_relations",
-		"member_folders", "member_folder_entries", "member_entry_meta",
-		"entry_shares", "campaigns", "players", "player_notes",
-		"facets", "project_facets", "entry_links",
-	}
-	for _, table := range dropped {
-		if tableExists(t, database, table) {
-			t.Errorf("expected table %q to be dropped by toV8", table)
-		}
-	}
-
-	if !tableExists(t, database, "chat_messages") {
-		t.Fatal("chat_messages must survive toV8")
-	}
-	var cardTitle, entryID string
-	if err := database.QueryRow(`SELECT card_title, entry_id FROM chat_messages WHERE id = 'm1'`).Scan(&cardTitle, &entryID); err != nil {
-		t.Fatalf("chat_messages row lost during toV8: %v", err)
-	}
-	if cardTitle != "Mary" || entryID != "e1" {
-		t.Errorf("chat_messages data corrupted: card_title=%q entry_id=%q", cardTitle, entryID)
-	}
-
-	if err := checkForeignKeys(database); err != nil {
-		t.Errorf("checkForeignKeys after toV8: %v", err)
-	}
-
-	var version int
-	if err := database.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil {
-		t.Fatal(err)
-	}
-	if version != 8 {
-		t.Errorf("expected user_version=8, got %d", version)
-	}
-}
-
-func TestToV8_Idempotent(t *testing.T) {
-	database := openMemDB(t)
-	defer database.Close()
-	upToV7(t, database)
-
-	if err := toV8(database); err != nil {
-		t.Fatalf("first toV8: %v", err)
-	}
-	if err := toV8(database); err != nil {
-		t.Fatalf("second toV8 (idempotency): %v", err)
-	}
-}
-
-func TestOpenLegacy_MigratesToV7Only(t *testing.T) {
-	database, err := OpenLegacy(":memory:")
-	if err != nil {
-		t.Fatalf("OpenLegacy() failed: %v", err)
-	}
-	defer database.Close()
-
-	var version int
-	if err := database.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil {
-		t.Fatal(err)
-	}
-	if version != 7 {
-		t.Errorf("expected OpenLegacy() to stop at user_version=7, got %d", version)
-	}
-
-	for _, table := range []string{"entries", "annotations", "categories"} {
-		if !tableExists(t, database, table) {
-			t.Errorf("expected table %q to still exist after OpenLegacy() (must not reach v8)", table)
-		}
-	}
-
-	if err := checkForeignKeys(database); err != nil {
-		t.Errorf("checkForeignKeys after OpenLegacy(): %v", err)
-	}
-}
-
-func TestOpen_StillReachesV8(t *testing.T) {
-	database, err := Open(":memory:")
-	if err != nil {
-		t.Fatalf("Open() failed: %v", err)
-	}
-	defer database.Close()
-
-	var version int
-	if err := database.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil {
-		t.Fatal(err)
-	}
-	if version != 8 {
-		t.Errorf("expected Open() to still reach user_version=8, got %d — this test guards against the OpenLegacy refactor accidentally capping Open() too", version)
+	if !hasColumn(t, database, "project_members", "username") {
+		t.Error("expected project_members.username to exist")
 	}
 }
