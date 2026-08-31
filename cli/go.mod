@@ -1,6 +1,6 @@
 module github.com/quillit/cli
 
-go 1.26.3
+go 1.27.0
 
 require (
 	github.com/quillit/contentengine v0.0.0

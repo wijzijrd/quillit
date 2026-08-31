@@ -29,18 +29,12 @@ jobs:
         if: inputs.service != 'ui'
         uses: actions/setup-go@v7
         with:
-          go-version: "1.26"
+          go-version: "1.27"
 
-      # GOWORK=off: the repo-root go.work workspace (cli/ + pkg/contentengine/)
-      # gets auto-detected by directory-walk from anywhere in this repo, but
-      # the app services aren't workspace members — left on, `go test ./...`
-      # here fails with "directory prefix . does not contain modules listed
-      # in go.work".
+      # All app/* services are workspace members (go.work), so no GOWORK=off needed.
       - name: Test (go test ./...)
         if: inputs.service != 'ui'
         working-directory: app/${{ inputs.service }}
-        env:
-          GOWORK: "off"
         run: go test ./...
 
       - name: Set up Node

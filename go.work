@@ -2,10 +2,12 @@
 // run ("may only be set to readonly or vendor when in workspace mode").
 // Override per-command: GOFLAGS=-mod=readonly go build ./...
 
-go 1.26.3
+go 1.27.0
 
 use (
+	./app/auth
 	./app/content
+	./app/messaging
 	./app/svc
 	./cli
 	./pkg/contentengine

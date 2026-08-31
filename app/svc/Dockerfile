@@ -7,7 +7,7 @@
 # below are therefore relative to the repo root, and the module is placed
 # at /src/app/svc so the go.mod replace path (../../pkg/contentengine)
 # resolves to /src/pkg/contentengine inside the image.
-FROM golang:1.26-alpine AS build
+FROM golang:1.27-alpine AS build
 WORKDIR /src/app/svc
 COPY app/svc/go.mod app/svc/go.sum ./
 COPY pkg/contentengine /src/pkg/contentengine
