@@ -18,19 +18,21 @@ import (
 	"github.com/quillit/contentengine/parse"
 
 	"github.com/quillit/content-svc/internal/authz"
+	"github.com/quillit/content-svc/internal/db/sqlc"
 )
 
 const maxImportBody = 50 << 20 // spec §2
 
 type ImportHandler struct {
 	db        *sql.DB
+	q         *sqlc.Queries
 	jwtSecret []byte
 	blobs     BlobStore
 	checker   authz.Checker
 }
 
 func NewImport(db *sql.DB, jwtSecret string, blobs BlobStore, checker authz.Checker) *ImportHandler {
-	return &ImportHandler{db: db, jwtSecret: []byte(jwtSecret), blobs: blobs, checker: checker}
+	return &ImportHandler{db: db, q: sqlc.New(db), jwtSecret: []byte(jwtSecret), blobs: blobs, checker: checker}
 }
 
 type ImportReportRow struct {
@@ -163,7 +165,7 @@ func (h *ImportHandler) ImportProject(w http.ResponseWriter, r *http.Request) {
 		parsedItems[i] = parsed
 	}
 
-	vocab, sorted, err := effectiveFacetVocabulary(r.Context(), h.db, projectID)
+	vocab, sorted, err := effectiveFacetVocabulary(r.Context(), h.q, projectID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "db error")
 		return
@@ -231,6 +233,7 @@ func (h *ImportHandler) ImportProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer tx.Rollback()
+	qtx := h.q.WithTx(tx)
 
 	resp := ImportResponse{Report: []ImportReportRow{}, Facets: ImportFacetsReport{Created: []string{}}, Images: []ImportImageRow{}}
 
@@ -241,8 +244,9 @@ func (h *ImportHandler) ImportProject(w http.ResponseWriter, r *http.Request) {
 			// project_facets' CHECK, and effectiveFacetVocabulary already
 			// established it isn't present yet — a real failure here is a
 			// genuine db error, not a constraint violation to shrug off.
-			if _, err := tx.ExecContext(r.Context(),
-				`INSERT INTO project_facets (project_id, name) VALUES (?, ?)`, projectID, f); err != nil {
+			if err := qtx.InsertProjectFacetNew(r.Context(), sqlc.InsertProjectFacetNewParams{
+				ProjectID: projectID, Name: f,
+			}); err != nil {
 				writeError(w, http.StatusInternalServerError, "db error")
 				return
 			}
@@ -291,10 +295,9 @@ func (h *ImportHandler) ImportProject(w http.ResponseWriter, r *http.Request) {
 		p := entryPathOf(item.DirectoryPath, item.Slug)
 		slug := item.Slug
 
-		var existingID string
-		err := tx.QueryRowContext(r.Context(),
-			`SELECT id FROM entries WHERE project_id = ? AND directory_path = ? AND slug = ?`,
-			projectID, item.DirectoryPath, slug).Scan(&existingID)
+		existingID, err := qtx.FindEntryAtPathForImport(r.Context(), sqlc.FindEntryAtPathForImportParams{
+			ProjectID: projectID, DirectoryPath: item.DirectoryPath, Slug: slug,
+		})
 		if err != nil && err != sql.ErrNoRows {
 			writeError(w, http.StatusInternalServerError, "db error")
 			return
@@ -318,10 +321,9 @@ func (h *ImportHandler) ImportProject(w http.ResponseWriter, r *http.Request) {
 				if claimedSlugs[claimKey(item.DirectoryPath, candidate)] {
 					continue
 				}
-				var one int
-				err := tx.QueryRowContext(r.Context(),
-					`SELECT 1 FROM entries WHERE project_id = ? AND directory_path = ? AND slug = ?`,
-					projectID, item.DirectoryPath, candidate).Scan(&one)
+				_, err := qtx.CheckEntrySlugAtPath(r.Context(), sqlc.CheckEntrySlugAtPathParams{
+					ProjectID: projectID, DirectoryPath: item.DirectoryPath, Slug: candidate,
+				})
 				if err == sql.ErrNoRows {
 					slug = candidate
 					claimedSlugs[claimKey(item.DirectoryPath, candidate)] = true
@@ -346,18 +348,19 @@ func (h *ImportHandler) ImportProject(w http.ResponseWriter, r *http.Request) {
 		var id string
 		if action == "overwrite" {
 			id = existingID
-			if _, err := tx.ExecContext(r.Context(),
-				`UPDATE entries SET title = ?, tags = ?, updated_at = ?, body_hash = ? WHERE id = ?`,
-				title, tagsJSON, now, hash, id); err != nil {
+			if err := qtx.UpdateEntryOverwrite(r.Context(), sqlc.UpdateEntryOverwriteParams{
+				Title: title, Tags: tagsJSON, UpdatedAt: now, BodyHash: nullString(hash), ID: id,
+			}); err != nil {
 				writeError(w, http.StatusInternalServerError, "db error")
 				return
 			}
 		} else {
 			id = newID()
-			if _, err := tx.ExecContext(r.Context(), `
-				INSERT INTO entries (id, project_id, slug, directory_path, title, tags, owner_user_id, created_at, updated_at, body_hash)
-				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-			`, id, projectID, slug, item.DirectoryPath, title, tagsJSON, nullStr(ownerID), now, now, hash); err != nil {
+			if err := qtx.InsertImportedEntry(r.Context(), sqlc.InsertImportedEntryParams{
+				ID: id, ProjectID: projectID, Slug: slug, DirectoryPath: item.DirectoryPath,
+				Title: title, Tags: tagsJSON, OwnerUserID: nullString(ownerID),
+				CreatedAt: now, UpdatedAt: now, BodyHash: nullString(hash),
+			}); err != nil {
 				writeError(w, http.StatusInternalServerError, "db error")
 				return
 			}
@@ -397,14 +400,14 @@ func (h *ImportHandler) ImportProject(w http.ResponseWriter, r *http.Request) {
 	// ── Second pass: every imported entry's links compile AFTER all rows
 	// exist, so in-batch wikilinks resolve to real ids (spec §4.5, AC 4).
 	for _, a := range appliedEntries {
-		if err := recompileLinks(r.Context(), tx, a.id, projectID, a.parsed); err != nil {
+		if err := recompileLinks(r.Context(), qtx, a.id, projectID, a.parsed); err != nil {
 			writeError(w, http.StatusInternalServerError, "db error")
 			return
 		}
 	}
 
 	// Pre-existing dangling links whose target now exists get re-resolved.
-	if err := reresolveDanglingLinks(r.Context(), tx, projectID); err != nil {
+	if err := reresolveDanglingLinks(r.Context(), tx, qtx, projectID); err != nil {
 		writeError(w, http.StatusInternalServerError, "db error")
 		return
 	}
@@ -442,7 +445,20 @@ func (h *ImportHandler) ImportProject(w http.ResponseWriter, r *http.Request) {
 
 // reresolveDanglingLinks re-resolves unresolved entry_links in projectID —
 // after an import, targets that were dangling may now exist (spec §4.5).
-func reresolveDanglingLinks(ctx context.Context, tx *sql.Tx, projectID string) error {
+//
+// The rowid-keyed listing/update below stays on raw *sql.Tx rather than
+// sqlc: sqlc v1.31.1's SQLite catalog doesn't recognize SQLite's implicit
+// "rowid" pseudo-column (it's not a declared column in any CREATE TABLE, so
+// it isn't in sqlc's schema catalog at all — confirmed by running `sqlc
+// generate` directly against a rowid-selecting query: "column \"rowid\" does
+// not exist"), the same category of sqlc-unsupported-construct exception
+// Task 6 documented for auth's ListUsers. entry_links has no other stable
+// per-row identifier to key this update on (no primary key column), so
+// rowid stays necessary here. The per-link path resolution itself
+// (resolveEntryPath) *is* sqlc-expressible and goes through q, the
+// transaction-scoped *sqlc.Queries — only the rowid-dependent read/write
+// pair stays raw.
+func reresolveDanglingLinks(ctx context.Context, tx *sql.Tx, q *sqlc.Queries, projectID string) error {
 	rows, err := tx.QueryContext(ctx, `
 		SELECT el.rowid, el.target_path FROM entry_links el
 		JOIN entries e ON e.id = el.entry_id
@@ -466,7 +482,7 @@ func reresolveDanglingLinks(ctx context.Context, tx *sql.Tx, projectID string) e
 	}
 	rows.Close()
 	for _, d := range links {
-		id, resolved, err := resolveEntryPath(ctx, tx, projectID, d.path)
+		id, resolved, err := resolveEntryPath(ctx, q, projectID, d.path)
 		if err != nil {
 			return err
 		}

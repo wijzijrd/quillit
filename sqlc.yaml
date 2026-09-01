@@ -16,3 +16,11 @@ sql:
         package: "sqlc"
         out: "app/auth/internal/db/sqlc"
         emit_json_tags: true
+  - schema: "app/content/internal/db/migrations"
+    queries: "app/content/internal/db/queries"
+    engine: "sqlite"
+    gen:
+      go:
+        package: "sqlc"
+        out: "app/content/internal/db/sqlc"
+        emit_json_tags: true

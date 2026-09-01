@@ -12,6 +12,7 @@ import (
 	"github.com/quillit/contentengine/filter"
 
 	"github.com/quillit/content-svc/internal/authz"
+	"github.com/quillit/content-svc/internal/db/sqlc"
 )
 
 // ExportHandler serves docs/cli-spec.md §7 "export" over HTTP: one entry
@@ -26,14 +27,14 @@ import (
 // always calls render.Render with resolver=nil and a label-only
 // LinkRenderer, regardless of which view produced the entry.
 type ExportHandler struct {
-	db        *sql.DB
+	q         *sqlc.Queries
 	blobs     BlobStore
 	jwtSecret []byte
 	checker   authz.Checker
 }
 
 func NewExport(db *sql.DB, blobs BlobStore, jwtSecret string, checker authz.Checker) *ExportHandler {
-	return &ExportHandler{db: db, blobs: blobs, jwtSecret: []byte(jwtSecret), checker: checker}
+	return &ExportHandler{q: sqlc.New(db), blobs: blobs, jwtSecret: []byte(jwtSecret), checker: checker}
 }
 
 // Export godoc
@@ -52,7 +53,7 @@ func NewExport(db *sql.DB, blobs BlobStore, jwtSecret string, checker authz.Chec
 // @Router       /content/entries/{id}/export [get]
 func (h *ExportHandler) Export(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
-	projectID, err := projectIDForEntry(r.Context(), h.db, id)
+	projectID, err := projectIDForEntry(r.Context(), h.q, id)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "not found")
 		return
@@ -104,10 +105,11 @@ func (h *ExportHandler) Export(w http.ResponseWriter, r *http.Request) {
 func (h *ExportHandler) resolveExportEntries(r *http.Request) (EntryMeta, []*filter.FilteredEntry, *entryFilterError) {
 	id := chi.URLParam(r, "id")
 
-	m, err := scanEntryMeta(h.db.QueryRowContext(r.Context(), entryMetaSelect+" WHERE id = ?", id))
+	row, err := h.q.GetEntryMeta(r.Context(), id)
 	if err != nil {
 		return EntryMeta{}, nil, &entryFilterError{status: http.StatusNotFound, msg: "not found"}
 	}
+	m := toEntryMeta(row.ID, row.ProjectID, row.Slug, row.DirectoryPath, row.Title, row.Tags, row.OwnerUserID, row.CreatedAt, row.UpdatedAt, row.BodyHash, row.OrphanedAt)
 	if h.blobs == nil {
 		return m, nil, &entryFilterError{status: http.StatusServiceUnavailable, msg: "blob storage not configured"}
 	}
@@ -117,7 +119,7 @@ func (h *ExportHandler) resolveExportEntries(r *http.Request) (EntryMeta, []*fil
 		return m, nil, &entryFilterError{status: http.StatusBadRequest, msg: "view and card are mutually exclusive"}
 	}
 
-	_, vocab, err := effectiveFacetVocabulary(r.Context(), h.db, m.ProjectID)
+	_, vocab, err := effectiveFacetVocabulary(r.Context(), h.q, m.ProjectID)
 	if err != nil {
 		return m, nil, &entryFilterError{status: http.StatusInternalServerError, msg: "db error"}
 	}
@@ -134,10 +136,11 @@ func (h *ExportHandler) resolveExportEntries(r *http.Request) (EntryMeta, []*fil
 	}
 
 	for _, withID := range splitCommaList(withParam) {
-		wm, err := scanEntryMeta(h.db.QueryRowContext(r.Context(), entryMetaSelect+" WHERE id = ?", withID))
+		wrow, err := h.q.GetEntryMeta(r.Context(), withID)
 		if err != nil {
 			return m, nil, &entryFilterError{status: http.StatusNotFound, msg: fmt.Sprintf("bundled entry %s not found", withID)}
 		}
+		wm := toEntryMeta(wrow.ID, wrow.ProjectID, wrow.Slug, wrow.DirectoryPath, wrow.Title, wrow.Tags, wrow.OwnerUserID, wrow.CreatedAt, wrow.UpdatedAt, wrow.BodyHash, wrow.OrphanedAt)
 		filtered, ferr := loadAndFilterEntry(r.Context(), h.blobs, wm, view, vocab)
 		if ferr != nil {
 			return m, nil, &entryFilterError{status: ferr.status, unknownFacet: ferr.unknownFacet, msg: fmt.Sprintf("bundled entry %s: %s", withID, ferr.msg)}

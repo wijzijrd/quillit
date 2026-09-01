@@ -5,6 +5,8 @@ import (
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
+
+	"github.com/quillit/content-svc/internal/db/sqlc"
 )
 
 // InternalHandler serves routes reached only by other trusted services on
@@ -23,10 +25,11 @@ import (
 // relies on that boundary alone, same as every content route did before #44.
 type InternalHandler struct {
 	db *sql.DB
+	q  *sqlc.Queries
 }
 
 func NewInternal(db *sql.DB) *InternalHandler {
-	return &InternalHandler{db: db}
+	return &InternalHandler{db: db, q: sqlc.New(db)}
 }
 
 // projectDeletedResponse reports how many entries this call orphaned —
@@ -51,14 +54,14 @@ func (h *InternalHandler) ProjectDeleted(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	res, err := h.db.ExecContext(r.Context(), `
-		UPDATE entries SET orphaned_at = ? WHERE project_id = ? AND orphaned_at IS NULL
-	`, nowUnix(), projectID)
+	n, err := h.q.OrphanProjectEntries(r.Context(), sqlc.OrphanProjectEntriesParams{
+		OrphanedAt: sql.NullInt64{Int64: nowUnix(), Valid: true},
+		ProjectID:  projectID,
+	})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "db error")
 		return
 	}
-	n, _ := res.RowsAffected()
 
 	writeJSON(w, http.StatusOK, projectDeletedResponse{
 		ProjectID:       projectID,
