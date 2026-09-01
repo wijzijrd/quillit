@@ -10,5 +10,6 @@ use (
 	./app/messaging
 	./app/svc
 	./cli
+	./gen
 	./pkg/contentengine
 )

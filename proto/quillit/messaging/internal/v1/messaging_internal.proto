@@ -1,0 +1,32 @@
+syntax = "proto3";
+
+// MessagingInternalService is messaging's server-to-server surface,
+// reached only by other trusted services on the compose network. It is
+// the connectrpc replacement for messaging's existing HTTP route POST
+// /send (app/messaging/internal/handler/send.go's Send), which today
+// authenticates callers via a shared secret in the X-Messaging-Secret
+// header rather than a per-user identity check. The connectrpc version
+// carries the same shared-secret authentication, but via the
+// X-Internal-Secret header and gen/internalauth's interceptor rather than
+// a handler-local check.
+package quillit.messaging.internal.v1;
+
+option go_package = "github.com/quillit/gen/quillit/messaging/internal/v1;messagingv1";
+
+// MessagingInternalService is served by messaging and called by svc/auth.
+service MessagingInternalService {
+  rpc SendEmail(SendEmailRequest) returns (SendEmailResponse);
+}
+
+// SendEmailRequest mirrors send.go's SendRequest.
+message SendEmailRequest {
+  string to = 1;
+  string subject = 2;
+  string text = 3;
+  string html = 4;
+}
+
+// SendEmailResponse mirrors send.go's OkResponse.
+message SendEmailResponse {
+  bool ok = 1;
+}

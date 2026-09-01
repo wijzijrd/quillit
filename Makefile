@@ -1,4 +1,4 @@
-.PHONY: up down logs ps setup sqlc help
+.PHONY: up down logs ps setup sqlc proto help
 
 COMPOSE ?= docker compose -f infra/docker-compose.yml --project-directory .
 
@@ -24,6 +24,9 @@ setup:          ## Create .env from .env.example if missing; warn on placeholder
 
 sqlc:           ## Regenerate sqlc code from sqlc.yaml (svc, auth, content queries)
 	go run github.com/sqlc-dev/sqlc/cmd/sqlc@v1.31.1 generate
+
+proto:          ## Regenerate Go/connect-go stubs under gen/ from proto/*.proto
+	cd proto && go run github.com/bufbuild/buf/cmd/buf@v1.72.0 generate
 
 help:           ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*##' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*##"}; {printf "  \033[36m%-8s\033[0m %s\n", $$1, $$2}'

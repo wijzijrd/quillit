@@ -87,4 +87,9 @@ require (
 
 replace github.com/quillit/contentengine => ../../pkg/contentengine
 
+// Same story as contentengine above: the connectrpc scaffolding module
+// from Task 8, resolved locally via go.work. Nothing in content imports it
+// yet (Tasks 9-10 wire in the generated clients/servers).
+replace github.com/quillit/gen => ../../gen
+
 tool github.com/pressly/goose/v3/cmd/goose

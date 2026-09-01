@@ -84,4 +84,10 @@ require (
 	modernc.org/memory v1.11.0 // indirect
 )
 
+// The connectrpc scaffolding module from Task 8, resolved locally via the
+// repo-root go.work workspace (see that file's comment), same pattern as
+// svc/content's contentengine replace. Nothing in auth imports it yet
+// (Tasks 9-10 wire in the generated clients/servers).
+replace github.com/quillit/gen => ../../gen
+
 tool github.com/pressly/goose/v3/cmd/goose
