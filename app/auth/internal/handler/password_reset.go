@@ -1,7 +1,6 @@
 package handler
 
 import (
-	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
@@ -74,14 +73,14 @@ func (a *Auth) ForgotPassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if a.messagingServiceURL == "" || a.appBaseURL == "" {
+	if a.messaging == nil || a.appBaseURL == "" {
 		log.Printf("forgot-password: messaging not configured, skipping send for user %s", userID)
 		ok()
 		return
 	}
 
 	link := fmt.Sprintf("%s/reset-password?token=%s", a.appBaseURL, tokenHex)
-	if err := a.sendResetEmail(body.Email, link); err != nil {
+	if err := a.sendResetEmail(r.Context(), body.Email, link); err != nil {
 		log.Printf("forgot-password: send error: %v", err)
 	}
 	ok()
@@ -114,28 +113,11 @@ func (a *Auth) storeResetToken(ctx context.Context, userID, tokenHash string, no
 	return tx.Commit()
 }
 
-func (a *Auth) sendResetEmail(to, link string) error {
-	payload, _ := json.Marshal(map[string]string{
-		"to":      to,
-		"subject": "Reset your Quillit password",
-		"text":    fmt.Sprintf("Reset your password: %s\n\nThis link expires in 1 hour.", link),
-		"html":    fmt.Sprintf(`<p>Reset your password: <a href="%s">%s</a></p><p>This link expires in 1 hour.</p>`, link, link),
-	})
-	req, err := http.NewRequest(http.MethodPost, a.messagingServiceURL+"/send", bytes.NewReader(payload))
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Messaging-Secret", a.messagingSecret)
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("messaging-svc returned %d", resp.StatusCode)
-	}
-	return nil
+func (a *Auth) sendResetEmail(ctx context.Context, to, link string) error {
+	subject := "Reset your Quillit password"
+	text := fmt.Sprintf("Reset your password: %s\n\nThis link expires in 1 hour.", link)
+	html := fmt.Sprintf(`<p>Reset your password: <a href="%s">%s</a></p><p>This link expires in 1 hour.</p>`, link, link)
+	return a.messaging.SendEmail(ctx, to, subject, text, html)
 }
 
 type ResetPasswordRequest struct {

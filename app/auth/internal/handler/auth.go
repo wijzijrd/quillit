@@ -18,21 +18,25 @@ import (
 	sqlite3 "modernc.org/sqlite/lib"
 
 	"github.com/quillit/auth-svc/internal/db/sqlc"
+	"github.com/quillit/auth-svc/internal/messagingclient"
 )
 
 type Auth struct {
-	db                  *sql.DB
-	q                   *sqlc.Queries
-	jwtSecret           []byte
-	messagingServiceURL string
-	messagingSecret     string
-	appBaseURL          string
+	db         *sql.DB
+	q          *sqlc.Queries
+	jwtSecret  []byte
+	messaging  *messagingclient.Client
+	appBaseURL string
 }
 
-func NewAuth(db *sql.DB, jwtSecret, messagingServiceURL, messagingSecret, appBaseURL string) *Auth {
+// NewAuth builds an Auth handler. messaging may be nil, in which case
+// password-reset emails are skipped rather than attempted (see
+// ForgotPassword) — the same "messaging not configured" degrade-gracefully
+// behavior the old messagingServiceURL == "" check provided.
+func NewAuth(db *sql.DB, jwtSecret string, messaging *messagingclient.Client, appBaseURL string) *Auth {
 	return &Auth{
 		db: db, q: sqlc.New(db), jwtSecret: []byte(jwtSecret),
-		messagingServiceURL: messagingServiceURL, messagingSecret: messagingSecret, appBaseURL: appBaseURL,
+		messaging: messaging, appBaseURL: appBaseURL,
 	}
 }
 

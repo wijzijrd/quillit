@@ -2,6 +2,7 @@ package handler_test
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
@@ -15,18 +16,35 @@ import (
 
 	"golang.org/x/crypto/bcrypt"
 
+	"connectrpc.com/connect"
+
+	v1 "github.com/quillit/gen/quillit/messaging/v1"
+	"github.com/quillit/gen/quillit/messaging/v1/messagingv1connect"
+
 	"github.com/quillit/auth-svc/internal/db"
 	"github.com/quillit/auth-svc/internal/handler"
+	"github.com/quillit/auth-svc/internal/messagingclient"
 )
 
-// sentEmail mirrors messaging-svc's SendRequest body shape
-// (auth/../messaging/internal/handler/send.go), which is what the fake
-// server below decodes incoming requests into.
+// sentEmail mirrors messaging's SendEmailRequest shape
+// (gen/quillit/messaging/v1), which is what the fake connect server below
+// decodes incoming requests into.
 type sentEmail struct {
-	To      string `json:"to"`
-	Subject string `json:"subject"`
-	Text    string `json:"text"`
-	HTML    string `json:"html"`
+	To      string
+	Subject string
+	Text    string
+	HTML    string
+}
+
+// stubMessagingInternal is a minimal
+// messagingv1connect.MessagingInternalServiceHandler backed by a plain func
+// field, so newMessagingFake below can record every request it receives.
+type stubMessagingInternal struct {
+	sendEmail func(context.Context, *connect.Request[v1.SendEmailRequest]) (*connect.Response[v1.SendEmailResponse], error)
+}
+
+func (s stubMessagingInternal) SendEmail(ctx context.Context, req *connect.Request[v1.SendEmailRequest]) (*connect.Response[v1.SendEmailResponse], error) {
+	return s.sendEmail(ctx, req)
 }
 
 // newTestDB opens a fresh in-memory database for a single test, mirroring
@@ -41,25 +59,34 @@ func newTestDB(t *testing.T) *sql.DB {
 	return database
 }
 
-// newMessagingFake stands in for messaging-svc: a real httptest.NewServer
-// that records every request it receives into *received, decoded as an
-// email send. This is the established pattern for faking cross-service HTTP
-// calls in this codebase, as opposed to the Sender-interface fake used
-// inside messaging/ itself (that exception exists because SMTP has no
-// httptest-server equivalent; an HTTP call to another Go service does).
-func newMessagingFake(t *testing.T) (*httptest.Server, *[]sentEmail) {
+// newMessagingFake stands in for messaging-svc's MessagingInternalService: a
+// real httptest.NewServer speaking the connect protocol (via the generated
+// messagingv1connect handler), recording every request it receives into
+// *received. Returns a ready-to-use messagingclient.Client pointed at it —
+// this is the established pattern for faking cross-service connectrpc calls
+// in this codebase (see app/svc/internal/contentclient/contentclient_test.go),
+// as opposed to the Sender-interface fake used inside messaging/ itself
+// (that exception exists because SMTP has no httptest-server equivalent; a
+// connectrpc call to another Go service does).
+func newMessagingFake(t *testing.T) (*messagingclient.Client, *[]sentEmail) {
 	t.Helper()
 	received := &[]sentEmail{}
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var body sentEmail
-		_ = json.NewDecoder(r.Body).Decode(&body)
-		*received = append(*received, body)
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		_ = json.NewEncoder(w).Encode(map[string]bool{"ok": true})
-	}))
+	path, h := messagingv1connect.NewMessagingInternalServiceHandler(stubMessagingInternal{
+		sendEmail: func(_ context.Context, req *connect.Request[v1.SendEmailRequest]) (*connect.Response[v1.SendEmailResponse], error) {
+			*received = append(*received, sentEmail{
+				To:      req.Msg.GetTo(),
+				Subject: req.Msg.GetSubject(),
+				Text:    req.Msg.GetText(),
+				HTML:    req.Msg.GetHtml(),
+			})
+			return connect.NewResponse(&v1.SendEmailResponse{Ok: true}), nil
+		},
+	})
+	mux := http.NewServeMux()
+	mux.Handle(path, h)
+	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
-	return srv, received
+	return messagingclient.NewClient(srv.URL, "test-secret", nil), received
 }
 
 var seedUserCounter int
@@ -135,8 +162,8 @@ func TestForgotPassword(t *testing.T) {
 	// Case 1.
 	t.Run("existing user creates a token and sends the reset email", func(t *testing.T) {
 		database := newTestDB(t)
-		messagingSrv, received := newMessagingFake(t)
-		auth := handler.NewAuth(database, "test-secret", messagingSrv.URL, "test-messaging-secret", "http://localhost:5173")
+		messaging, received := newMessagingFake(t)
+		auth := handler.NewAuth(database, "test-secret", messaging, "http://localhost:5173")
 
 		userID := seedUser(t, database, "reset-me@example.com")
 
@@ -211,8 +238,8 @@ func TestForgotPassword(t *testing.T) {
 	// Case 2.
 	t.Run("second call for the same user replaces the prior unused token", func(t *testing.T) {
 		database := newTestDB(t)
-		messagingSrv, _ := newMessagingFake(t)
-		auth := handler.NewAuth(database, "test-secret", messagingSrv.URL, "test-messaging-secret", "http://localhost:5173")
+		messaging, _ := newMessagingFake(t)
+		auth := handler.NewAuth(database, "test-secret", messaging, "http://localhost:5173")
 
 		userID := seedUser(t, database, "twice@example.com")
 
@@ -258,8 +285,8 @@ func TestForgotPassword(t *testing.T) {
 			t.Fatal("successBody was not captured by the 'existing user' subtest; subtests must run in order")
 		}
 		database := newTestDB(t)
-		messagingSrv, received := newMessagingFake(t)
-		auth := handler.NewAuth(database, "test-secret", messagingSrv.URL, "test-messaging-secret", "http://localhost:5173")
+		messaging, received := newMessagingFake(t)
+		auth := handler.NewAuth(database, "test-secret", messaging, "http://localhost:5173")
 
 		rec := doForgotPassword(auth, "nobody-here@example.com")
 		if rec.Code != http.StatusOK {
@@ -284,8 +311,8 @@ func TestForgotPassword(t *testing.T) {
 	// Case 4.
 	t.Run("malformed body returns 400", func(t *testing.T) {
 		database := newTestDB(t)
-		messagingSrv, _ := newMessagingFake(t)
-		auth := handler.NewAuth(database, "test-secret", messagingSrv.URL, "test-messaging-secret", "http://localhost:5173")
+		messaging, _ := newMessagingFake(t)
+		auth := handler.NewAuth(database, "test-secret", messaging, "http://localhost:5173")
 
 		t.Run("missing email field", func(t *testing.T) {
 			req := httptest.NewRequest(http.MethodPost, "/auth/forgot-password", strings.NewReader(`{}`))
@@ -320,7 +347,8 @@ func TestForgotPassword(t *testing.T) {
 		deadURL := deadSrv.URL
 		deadSrv.Close()
 
-		auth := handler.NewAuth(database, "test-secret", deadURL, "test-messaging-secret", "http://localhost:5173")
+		messaging := messagingclient.NewClient(deadURL, "test-secret", nil)
+		auth := handler.NewAuth(database, "test-secret", messaging, "http://localhost:5173")
 		seedUser(t, database, "unreachable@example.com")
 
 		rec := doForgotPassword(auth, "unreachable@example.com")
@@ -335,18 +363,19 @@ func TestForgotPassword(t *testing.T) {
 	// Case 6.
 	t.Run("empty messaging config degrades gracefully", func(t *testing.T) {
 		database := newTestDB(t)
-		auth := handler.NewAuth(database, "test-secret", "", "", "")
+		auth := handler.NewAuth(database, "test-secret", nil, "")
 		seedUser(t, database, "no-config@example.com")
 
 		rec := doForgotPassword(auth, "no-config@example.com")
 		if rec.Code != http.StatusOK {
 			t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
 		}
-		// No messaging fake exists in this subtest at all, and messagingServiceURL
-		// is "". Reaching this point without panicking (Recoverer middleware isn't
-		// in play here, since we call the handler method directly) is itself part
-		// of the assertion: an empty URL must be treated as "messaging not
-		// configured, skip the call" rather than attempted as a real request.
+		// No messaging fake exists in this subtest at all, and the messaging
+		// client is nil. Reaching this point without panicking (Recoverer
+		// middleware isn't in play here, since we call the handler method
+		// directly) is itself part of the assertion: a nil client must be
+		// treated as "messaging not configured, skip the call" rather than
+		// dereferenced as a real client.
 	})
 }
 
@@ -358,8 +387,8 @@ func TestResetPassword(t *testing.T) {
 	// Case 7.
 	t.Run("valid unexpired unused token resets the password", func(t *testing.T) {
 		database := newTestDB(t)
-		messagingSrv, _ := newMessagingFake(t)
-		auth := handler.NewAuth(database, "test-secret", messagingSrv.URL, "test-messaging-secret", "http://localhost:5173")
+		messaging, _ := newMessagingFake(t)
+		auth := handler.NewAuth(database, "test-secret", messaging, "http://localhost:5173")
 
 		userID := seedUser(t, database, "resetme@example.com")
 		const rawToken = "valid-token-abc123"
@@ -391,8 +420,8 @@ func TestResetPassword(t *testing.T) {
 	// Case 8.
 	t.Run("expired token returns 400 invalid-or-expired", func(t *testing.T) {
 		database := newTestDB(t)
-		messagingSrv, _ := newMessagingFake(t)
-		auth := handler.NewAuth(database, "test-secret", messagingSrv.URL, "test-messaging-secret", "http://localhost:5173")
+		messaging, _ := newMessagingFake(t)
+		auth := handler.NewAuth(database, "test-secret", messaging, "http://localhost:5173")
 
 		userID := seedUser(t, database, "expired@example.com")
 		const rawToken = "expired-token-abc123"
@@ -415,8 +444,8 @@ func TestResetPassword(t *testing.T) {
 	// Case 9.
 	t.Run("already-used token returns 400 invalid-or-expired", func(t *testing.T) {
 		database := newTestDB(t)
-		messagingSrv, _ := newMessagingFake(t)
-		auth := handler.NewAuth(database, "test-secret", messagingSrv.URL, "test-messaging-secret", "http://localhost:5173")
+		messaging, _ := newMessagingFake(t)
+		auth := handler.NewAuth(database, "test-secret", messaging, "http://localhost:5173")
 
 		userID := seedUser(t, database, "used@example.com")
 		const rawToken = "used-token-abc123"
@@ -439,8 +468,8 @@ func TestResetPassword(t *testing.T) {
 	// Case 10.
 	t.Run("garbage/nonexistent token returns 400 invalid-or-expired", func(t *testing.T) {
 		database := newTestDB(t)
-		messagingSrv, _ := newMessagingFake(t)
-		auth := handler.NewAuth(database, "test-secret", messagingSrv.URL, "test-messaging-secret", "http://localhost:5173")
+		messaging, _ := newMessagingFake(t)
+		auth := handler.NewAuth(database, "test-secret", messaging, "http://localhost:5173")
 
 		rec := doResetPassword(auth, "this-token-was-never-issued", "somePassw0rd!")
 		if rec.Code != http.StatusBadRequest {
@@ -459,8 +488,8 @@ func TestResetPassword(t *testing.T) {
 	// Case 11.
 	t.Run("valid token with too-short password returns 400 password-length, after token validation", func(t *testing.T) {
 		database := newTestDB(t)
-		messagingSrv, _ := newMessagingFake(t)
-		auth := handler.NewAuth(database, "test-secret", messagingSrv.URL, "test-messaging-secret", "http://localhost:5173")
+		messaging, _ := newMessagingFake(t)
+		auth := handler.NewAuth(database, "test-secret", messaging, "http://localhost:5173")
 
 		userID := seedUser(t, database, "shortpw@example.com")
 		const rawToken = "valid-token-shortpw"

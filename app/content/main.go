@@ -31,10 +31,10 @@ func main() {
 	svcURL := env("SVC_SERVICE_URL", "http://localhost:3000")
 	// Shared secret gating every quillit-internal connect RPC (both the
 	// ContentInternalService server mounted below and the SvcInternalService
-	// client authz.NewSvcChecker builds) — see gen/internalauth. Mirrors how
-	// MESSAGING_SECRET is read in app/auth and app/messaging today: an env
-	// var, not yet wired into infra/docker-compose.yml/.env.example (that's
-	// a later task).
+	// client authz.NewSvcChecker builds) — see gen/internalauth. Read the
+	// same way in app/svc, app/auth and app/messaging: an env var, not yet
+	// wired into infra/docker-compose.yml/.env.example (that's a later
+	// task).
 	internalRPCSecret := env("INTERNAL_RPC_SECRET", "")
 	if internalRPCSecret == "" {
 		log.Println("WARNING: INTERNAL_RPC_SECRET is unset — internal RPC calls will fail")

@@ -42,8 +42,12 @@ curl -X POST http://localhost:3002/auth/setup \
 
 ## Docker
 
+The build context is the repo root, not this directory — the Dockerfile
+needs the sibling `gen` module in scope (see the Dockerfile's header
+comment). Run from the repo root:
+
 ```bash
-docker build -t quillit-auth-svc .
+docker build -f app/auth/Dockerfile -t quillit-auth-svc .
 docker run -p 3002:3002 -v auth-data:/data \
   -e JWT_SECRET=yoursecret quillit-auth-svc
 ```

@@ -3,9 +3,11 @@ module github.com/quillit/auth-svc
 go 1.27.0
 
 require (
+	connectrpc.com/connect v1.20.0
 	github.com/go-chi/chi/v5 v5.3.1
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/pressly/goose/v3 v3.27.3
+	github.com/quillit/gen v0.0.0-00010101000000-000000000000
 	github.com/swaggo/http-swagger v1.3.4
 	github.com/swaggo/swag v1.16.6
 	golang.org/x/crypto v0.54.0
@@ -76,7 +78,7 @@ require (
 	golang.org/x/tools v0.48.0 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260720211330-0afa2a65878a // indirect
 	google.golang.org/grpc v1.82.1 // indirect
-	google.golang.org/protobuf v1.36.11 // indirect
+	google.golang.org/protobuf v1.36.12 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	howett.net/plist v1.0.1 // indirect
 	modernc.org/libc v1.74.3 // indirect
@@ -86,8 +88,8 @@ require (
 
 // The connectrpc scaffolding module from Task 8, resolved locally via the
 // repo-root go.work workspace (see that file's comment), same pattern as
-// svc/content's contentengine replace. Nothing in auth imports it yet
-// (Tasks 9-10 wire in the generated clients/servers).
+// svc/content's contentengine replace. Imported for real by this task's
+// MessagingInternalService client (internal/messagingclient).
 replace github.com/quillit/gen => ../../gen
 
 tool github.com/pressly/goose/v3/cmd/goose

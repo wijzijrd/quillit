@@ -11,6 +11,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -18,9 +19,10 @@ import (
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
 
+	_ "github.com/quillit/auth-svc/docs"
 	"github.com/quillit/auth-svc/internal/db"
 	"github.com/quillit/auth-svc/internal/handler"
-	_ "github.com/quillit/auth-svc/docs"
+	"github.com/quillit/auth-svc/internal/messagingclient"
 )
 
 func main() {
@@ -28,8 +30,18 @@ func main() {
 	dbPath := env("DB_PATH", "./quillit-auth.db")
 	jwtSecret := mustEnv("JWT_SECRET")
 	messagingServiceURL := env("MESSAGING_SERVICE_URL", "")
-	messagingSecret := env("MESSAGING_SECRET", "")
 	appBaseURL := env("APP_BASE_URL", "")
+	// Shared secret gating the MessagingInternalService connect RPC client
+	// built below — see gen/internalauth. Fully replaces MESSAGING_SECRET,
+	// which used to authenticate the now-removed POST /send HTTP call
+	// (app/auth/internal/handler/password_reset.go's sendResetEmail).
+	// Mirrors how INTERNAL_RPC_SECRET is read in app/content and app/svc
+	// (Task 9): an env var, not yet wired into
+	// infra/docker-compose.yml/.env.example (that's a later task).
+	internalRPCSecret := env("INTERNAL_RPC_SECRET", "")
+	if internalRPCSecret == "" {
+		log.Println("WARNING: INTERNAL_RPC_SECRET is unset — internal RPC calls will fail")
+	}
 
 	database, err := db.Open(dbPath)
 	if err != nil {
@@ -37,7 +49,15 @@ func main() {
 	}
 	defer database.Close()
 
-	auth := handler.NewAuth(database, jwtSecret, messagingServiceURL, messagingSecret, appBaseURL)
+	// messaging is nil when MESSAGING_SERVICE_URL is unset, matching the old
+	// messagingServiceURL == "" check's "not configured, skip the send"
+	// degrade-gracefully behavior (see handler.Auth.ForgotPassword).
+	var messaging *messagingclient.Client
+	if messagingServiceURL != "" {
+		messaging = messagingclient.NewClient(messagingServiceURL, internalRPCSecret, &http.Client{Timeout: 5 * time.Second})
+	}
+
+	auth := handler.NewAuth(database, jwtSecret, messaging, appBaseURL)
 	health := handler.NewHealth(database)
 
 	// Seed admin account if credentials are configured
