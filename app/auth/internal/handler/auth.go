@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"crypto/rand"
 	"database/sql"
 	"encoding/hex"
@@ -15,10 +16,13 @@ import (
 	"golang.org/x/crypto/bcrypt"
 	"modernc.org/sqlite"
 	sqlite3 "modernc.org/sqlite/lib"
+
+	"github.com/quillit/auth-svc/internal/db/sqlc"
 )
 
 type Auth struct {
 	db                  *sql.DB
+	q                   *sqlc.Queries
 	jwtSecret           []byte
 	messagingServiceURL string
 	messagingSecret     string
@@ -27,7 +31,7 @@ type Auth struct {
 
 func NewAuth(db *sql.DB, jwtSecret, messagingServiceURL, messagingSecret, appBaseURL string) *Auth {
 	return &Auth{
-		db: db, jwtSecret: []byte(jwtSecret),
+		db: db, q: sqlc.New(db), jwtSecret: []byte(jwtSecret),
 		messagingServiceURL: messagingServiceURL, messagingSecret: messagingSecret, appBaseURL: appBaseURL,
 	}
 }
@@ -126,8 +130,7 @@ func conflictField(err error) (field, message string) {
 // @Success      200  {object}  StatusResponse
 // @Router       /auth/status [get]
 func (a *Auth) Status(w http.ResponseWriter, r *http.Request) {
-	var count int
-	_ = a.db.QueryRow("SELECT COUNT(*) FROM users").Scan(&count)
+	count, _ := a.q.CountUsers(r.Context())
 	writeJSON(w, http.StatusOK, map[string]bool{"registered": count > 0})
 }
 
@@ -151,8 +154,8 @@ func (a *Auth) UsernameAvailable(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "username is required")
 		return
 	}
-	var count int
-	if err := a.db.QueryRow("SELECT COUNT(*) FROM users WHERE username = ?", username).Scan(&count); err != nil {
+	count, err := a.q.CountUsersByUsername(r.Context(), username)
+	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
@@ -197,10 +200,14 @@ func (a *Auth) Register(w http.ResponseWriter, r *http.Request) {
 
 	id := newID()
 	now := time.Now().Unix()
-	_, err = a.db.Exec(
-		"INSERT INTO users (id, email, username, password_hash, role, created_at, updated_at) VALUES (?, ?, ?, ?, 'user', ?, ?)",
-		id, body.Email, body.Username, string(hash), now, now,
-	)
+	err = a.q.InsertUser(r.Context(), sqlc.InsertUserParams{
+		ID:           id,
+		Email:        body.Email,
+		Username:     body.Username,
+		PasswordHash: string(hash),
+		CreatedAt:    now,
+		UpdatedAt:    now,
+	})
 	if err != nil {
 		field, message := conflictField(err)
 		writeJSON(w, http.StatusConflict, RegisterConflictResponse{Error: message, Field: field})
@@ -236,26 +243,22 @@ func (a *Auth) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var id, hash, role string
-	var active int
-	err := a.db.QueryRow(
-		"SELECT id, password_hash, role, active FROM users WHERE email = ?", body.Email,
-	).Scan(&id, &hash, &role, &active)
+	u, err := a.q.GetUserForLogin(r.Context(), body.Email)
 	if errors.Is(err, sql.ErrNoRows) {
 		writeError(w, http.StatusUnauthorized, "invalid credentials")
 		return
 	}
-	if active == 0 {
+	if u.Active == 0 {
 		writeError(w, http.StatusUnauthorized, "account disabled")
 		return
 	}
 
-	if err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(body.Password)); err != nil {
+	if err := bcrypt.CompareHashAndPassword([]byte(u.PasswordHash), []byte(body.Password)); err != nil {
 		writeError(w, http.StatusUnauthorized, "invalid credentials")
 		return
 	}
 
-	token, err := a.issueToken(id, body.Email, role, true)
+	token, err := a.issueToken(u.ID, body.Email, u.Role, true)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
@@ -300,9 +303,7 @@ func (a *Auth) Verify(w http.ResponseWriter, r *http.Request) {
 	// Re-check current active/role from the DB rather than trusting the
 	// claims baked in at token-issue time — otherwise a user deactivated
 	// after login keeps verifying as active until the token expires.
-	var role string
-	var active int
-	err = a.db.QueryRow("SELECT role, active FROM users WHERE id = ?", sub).Scan(&role, &active)
+	ra, err := a.q.GetUserRoleActive(r.Context(), sub)
 	if errors.Is(err, sql.ErrNoRows) {
 		writeError(w, http.StatusUnauthorized, "user not found")
 		return
@@ -315,8 +316,8 @@ func (a *Auth) Verify(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"sub":    sub,
 		"email":  mc["email"],
-		"role":   role,
-		"active": active == 1,
+		"role":   ra.Role,
+		"active": ra.Active == 1,
 		"exp":    mc["exp"],
 	})
 }
@@ -354,23 +355,16 @@ type UserSearchResult struct {
 // @Failure      401  {object}  ErrorResponse
 // @Router       /auth/users/search [get]
 func (a *Auth) SearchUsers(w http.ResponseWriter, r *http.Request) {
-	q := "%" + r.URL.Query().Get("q") + "%"
-	rows, err := a.db.Query(
-		`SELECT id, email, username FROM users WHERE email LIKE ? OR username LIKE ? ORDER BY username LIMIT 20`,
-		q, q,
-	)
+	term := "%" + r.URL.Query().Get("q") + "%"
+	rows, err := a.q.SearchUsers(r.Context(), sqlc.SearchUsersParams{Email: term, Username: term})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
-	defer rows.Close()
 
 	results := []UserSearchResult{}
-	for rows.Next() {
-		var u UserSearchResult
-		if err := rows.Scan(&u.ID, &u.Email, &u.Username); err == nil {
-			results = append(results, u)
-		}
+	for _, row := range rows {
+		results = append(results, UserSearchResult{ID: row.ID, Email: row.Email, Username: row.Username})
 	}
 	writeJSON(w, http.StatusOK, results)
 }
@@ -475,32 +469,37 @@ func (a *Auth) UpdateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	activeVal := 0
+	var activeVal int64
 	if *body.Active {
 		activeVal = 1
 	}
-	res, err := a.db.Exec(
-		"UPDATE users SET active = ?, updated_at = ? WHERE id = ?",
-		activeVal, time.Now().Unix(), id,
-	)
+	n, err := a.q.UpdateUserActive(r.Context(), sqlc.UpdateUserActiveParams{
+		Active:    activeVal,
+		UpdatedAt: time.Now().Unix(),
+		ID:        id,
+	})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
-	if n, _ := res.RowsAffected(); n == 0 {
+	if n == 0 {
 		writeError(w, http.StatusNotFound, "user not found")
 		return
 	}
 
-	var u UserResponse
-	var active int
-	if err := a.db.QueryRow(
-		"SELECT id, email, username, role, active, created_at FROM users WHERE id = ?", id,
-	).Scan(&u.ID, &u.Email, &u.Username, &u.Role, &active, &u.CreatedAt); err != nil {
+	row, err := a.q.GetUserByID(r.Context(), id)
+	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
-	u.Active = active == 1
+	u := UserResponse{
+		ID:        row.ID,
+		Email:     row.Email,
+		Username:  row.Username,
+		Role:      row.Role,
+		Active:    row.Active == 1,
+		CreatedAt: row.CreatedAt,
+	}
 	writeJSON(w, http.StatusOK, u)
 }
 
@@ -516,12 +515,12 @@ func (a *Auth) UpdateUser(w http.ResponseWriter, r *http.Request) {
 // @Router       /auth/users/{id} [delete]
 func (a *Auth) DeleteUser(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
-	res, err := a.db.Exec("DELETE FROM users WHERE id = ?", id)
+	n, err := a.q.DeleteUser(r.Context(), id)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
-	if n, _ := res.RowsAffected(); n == 0 {
+	if n == 0 {
 		writeError(w, http.StatusNotFound, "user not found")
 		return
 	}
@@ -530,8 +529,7 @@ func (a *Auth) DeleteUser(w http.ResponseWriter, r *http.Request) {
 
 // SeedAdmin creates an admin user if one with the given email doesn't exist.
 func (a *Auth) SeedAdmin(email, password string) error {
-	var count int
-	_ = a.db.QueryRow("SELECT COUNT(*) FROM users WHERE email = ?", email).Scan(&count)
+	count, _ := a.q.CountUsersByEmail(context.Background(), email)
 	if count > 0 {
 		return nil
 	}
@@ -541,11 +539,14 @@ func (a *Auth) SeedAdmin(email, password string) error {
 	}
 	id := newID()
 	now := time.Now().Unix()
-	_, err = a.db.Exec(
-		"INSERT INTO users (id, email, username, password_hash, role, created_at, updated_at) VALUES (?, ?, ?, ?, 'admin', ?, ?)",
-		id, email, "admin", string(hash), now, now,
-	)
-	return err
+	return a.q.InsertAdminUser(context.Background(), sqlc.InsertAdminUserParams{
+		ID:           id,
+		Email:        email,
+		Username:     "admin",
+		PasswordHash: string(hash),
+		CreatedAt:    now,
+		UpdatedAt:    now,
+	})
 }
 
 type quilltClaims struct {
