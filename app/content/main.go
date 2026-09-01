@@ -36,6 +36,9 @@ func main() {
 	// var, not yet wired into infra/docker-compose.yml/.env.example (that's
 	// a later task).
 	internalRPCSecret := env("INTERNAL_RPC_SECRET", "")
+	if internalRPCSecret == "" {
+		log.Println("WARNING: INTERNAL_RPC_SECRET is unset — internal RPC calls will fail")
+	}
 
 	database, err := db.Open(dbPath)
 	if err != nil {
