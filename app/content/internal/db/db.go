@@ -43,13 +43,13 @@ func Open(path string) (*sql.DB, error) {
 // 1-4) would silently end up with a stale schema instead — e.g.
 // entries.orphaned_at/body_hash (added by toV4/toV5 via ALTER TABLE, not
 // CREATE) would never get added, because CREATE TABLE IF NOT EXISTS entries
-// no-ops against the table's older shape. Unlike auth's equivalent guard,
-// this one IS load-bearing here, not merely defensive: toV4/toV5 added
-// orphaned_at/body_hash to entries (a table toV2 already created) via
-// ALTER TABLE, so a database frozen at user_version 1-4 has entries without
-// those columns, and the baseline's CREATE TABLE IF NOT EXISTS entries
-// would silently skip adding them — a real schema-corruption mode this
-// guard exists specifically to prevent.
+// no-ops against the table's older shape.
+//
+// Unlike auth's equivalent guard (defensive-only there, since auth's later
+// migration only creates a new table), this guard IS load-bearing for
+// content: the orphaned_at/body_hash gap above is a real schema-corruption
+// mode a user_version 1-4 database would silently hit, not a hypothetical
+// one. Do not remove this guard on the assumption it's merely defensive.
 func migrate(database *sql.DB) error {
 	var userVersion int
 	if err := database.QueryRow(`PRAGMA user_version`).Scan(&userVersion); err != nil {
