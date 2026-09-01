@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 
+	"github.com/quillit/svc/internal/db/sqlc"
 	"github.com/quillit/svc/internal/middleware"
 )
 
@@ -13,12 +14,12 @@ import (
 const maxSettingsBytes = 4096
 
 type SettingsHandler struct {
-	db        *sql.DB
+	q         *sqlc.Queries
 	jwtSecret []byte
 }
 
 func NewSettings(db *sql.DB, jwtSecret string) *SettingsHandler {
-	return &SettingsHandler{db: db, jwtSecret: []byte(jwtSecret)}
+	return &SettingsHandler{q: sqlc.New(db), jwtSecret: []byte(jwtSecret)}
 }
 
 func (h *SettingsHandler) callerID(r *http.Request) (string, bool) {
@@ -35,10 +36,7 @@ func (h *SettingsHandler) callerID(r *http.Request) (string, bool) {
 }
 
 func (h *SettingsHandler) load(r *http.Request, userID string) (map[string]any, error) {
-	var raw string
-	err := h.db.QueryRowContext(r.Context(),
-		"SELECT settings FROM user_settings WHERE user_id = ?", userID,
-	).Scan(&raw)
+	raw, err := h.q.GetUserSettings(r.Context(), userID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return map[string]any{}, nil
 	}
@@ -115,10 +113,11 @@ func (h *SettingsHandler) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, err = h.db.ExecContext(r.Context(),
-		"INSERT INTO user_settings (user_id, settings, updated_at) VALUES (?, ?, ?) ON CONFLICT(user_id) DO UPDATE SET settings = excluded.settings, updated_at = excluded.updated_at",
-		userID, string(merged), nowUnix(),
-	)
+	err = h.q.UpsertUserSettings(r.Context(), sqlc.UpsertUserSettingsParams{
+		UserID:    userID,
+		Settings:  string(merged),
+		UpdatedAt: nowUnix(),
+	})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "db error")
 		return

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/quillit/svc/internal/db/sqlc"
 	"github.com/quillit/svc/internal/middleware"
 )
 
@@ -16,7 +17,7 @@ import (
 // the compose network. Membership is checked here — svc owns that data
 // (content's own auth is soft until #44).
 type ContentProxyHandler struct {
-	db         *sql.DB
+	q          *sqlc.Queries
 	jwtSecret  []byte
 	contentURL string
 	client     *http.Client
@@ -24,7 +25,7 @@ type ContentProxyHandler struct {
 
 func NewContentProxy(db *sql.DB, jwtSecret, contentURL string) *ContentProxyHandler {
 	return &ContentProxyHandler{
-		db:         db,
+		q:          sqlc.New(db),
 		jwtSecret:  []byte(jwtSecret),
 		contentURL: contentURL,
 		// Tarball uploads are much slower than contentclient's 5s budget.
@@ -56,9 +57,10 @@ func (h *ContentProxyHandler) ImportProject(w http.ResponseWriter, r *http.Reque
 	userID, _ := claims["sub"].(string)
 
 	projectID := chi.URLParam(r, "id")
-	var one int
-	err = h.db.QueryRowContext(r.Context(),
-		`SELECT 1 FROM project_members WHERE project_id = ? AND user_id = ?`, projectID, userID).Scan(&one)
+	_, err = h.q.CheckProjectMembership(r.Context(), sqlc.CheckProjectMembershipParams{
+		ProjectID: projectID,
+		UserID:    userID,
+	})
 	if err == sql.ErrNoRows {
 		writeError(w, http.StatusForbidden, "not a member of this project")
 		return

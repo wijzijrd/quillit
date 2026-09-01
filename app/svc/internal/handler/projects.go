@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/quillit/svc/internal/db/sqlc"
 )
 
 // projectTypeRoles maps project type → [editorRole, memberRole].
@@ -51,12 +52,13 @@ type ContentNotifier interface {
 
 type ProjectsHandler struct {
 	db              *sql.DB
+	q               *sqlc.Queries
 	jwtSecret       []byte
 	contentNotifier ContentNotifier
 }
 
 func NewProjects(db *sql.DB, jwtSecret string, contentNotifier ContentNotifier) *ProjectsHandler {
-	return &ProjectsHandler{db: db, jwtSecret: []byte(jwtSecret), contentNotifier: contentNotifier}
+	return &ProjectsHandler{db: db, q: sqlc.New(db), jwtSecret: []byte(jwtSecret), contentNotifier: contentNotifier}
 }
 
 // callerID extracts the user ID (sub) from the JWT stored in request context.
@@ -136,35 +138,26 @@ func (h *ProjectsHandler) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	rows, err := h.db.QueryContext(r.Context(), `
-		SELECT p.id, p.name, p.type, p.created_by, p.created_at,
-		       pm.role,
-		       (SELECT COUNT(*) FROM project_members WHERE project_id = p.id) AS member_count,
-		       EXISTS(SELECT 1 FROM game_sessions gs WHERE gs.project_id = p.id AND gs.status = 'running') AS live
-		FROM projects p
-		JOIN project_members pm ON pm.project_id = p.id AND pm.user_id = ?
-		WHERE p.type != 'global'
-		ORDER BY p.created_at DESC
-	`, callerID)
+	rows, err := h.q.ListProjectsForUser(r.Context(), callerID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "db error")
 		return
 	}
-	defer rows.Close()
 
 	projects := []Project{}
-	for rows.Next() {
-		var p Project
-		if err := rows.Scan(&p.ID, &p.Name, &p.Type, &p.CreatedBy, &p.CreatedAt, &p.MyRole, &p.MemberCount, &p.Live); err != nil {
-			writeError(w, http.StatusInternalServerError, "db error")
-			return
+	for _, row := range rows {
+		p := Project{
+			ID:          row.ID,
+			Name:        row.Name,
+			Type:        row.Type,
+			CreatedBy:   row.CreatedBy,
+			CreatedAt:   row.CreatedAt,
+			MyRole:      row.Role,
+			MemberCount: int(row.MemberCount),
+			Live:        row.Live,
 		}
 		p.RoleLabels = roleLabelPair(p.Type)
 		projects = append(projects, p)
-	}
-	if err := rows.Err(); err != nil {
-		writeError(w, http.StatusInternalServerError, "db error")
-		return
 	}
 	writeJSON(w, http.StatusOK, projects)
 }
@@ -212,18 +205,25 @@ func (h *ProjectsHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer tx.Rollback()
+	qtx := h.q.WithTx(tx)
 
-	if _, err := tx.ExecContext(r.Context(),
-		"INSERT INTO projects (id, name, type, created_by, created_at) VALUES (?, ?, ?, ?, ?)",
-		projectID, body.Name, body.Type, callerID, now,
-	); err != nil {
+	if err := qtx.InsertProject(r.Context(), sqlc.InsertProjectParams{
+		ID:        projectID,
+		Name:      body.Name,
+		Type:      body.Type,
+		CreatedBy: callerID,
+		CreatedAt: now,
+	}); err != nil {
 		writeError(w, http.StatusInternalServerError, "db error")
 		return
 	}
-	if _, err := tx.ExecContext(r.Context(),
-		"INSERT INTO project_members (id, project_id, user_id, role, joined_at, username) VALUES (?, ?, ?, ?, ?, '')",
-		memberID, projectID, callerID, editorRole, now,
-	); err != nil {
+	if err := qtx.InsertProjectMember(r.Context(), sqlc.InsertProjectMemberParams{
+		ID:        memberID,
+		ProjectID: projectID,
+		UserID:    callerID,
+		Role:      editorRole,
+		JoinedAt:  now,
+	}); err != nil {
 		writeError(w, http.StatusInternalServerError, "db error")
 		return
 	}
@@ -279,9 +279,10 @@ func (h *ProjectsHandler) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, err := h.db.ExecContext(r.Context(),
-		"UPDATE projects SET name = ? WHERE id = ?", *body.Name, id,
-	); err != nil {
+	if err := h.q.UpdateProjectName(r.Context(), sqlc.UpdateProjectNameParams{
+		Name: *body.Name,
+		ID:   id,
+	}); err != nil {
 		writeError(w, http.StatusInternalServerError, "db error")
 		return
 	}
@@ -305,10 +306,8 @@ func (h *ProjectsHandler) Delete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var createdBy string
-	if err := h.db.QueryRowContext(r.Context(),
-		"SELECT created_by FROM projects WHERE id = ?", id,
-	).Scan(&createdBy); errors.Is(err, sql.ErrNoRows) {
+	createdBy, err := h.q.GetProjectCreatedBy(r.Context(), id)
+	if errors.Is(err, sql.ErrNoRows) {
 		writeError(w, http.StatusNotFound, "project not found")
 		return
 	} else if err != nil {
@@ -321,9 +320,7 @@ func (h *ProjectsHandler) Delete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, err := h.db.ExecContext(r.Context(),
-		"DELETE FROM projects WHERE id = ?", id,
-	); err != nil {
+	if err := h.q.DeleteProject(r.Context(), id); err != nil {
 		writeError(w, http.StatusInternalServerError, "db error")
 		return
 	}
@@ -375,23 +372,22 @@ func (h *ProjectsHandler) ListMembers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	rows, err := h.db.QueryContext(r.Context(),
-		"SELECT id, project_id, user_id, username, role, joined_at FROM project_members WHERE project_id = ? ORDER BY joined_at ASC", id,
-	)
+	rows, err := h.q.ListProjectMembers(r.Context(), id)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "db error")
 		return
 	}
-	defer rows.Close()
 
 	members := []ProjectMember{}
-	for rows.Next() {
-		var m ProjectMember
-		if err := rows.Scan(&m.ID, &m.ProjectID, &m.UserID, &m.Username, &m.Role, &m.JoinedAt); err != nil {
-			writeError(w, http.StatusInternalServerError, "db error")
-			return
-		}
-		members = append(members, m)
+	for _, row := range rows {
+		members = append(members, ProjectMember{
+			ID:        row.ID,
+			ProjectID: row.ProjectID,
+			UserID:    row.UserID,
+			Username:  row.Username,
+			Role:      row.Role,
+			JoinedAt:  row.JoinedAt,
+		})
 	}
 	writeJSON(w, http.StatusOK, members)
 }
@@ -436,10 +432,14 @@ func (h *ProjectsHandler) AddMember(w http.ResponseWriter, r *http.Request) {
 
 	now := nowUnix()
 	m := ProjectMember{ID: newID(), ProjectID: id, UserID: body.UserID, Username: body.Username, Role: body.Role, JoinedAt: now}
-	if _, err := h.db.ExecContext(r.Context(),
-		"INSERT OR IGNORE INTO project_members (id, project_id, user_id, role, joined_at, username) VALUES (?, ?, ?, ?, ?, ?)",
-		m.ID, m.ProjectID, m.UserID, m.Role, m.JoinedAt, m.Username,
-	); err != nil {
+	if err := h.q.AddProjectMember(r.Context(), sqlc.AddProjectMemberParams{
+		ID:        m.ID,
+		ProjectID: m.ProjectID,
+		UserID:    m.UserID,
+		Role:      m.Role,
+		JoinedAt:  m.JoinedAt,
+		Username:  m.Username,
+	}); err != nil {
 		writeError(w, http.StatusInternalServerError, "db error")
 		return
 	}
@@ -474,9 +474,10 @@ func (h *ProjectsHandler) RemoveMember(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, err := h.db.ExecContext(r.Context(),
-		"DELETE FROM project_members WHERE project_id = ? AND user_id = ?", id, targetUserID,
-	); err != nil {
+	if err := h.q.DeleteProjectMember(r.Context(), sqlc.DeleteProjectMemberParams{
+		ProjectID: id,
+		UserID:    targetUserID,
+	}); err != nil {
 		writeError(w, http.StatusInternalServerError, "db error")
 		return
 	}
@@ -529,10 +530,14 @@ func (h *ProjectsHandler) CreateInvite(w http.ResponseWriter, r *http.Request) {
 		CreatedBy: callerID,
 		ExpiresAt: time.Now().Add(inviteTTL).Unix(),
 	}
-	if _, err := h.db.ExecContext(r.Context(),
-		"INSERT INTO project_invites (id, token, project_id, role, created_by, expires_at) VALUES (?, ?, ?, ?, ?, ?)",
-		inv.ID, inv.Token, inv.ProjectID, inv.Role, inv.CreatedBy, inv.ExpiresAt,
-	); err != nil {
+	if err := h.q.InsertProjectInvite(r.Context(), sqlc.InsertProjectInviteParams{
+		ID:        inv.ID,
+		Token:     inv.Token,
+		ProjectID: inv.ProjectID,
+		Role:      inv.Role,
+		CreatedBy: inv.CreatedBy,
+		ExpiresAt: inv.ExpiresAt,
+	}); err != nil {
 		writeError(w, http.StatusInternalServerError, "db error")
 		return
 	}
@@ -566,9 +571,10 @@ func (h *ProjectsHandler) RevokeInvite(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, err := h.db.ExecContext(r.Context(),
-		"DELETE FROM project_invites WHERE token = ? AND project_id = ?", token, id,
-	); err != nil {
+	if err := h.q.DeleteProjectInvite(r.Context(), sqlc.DeleteProjectInviteParams{
+		Token:     token,
+		ProjectID: id,
+	}); err != nil {
 		writeError(w, http.StatusInternalServerError, "db error")
 		return
 	}
@@ -601,11 +607,7 @@ func (h *ProjectsHandler) Join(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Look up the invite
-	var inv ProjectInvite
-	var usedAt sql.NullInt64
-	err := h.db.QueryRowContext(r.Context(),
-		"SELECT id, project_id, role, expires_at, used_at FROM project_invites WHERE token = ?", body.Token,
-	).Scan(&inv.ID, &inv.ProjectID, &inv.Role, &inv.ExpiresAt, &usedAt)
+	invRow, err := h.q.GetProjectInviteByToken(r.Context(), body.Token)
 	if errors.Is(err, sql.ErrNoRows) {
 		writeError(w, http.StatusBadRequest, "invalid invite token")
 		return
@@ -613,7 +615,13 @@ func (h *ProjectsHandler) Join(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "db error")
 		return
 	}
-	if usedAt.Valid {
+	inv := ProjectInvite{
+		ID:        invRow.ID,
+		ProjectID: invRow.ProjectID,
+		Role:      invRow.Role,
+		ExpiresAt: invRow.ExpiresAt,
+	}
+	if invRow.UsedAt.Valid {
 		writeError(w, http.StatusGone, "invite already used")
 		return
 	}
@@ -631,21 +639,26 @@ func (h *ProjectsHandler) Join(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer tx.Rollback()
+	qtx := h.q.WithTx(tx)
 
 	// Add to project_members (ignore if already a member)
-	if _, err := tx.ExecContext(r.Context(),
-		"INSERT OR IGNORE INTO project_members (id, project_id, user_id, role, joined_at, username) VALUES (?, ?, ?, ?, ?, '')",
-		memberID, inv.ProjectID, callerID, inv.Role, now,
-	); err != nil {
+	if err := qtx.JoinProjectAddMember(r.Context(), sqlc.JoinProjectAddMemberParams{
+		ID:        memberID,
+		ProjectID: inv.ProjectID,
+		UserID:    callerID,
+		Role:      inv.Role,
+		JoinedAt:  now,
+	}); err != nil {
 		writeError(w, http.StatusInternalServerError, "db error")
 		return
 	}
 
 	// Mark invite as used
-	if _, err := tx.ExecContext(r.Context(),
-		"UPDATE project_invites SET used_at = ?, used_by = ? WHERE id = ?",
-		now, callerID, inv.ID,
-	); err != nil {
+	if err := qtx.MarkProjectInviteUsed(r.Context(), sqlc.MarkProjectInviteUsedParams{
+		UsedAt: sql.NullInt64{Int64: now, Valid: true},
+		UsedBy: sql.NullString{String: callerID, Valid: true},
+		ID:     inv.ID,
+	}); err != nil {
 		writeError(w, http.StatusInternalServerError, "db error")
 		return
 	}
@@ -719,28 +732,31 @@ func (h *ProjectsHandler) InternalMembership(w http.ResponseWriter, r *http.Requ
 
 // memberRole returns the project type and the caller's role within projectID.
 func (h *ProjectsHandler) memberRole(r *http.Request, projectID, userID string) (projectType, role string, err error) {
-	err = h.db.QueryRowContext(r.Context(), `
-		SELECT p.type, pm.role
-		FROM projects p
-		JOIN project_members pm ON pm.project_id = p.id AND pm.user_id = ?
-		WHERE p.id = ?
-	`, userID, projectID).Scan(&projectType, &role)
-	return
+	row, err := h.q.GetMemberRole(r.Context(), sqlc.GetMemberRoleParams{
+		UserID: userID,
+		ID:     projectID,
+	})
+	if err != nil {
+		return "", "", err
+	}
+	return row.Type, row.Role, nil
 }
 
 // fetchProject returns a single Project struct for the given caller.
 func (h *ProjectsHandler) fetchProject(r *http.Request, projectID, callerID string) Project {
-	var p Project
-	_ = h.db.QueryRowContext(r.Context(), `
-		SELECT p.id, p.name, p.type, p.created_by, p.created_at,
-		       pm.role,
-		       (SELECT COUNT(*) FROM project_members WHERE project_id = p.id)
-		FROM projects p
-		JOIN project_members pm ON pm.project_id = p.id AND pm.user_id = ?
-		WHERE p.id = ?
-	`, callerID, projectID).Scan(
-		&p.ID, &p.Name, &p.Type, &p.CreatedBy, &p.CreatedAt, &p.MyRole, &p.MemberCount,
-	)
+	row, _ := h.q.GetProjectForMember(r.Context(), sqlc.GetProjectForMemberParams{
+		UserID: callerID,
+		ID:     projectID,
+	})
+	p := Project{
+		ID:          row.ID,
+		Name:        row.Name,
+		Type:        row.Type,
+		CreatedBy:   row.CreatedBy,
+		CreatedAt:   row.CreatedAt,
+		MyRole:      row.Role,
+		MemberCount: int(row.MemberCount),
+	}
 	p.RoleLabels = roleLabelPair(p.Type)
 	return p
 }
@@ -763,5 +779,5 @@ var roleLabelPair = func(projectType string) [2]string {
 // notification itself construct a ProjectsHandler directly with a fake
 // ContentNotifier instead (see projects_test.go).
 func NewProjectsForTest(db *sql.DB) *ProjectsHandler {
-	return &ProjectsHandler{db: db, jwtSecret: nil}
+	return &ProjectsHandler{db: db, q: sqlc.New(db), jwtSecret: nil}
 }

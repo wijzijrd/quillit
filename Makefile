@@ -1,4 +1,4 @@
-.PHONY: up down logs ps setup help
+.PHONY: up down logs ps setup sqlc help
 
 COMPOSE ?= docker compose -f infra/docker-compose.yml --project-directory .
 
@@ -21,6 +21,9 @@ setup:          ## Create .env from .env.example if missing; warn on placeholder
 		echo "WARNING: JWT_SECRET is still the placeholder. Generate one with: openssl rand -hex 32" || true
 	@grep -q '^MINIO_PASSWORD=replace-with' .env && \
 		echo "WARNING: MINIO_PASSWORD is still the placeholder." || true
+
+sqlc:           ## Regenerate sqlc code from sqlc.yaml (svc, auth, content queries)
+	go run github.com/sqlc-dev/sqlc/cmd/sqlc@v1.31.1 generate
 
 help:           ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*##' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*##"}; {printf "  \033[36m%-8s\033[0m %s\n", $$1, $$2}'

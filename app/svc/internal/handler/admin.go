@@ -7,17 +7,18 @@ import (
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/quillit/svc/internal/db/sqlc"
 	"github.com/quillit/svc/internal/middleware"
 )
 
 type AdminHandler struct {
-	db        *sql.DB
+	q         *sqlc.Queries
 	jwtSecret []byte
 	authURL   string
 }
 
 func NewAdmin(db *sql.DB, jwtSecret, authURL string) *AdminHandler {
-	return &AdminHandler{db: db, jwtSecret: []byte(jwtSecret), authURL: authURL}
+	return &AdminHandler{q: sqlc.New(db), jwtSecret: []byte(jwtSecret), authURL: authURL}
 }
 
 // proxyToAuth forwards a request to auth-svc, injecting the caller's session JWT as Bearer.
@@ -126,33 +127,24 @@ type AdminProject struct {
 func (h *AdminHandler) ListProjects(w http.ResponseWriter, r *http.Request) {
 	q := "%" + r.URL.Query().Get("q") + "%"
 
-	rows, err := h.db.QueryContext(r.Context(), `
-		SELECT p.id, p.name, p.type, p.created_by, p.created_at,
-		       COUNT(pm.id) AS member_count
-		FROM projects p
-		LEFT JOIN project_members pm ON pm.project_id = p.id
-		WHERE p.name LIKE ?
-		GROUP BY p.id
-		ORDER BY p.created_at DESC`,
-		q,
-	)
+	rows, err := h.q.AdminListProjects(r.Context(), q)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "db error")
 		return
 	}
-	defer rows.Close()
 
 	projects := []AdminProject{}
-	for rows.Next() {
-		var p AdminProject
-		if err := rows.Scan(&p.ID, &p.Name, &p.Type, &p.CreatedBy, &p.CreatedAt, &p.MemberCount); err == nil {
-			p.RoleLabels = roleLabelPair(p.Type)
-			projects = append(projects, p)
+	for _, row := range rows {
+		p := AdminProject{
+			ID:          row.ID,
+			Name:        row.Name,
+			Type:        row.Type,
+			CreatedBy:   row.CreatedBy,
+			CreatedAt:   row.CreatedAt,
+			MemberCount: int(row.MemberCount),
 		}
-	}
-	if err := rows.Err(); err != nil {
-		writeError(w, http.StatusInternalServerError, "db error")
-		return
+		p.RoleLabels = roleLabelPair(p.Type)
+		projects = append(projects, p)
 	}
 	writeJSON(w, http.StatusOK, projects)
 }
@@ -171,8 +163,8 @@ func (h *AdminHandler) ListProjectMembers(w http.ResponseWriter, r *http.Request
 	projectID := chi.URLParam(r, "id")
 
 	// Verify project exists
-	var count int
-	if err := h.db.QueryRowContext(r.Context(), `SELECT COUNT(*) FROM projects WHERE id = ?`, projectID).Scan(&count); err != nil {
+	count, err := h.q.CountProjectByID(r.Context(), projectID)
+	if err != nil {
 		writeError(w, http.StatusInternalServerError, "db error")
 		return
 	}
@@ -181,26 +173,22 @@ func (h *AdminHandler) ListProjectMembers(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	rows, err := h.db.QueryContext(r.Context(),
-		`SELECT id, project_id, user_id, role, joined_at, username FROM project_members WHERE project_id = ? ORDER BY joined_at ASC`,
-		projectID,
-	)
+	rows, err := h.q.AdminListProjectMembers(r.Context(), projectID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "db error")
 		return
 	}
-	defer rows.Close()
 
 	members := []ProjectMember{}
-	for rows.Next() {
-		var m ProjectMember
-		if err := rows.Scan(&m.ID, &m.ProjectID, &m.UserID, &m.Role, &m.JoinedAt, &m.Username); err == nil {
-			members = append(members, m)
-		}
-	}
-	if err := rows.Err(); err != nil {
-		writeError(w, http.StatusInternalServerError, "db error")
-		return
+	for _, row := range rows {
+		members = append(members, ProjectMember{
+			ID:        row.ID,
+			ProjectID: row.ProjectID,
+			UserID:    row.UserID,
+			Username:  row.Username,
+			Role:      row.Role,
+			JoinedAt:  row.JoinedAt,
+		})
 	}
 	writeJSON(w, http.StatusOK, members)
 }
