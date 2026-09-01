@@ -4,11 +4,16 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
+	"connectrpc.com/connect"
 	_ "modernc.org/sqlite"
+
+	v1 "github.com/quillit/gen/quillit/content/v1"
+	"github.com/quillit/gen/quillit/content/v1/contentv1connect"
 
 	"github.com/quillit/svc/internal/contentclient"
 	"github.com/quillit/svc/internal/handler"
@@ -46,33 +51,50 @@ func setupChatWSDB(t *testing.T) *sql.DB {
 	return db
 }
 
-// setupContentStub starts an httptest.Server standing in for the content
-// service's GET /content/entries/{id} endpoint, seeded with one entry filed
-// under proj1 and one filed under proj2 — mirroring the old DB-seeded
-// fixture's entryHere/entryElsewhere but served over HTTP the way
+// stubContentInternal is a minimal contentv1connect.ContentInternalServiceHandler
+// backed by an in-memory entries map, standing in for content's
+// ContentInternalService.GetEntry — seeded with one entry filed under
+// proj1 and one filed under proj2, mirroring the old DB-seeded fixture's
+// entryHere/entryElsewhere but served over connectrpc the way
 // contentclient.Client.Get expects (see contentclient_test.go for the same
-// response shape). Unknown ids 404. The server is closed via t.Cleanup.
+// stub shape). Unknown ids return connect.CodeNotFound.
+type stubContentInternal struct {
+	entries map[string]*v1.GetEntryResponse
+}
+
+func (s stubContentInternal) GetEntry(_ context.Context, req *connect.Request[v1.GetEntryRequest]) (*connect.Response[v1.GetEntryResponse], error) {
+	e, ok := s.entries[req.Msg.GetEntryId()]
+	if !ok {
+		return nil, connect.NewError(connect.CodeNotFound, errNotFoundStub)
+	}
+	return connect.NewResponse(e), nil
+}
+
+func (s stubContentInternal) NotifyProjectDeleted(_ context.Context, req *connect.Request[v1.NotifyProjectDeletedRequest]) (*connect.Response[v1.NotifyProjectDeletedResponse], error) {
+	return connect.NewResponse(&v1.NotifyProjectDeletedResponse{ProjectId: req.Msg.GetProjectId()}), nil
+}
+
+var errNotFoundStub = errors.New("entry not found")
+
+// setupContentStub starts an httptest.Server running a real
+// ContentInternalService connect handler over stubContentInternal. The
+// server is closed via t.Cleanup.
 func setupContentStub(t *testing.T) *httptest.Server {
 	t.Helper()
-	entries := map[string]map[string]any{
+	stub := stubContentInternal{entries: map[string]*v1.GetEntryResponse{
 		"entryHere": {
-			"id": "entryHere", "projectId": "proj1",
-			"title": "Local Lore", "body": "local body",
+			Id: "entryHere", ProjectId: "proj1",
+			Title: "Local Lore", Body: "local body",
 		},
 		"entryElsewhere": {
-			"id": "entryElsewhere", "projectId": "proj2",
-			"title": "Foreign Secret", "body": "secret body",
+			Id: "entryElsewhere", ProjectId: "proj2",
+			Title: "Foreign Secret", Body: "secret body",
 		},
-	}
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		id := r.URL.Path[len("/content/entries/"):]
-		entry, ok := entries[id]
-		if !ok {
-			w.WriteHeader(http.StatusNotFound)
-			return
-		}
-		_ = json.NewEncoder(w).Encode(entry)
-	}))
+	}}
+	path, h := contentv1connect.NewContentInternalServiceHandler(stub)
+	mux := http.NewServeMux()
+	mux.Handle(path, h)
+	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 	return srv
 }
@@ -83,7 +105,7 @@ func setupContentStub(t *testing.T) *httptest.Server {
 func newChatWSFixture(t *testing.T, db *sql.DB) (*handler.ChatWSHandler, *ws.Client) {
 	t.Helper()
 	hub := ws.NewHub()
-	content := &contentclient.Client{BaseURL: setupContentStub(t).URL}
+	content := contentclient.NewClient(setupContentStub(t).URL, "test-secret", nil)
 	h := handler.NewChatWS(db, "test-secret", hub, content, "")
 	client := ws.NewClient(hub, "proj1", "user1", nil, nil)
 	hub.OpenRoomAndRegister("proj1", "s1", client)

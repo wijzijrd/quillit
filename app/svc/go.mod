@@ -3,16 +3,16 @@ module github.com/quillit/svc
 go 1.27.0
 
 require (
+	connectrpc.com/connect v1.20.0
 	github.com/go-chi/chi/v5 v5.3.1
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/gorilla/websocket v1.5.3
 	github.com/minio/minio-go/v7 v7.2.1
 	github.com/pressly/goose/v3 v3.27.3
-	github.com/quillit/contentengine v0.0.0
+	github.com/quillit/gen v0.0.0-00010101000000-000000000000
 	github.com/swaggo/http-swagger v1.3.4
 	github.com/swaggo/swag v1.16.6
 	golang.org/x/net v0.57.0
-	gopkg.in/yaml.v3 v3.0.1
 	modernc.org/sqlite v1.55.0
 )
 
@@ -96,7 +96,7 @@ require (
 	golang.org/x/tools v0.48.0 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260720211330-0afa2a65878a // indirect
 	google.golang.org/grpc v1.82.1 // indirect
-	google.golang.org/protobuf v1.36.11 // indirect
+	google.golang.org/protobuf v1.36.12 // indirect
 	gopkg.in/ini.v1 v1.67.2 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	howett.net/plist v1.0.1 // indirect

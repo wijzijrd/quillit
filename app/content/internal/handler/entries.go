@@ -167,14 +167,18 @@ func (h *EntriesHandler) Get(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *EntriesHandler) fetchResolved(ctx context.Context, id string) (Entry, error) {
-	return fetchResolvedEntry(ctx, h.q, h.blobs, id)
+	return FetchResolvedEntry(ctx, h.q, h.blobs, id)
 }
 
-// fetchResolvedEntry loads id's metadata plus its resolved body — the
+// FetchResolvedEntry loads id's metadata plus its resolved body — the
 // package-level form of EntriesHandler.fetchResolved, factored out so other
-// handler types (assign.go's AssignHandler) that also need to return a full
-// Entry after a mutation don't duplicate this lookup.
-func fetchResolvedEntry(ctx context.Context, q *sqlc.Queries, blobs BlobStore, id string) (Entry, error) {
+// callers that also need to return a full Entry after a lookup/mutation
+// don't duplicate it: assign.go's AssignHandler (same package), and
+// internal/rpc's ContentInternalServer.GetEntry (the connectrpc replacement
+// for this same Get handler's underlying lookup, reached by svc without a
+// per-user JWT — see internal/rpc/content_internal.go). Exported for that
+// cross-package reuse.
+func FetchResolvedEntry(ctx context.Context, q *sqlc.Queries, blobs BlobStore, id string) (Entry, error) {
 	row, err := q.GetEntryMeta(ctx, id)
 	if err != nil {
 		return Entry{}, err

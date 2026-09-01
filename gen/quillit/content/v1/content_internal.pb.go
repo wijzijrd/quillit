@@ -2,7 +2,7 @@
 // versions:
 // 	protoc-gen-go v1.36.12
 // 	protoc        (unknown)
-// source: quillit/content/internal/v1/content_internal.proto
+// source: quillit/content/v1/content_internal.proto
 
 // ContentInternalService is content's server-to-server surface, reached
 // only by other trusted services on the compose network (currently: svc),
@@ -16,6 +16,18 @@
 //     (POST /content/internal/projects/{id}/deleted), svc telling content a
 //     project it owned was deleted so content can apply its own
 //     orphan-and-report entry-retention policy (see #44).
+// Neither this package nor go_package below puts "internal" in the path,
+// unlike the analogous Go packages in app/content and app/svc: gen is a
+// separate Go module that svc needs to import this package from, and Go's
+// internal-package visibility rule (a path with an "internal" segment is
+// only importable by code rooted at that segment's parent) would make it
+// unimportable from outside github.com/quillit/gen/quillit/content — i.e.
+// unimportable from svc at all. buf's PACKAGE_DIRECTORY_MATCH lint rule
+// requires the package name and directory to agree, so both moved
+// together. Caught in Task 9 while wiring the first real cross-module
+// import of one of these packages (Task 8 never exercised that, since
+// nothing imported them yet). See gen/internalauth's own package (no
+// "internal" segment) for the same reasoning applied there from the start.
 
 package contentv1
 
@@ -43,7 +55,7 @@ type GetEntryRequest struct {
 
 func (x *GetEntryRequest) Reset() {
 	*x = GetEntryRequest{}
-	mi := &file_quillit_content_internal_v1_content_internal_proto_msgTypes[0]
+	mi := &file_quillit_content_v1_content_internal_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -55,7 +67,7 @@ func (x *GetEntryRequest) String() string {
 func (*GetEntryRequest) ProtoMessage() {}
 
 func (x *GetEntryRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_quillit_content_internal_v1_content_internal_proto_msgTypes[0]
+	mi := &file_quillit_content_v1_content_internal_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -68,7 +80,7 @@ func (x *GetEntryRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetEntryRequest.ProtoReflect.Descriptor instead.
 func (*GetEntryRequest) Descriptor() ([]byte, []int) {
-	return file_quillit_content_internal_v1_content_internal_proto_rawDescGZIP(), []int{0}
+	return file_quillit_content_v1_content_internal_proto_rawDescGZIP(), []int{0}
 }
 
 func (x *GetEntryRequest) GetEntryId() string {
@@ -93,7 +105,7 @@ type GetEntryResponse struct {
 
 func (x *GetEntryResponse) Reset() {
 	*x = GetEntryResponse{}
-	mi := &file_quillit_content_internal_v1_content_internal_proto_msgTypes[1]
+	mi := &file_quillit_content_v1_content_internal_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -105,7 +117,7 @@ func (x *GetEntryResponse) String() string {
 func (*GetEntryResponse) ProtoMessage() {}
 
 func (x *GetEntryResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_quillit_content_internal_v1_content_internal_proto_msgTypes[1]
+	mi := &file_quillit_content_v1_content_internal_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -118,7 +130,7 @@ func (x *GetEntryResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetEntryResponse.ProtoReflect.Descriptor instead.
 func (*GetEntryResponse) Descriptor() ([]byte, []int) {
-	return file_quillit_content_internal_v1_content_internal_proto_rawDescGZIP(), []int{1}
+	return file_quillit_content_v1_content_internal_proto_rawDescGZIP(), []int{1}
 }
 
 func (x *GetEntryResponse) GetId() string {
@@ -158,7 +170,7 @@ type NotifyProjectDeletedRequest struct {
 
 func (x *NotifyProjectDeletedRequest) Reset() {
 	*x = NotifyProjectDeletedRequest{}
-	mi := &file_quillit_content_internal_v1_content_internal_proto_msgTypes[2]
+	mi := &file_quillit_content_v1_content_internal_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -170,7 +182,7 @@ func (x *NotifyProjectDeletedRequest) String() string {
 func (*NotifyProjectDeletedRequest) ProtoMessage() {}
 
 func (x *NotifyProjectDeletedRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_quillit_content_internal_v1_content_internal_proto_msgTypes[2]
+	mi := &file_quillit_content_v1_content_internal_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -183,7 +195,7 @@ func (x *NotifyProjectDeletedRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NotifyProjectDeletedRequest.ProtoReflect.Descriptor instead.
 func (*NotifyProjectDeletedRequest) Descriptor() ([]byte, []int) {
-	return file_quillit_content_internal_v1_content_internal_proto_rawDescGZIP(), []int{2}
+	return file_quillit_content_v1_content_internal_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *NotifyProjectDeletedRequest) GetProjectId() string {
@@ -204,7 +216,7 @@ type NotifyProjectDeletedResponse struct {
 
 func (x *NotifyProjectDeletedResponse) Reset() {
 	*x = NotifyProjectDeletedResponse{}
-	mi := &file_quillit_content_internal_v1_content_internal_proto_msgTypes[3]
+	mi := &file_quillit_content_v1_content_internal_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -216,7 +228,7 @@ func (x *NotifyProjectDeletedResponse) String() string {
 func (*NotifyProjectDeletedResponse) ProtoMessage() {}
 
 func (x *NotifyProjectDeletedResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_quillit_content_internal_v1_content_internal_proto_msgTypes[3]
+	mi := &file_quillit_content_v1_content_internal_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -229,7 +241,7 @@ func (x *NotifyProjectDeletedResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NotifyProjectDeletedResponse.ProtoReflect.Descriptor instead.
 func (*NotifyProjectDeletedResponse) Descriptor() ([]byte, []int) {
-	return file_quillit_content_internal_v1_content_internal_proto_rawDescGZIP(), []int{3}
+	return file_quillit_content_v1_content_internal_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *NotifyProjectDeletedResponse) GetProjectId() string {
@@ -246,11 +258,11 @@ func (x *NotifyProjectDeletedResponse) GetEntriesOrphaned() int32 {
 	return 0
 }
 
-var File_quillit_content_internal_v1_content_internal_proto protoreflect.FileDescriptor
+var File_quillit_content_v1_content_internal_proto protoreflect.FileDescriptor
 
-const file_quillit_content_internal_v1_content_internal_proto_rawDesc = "" +
+const file_quillit_content_v1_content_internal_proto_rawDesc = "" +
 	"\n" +
-	"2quillit/content/internal/v1/content_internal.proto\x12\x1bquillit.content.internal.v1\",\n" +
+	")quillit/content/v1/content_internal.proto\x12\x12quillit.content.v1\",\n" +
 	"\x0fGetEntryRequest\x12\x19\n" +
 	"\bentry_id\x18\x01 \x01(\tR\aentryId\"k\n" +
 	"\x10GetEntryResponse\x12\x0e\n" +
@@ -265,35 +277,35 @@ const file_quillit_content_internal_v1_content_internal_proto_rawDesc = "" +
 	"\x1cNotifyProjectDeletedResponse\x12\x1d\n" +
 	"\n" +
 	"project_id\x18\x01 \x01(\tR\tprojectId\x12)\n" +
-	"\x10entries_orphaned\x18\x02 \x01(\x05R\x0fentriesOrphaned2\x8f\x02\n" +
-	"\x16ContentInternalService\x12g\n" +
-	"\bGetEntry\x12,.quillit.content.internal.v1.GetEntryRequest\x1a-.quillit.content.internal.v1.GetEntryResponse\x12\x8b\x01\n" +
-	"\x14NotifyProjectDeleted\x128.quillit.content.internal.v1.NotifyProjectDeletedRequest\x1a9.quillit.content.internal.v1.NotifyProjectDeletedResponseB>Z<github.com/quillit/gen/quillit/content/internal/v1;contentv1b\x06proto3"
+	"\x10entries_orphaned\x18\x02 \x01(\x05R\x0fentriesOrphaned2\xea\x01\n" +
+	"\x16ContentInternalService\x12U\n" +
+	"\bGetEntry\x12#.quillit.content.v1.GetEntryRequest\x1a$.quillit.content.v1.GetEntryResponse\x12y\n" +
+	"\x14NotifyProjectDeleted\x12/.quillit.content.v1.NotifyProjectDeletedRequest\x1a0.quillit.content.v1.NotifyProjectDeletedResponseB5Z3github.com/quillit/gen/quillit/content/v1;contentv1b\x06proto3"
 
 var (
-	file_quillit_content_internal_v1_content_internal_proto_rawDescOnce sync.Once
-	file_quillit_content_internal_v1_content_internal_proto_rawDescData []byte
+	file_quillit_content_v1_content_internal_proto_rawDescOnce sync.Once
+	file_quillit_content_v1_content_internal_proto_rawDescData []byte
 )
 
-func file_quillit_content_internal_v1_content_internal_proto_rawDescGZIP() []byte {
-	file_quillit_content_internal_v1_content_internal_proto_rawDescOnce.Do(func() {
-		file_quillit_content_internal_v1_content_internal_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_quillit_content_internal_v1_content_internal_proto_rawDesc), len(file_quillit_content_internal_v1_content_internal_proto_rawDesc)))
+func file_quillit_content_v1_content_internal_proto_rawDescGZIP() []byte {
+	file_quillit_content_v1_content_internal_proto_rawDescOnce.Do(func() {
+		file_quillit_content_v1_content_internal_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_quillit_content_v1_content_internal_proto_rawDesc), len(file_quillit_content_v1_content_internal_proto_rawDesc)))
 	})
-	return file_quillit_content_internal_v1_content_internal_proto_rawDescData
+	return file_quillit_content_v1_content_internal_proto_rawDescData
 }
 
-var file_quillit_content_internal_v1_content_internal_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
-var file_quillit_content_internal_v1_content_internal_proto_goTypes = []any{
-	(*GetEntryRequest)(nil),              // 0: quillit.content.internal.v1.GetEntryRequest
-	(*GetEntryResponse)(nil),             // 1: quillit.content.internal.v1.GetEntryResponse
-	(*NotifyProjectDeletedRequest)(nil),  // 2: quillit.content.internal.v1.NotifyProjectDeletedRequest
-	(*NotifyProjectDeletedResponse)(nil), // 3: quillit.content.internal.v1.NotifyProjectDeletedResponse
+var file_quillit_content_v1_content_internal_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
+var file_quillit_content_v1_content_internal_proto_goTypes = []any{
+	(*GetEntryRequest)(nil),              // 0: quillit.content.v1.GetEntryRequest
+	(*GetEntryResponse)(nil),             // 1: quillit.content.v1.GetEntryResponse
+	(*NotifyProjectDeletedRequest)(nil),  // 2: quillit.content.v1.NotifyProjectDeletedRequest
+	(*NotifyProjectDeletedResponse)(nil), // 3: quillit.content.v1.NotifyProjectDeletedResponse
 }
-var file_quillit_content_internal_v1_content_internal_proto_depIdxs = []int32{
-	0, // 0: quillit.content.internal.v1.ContentInternalService.GetEntry:input_type -> quillit.content.internal.v1.GetEntryRequest
-	2, // 1: quillit.content.internal.v1.ContentInternalService.NotifyProjectDeleted:input_type -> quillit.content.internal.v1.NotifyProjectDeletedRequest
-	1, // 2: quillit.content.internal.v1.ContentInternalService.GetEntry:output_type -> quillit.content.internal.v1.GetEntryResponse
-	3, // 3: quillit.content.internal.v1.ContentInternalService.NotifyProjectDeleted:output_type -> quillit.content.internal.v1.NotifyProjectDeletedResponse
+var file_quillit_content_v1_content_internal_proto_depIdxs = []int32{
+	0, // 0: quillit.content.v1.ContentInternalService.GetEntry:input_type -> quillit.content.v1.GetEntryRequest
+	2, // 1: quillit.content.v1.ContentInternalService.NotifyProjectDeleted:input_type -> quillit.content.v1.NotifyProjectDeletedRequest
+	1, // 2: quillit.content.v1.ContentInternalService.GetEntry:output_type -> quillit.content.v1.GetEntryResponse
+	3, // 3: quillit.content.v1.ContentInternalService.NotifyProjectDeleted:output_type -> quillit.content.v1.NotifyProjectDeletedResponse
 	2, // [2:4] is the sub-list for method output_type
 	0, // [0:2] is the sub-list for method input_type
 	0, // [0:0] is the sub-list for extension type_name
@@ -301,26 +313,26 @@ var file_quillit_content_internal_v1_content_internal_proto_depIdxs = []int32{
 	0, // [0:0] is the sub-list for field type_name
 }
 
-func init() { file_quillit_content_internal_v1_content_internal_proto_init() }
-func file_quillit_content_internal_v1_content_internal_proto_init() {
-	if File_quillit_content_internal_v1_content_internal_proto != nil {
+func init() { file_quillit_content_v1_content_internal_proto_init() }
+func file_quillit_content_v1_content_internal_proto_init() {
+	if File_quillit_content_v1_content_internal_proto != nil {
 		return
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
-			RawDescriptor: unsafe.Slice(unsafe.StringData(file_quillit_content_internal_v1_content_internal_proto_rawDesc), len(file_quillit_content_internal_v1_content_internal_proto_rawDesc)),
+			RawDescriptor: unsafe.Slice(unsafe.StringData(file_quillit_content_v1_content_internal_proto_rawDesc), len(file_quillit_content_v1_content_internal_proto_rawDesc)),
 			NumEnums:      0,
 			NumMessages:   4,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
-		GoTypes:           file_quillit_content_internal_v1_content_internal_proto_goTypes,
-		DependencyIndexes: file_quillit_content_internal_v1_content_internal_proto_depIdxs,
-		MessageInfos:      file_quillit_content_internal_v1_content_internal_proto_msgTypes,
+		GoTypes:           file_quillit_content_v1_content_internal_proto_goTypes,
+		DependencyIndexes: file_quillit_content_v1_content_internal_proto_depIdxs,
+		MessageInfos:      file_quillit_content_v1_content_internal_proto_msgTypes,
 	}.Build()
-	File_quillit_content_internal_v1_content_internal_proto = out.File
-	file_quillit_content_internal_v1_content_internal_proto_goTypes = nil
-	file_quillit_content_internal_v1_content_internal_proto_depIdxs = nil
+	File_quillit_content_v1_content_internal_proto = out.File
+	file_quillit_content_v1_content_internal_proto_goTypes = nil
+	file_quillit_content_v1_content_internal_proto_depIdxs = nil
 }

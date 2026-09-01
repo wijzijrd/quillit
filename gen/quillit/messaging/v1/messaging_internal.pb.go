@@ -2,7 +2,7 @@
 // versions:
 // 	protoc-gen-go v1.36.12
 // 	protoc        (unknown)
-// source: quillit/messaging/internal/v1/messaging_internal.proto
+// source: quillit/messaging/v1/messaging_internal.proto
 
 // MessagingInternalService is messaging's server-to-server surface,
 // reached only by other trusted services on the compose network. It is
@@ -13,6 +13,12 @@
 // carries the same shared-secret authentication, but via the
 // X-Internal-Secret header and gen/internalauth's interceptor rather than
 // a handler-local check.
+// Neither this package nor go_package below puts "internal" in the path —
+// see content_internal.proto's package comment for why (Go's
+// internal-package visibility rule would make this package unimportable
+// from svc/auth, separate Go modules). Fixed proactively in Task 9
+// alongside the same issue on content/svc's proto packages, ahead of
+// Task 10 actually importing this one.
 
 package messagingv1
 
@@ -44,7 +50,7 @@ type SendEmailRequest struct {
 
 func (x *SendEmailRequest) Reset() {
 	*x = SendEmailRequest{}
-	mi := &file_quillit_messaging_internal_v1_messaging_internal_proto_msgTypes[0]
+	mi := &file_quillit_messaging_v1_messaging_internal_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -56,7 +62,7 @@ func (x *SendEmailRequest) String() string {
 func (*SendEmailRequest) ProtoMessage() {}
 
 func (x *SendEmailRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_quillit_messaging_internal_v1_messaging_internal_proto_msgTypes[0]
+	mi := &file_quillit_messaging_v1_messaging_internal_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -69,7 +75,7 @@ func (x *SendEmailRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SendEmailRequest.ProtoReflect.Descriptor instead.
 func (*SendEmailRequest) Descriptor() ([]byte, []int) {
-	return file_quillit_messaging_internal_v1_messaging_internal_proto_rawDescGZIP(), []int{0}
+	return file_quillit_messaging_v1_messaging_internal_proto_rawDescGZIP(), []int{0}
 }
 
 func (x *SendEmailRequest) GetTo() string {
@@ -110,7 +116,7 @@ type SendEmailResponse struct {
 
 func (x *SendEmailResponse) Reset() {
 	*x = SendEmailResponse{}
-	mi := &file_quillit_messaging_internal_v1_messaging_internal_proto_msgTypes[1]
+	mi := &file_quillit_messaging_v1_messaging_internal_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -122,7 +128,7 @@ func (x *SendEmailResponse) String() string {
 func (*SendEmailResponse) ProtoMessage() {}
 
 func (x *SendEmailResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_quillit_messaging_internal_v1_messaging_internal_proto_msgTypes[1]
+	mi := &file_quillit_messaging_v1_messaging_internal_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -135,7 +141,7 @@ func (x *SendEmailResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SendEmailResponse.ProtoReflect.Descriptor instead.
 func (*SendEmailResponse) Descriptor() ([]byte, []int) {
-	return file_quillit_messaging_internal_v1_messaging_internal_proto_rawDescGZIP(), []int{1}
+	return file_quillit_messaging_v1_messaging_internal_proto_rawDescGZIP(), []int{1}
 }
 
 func (x *SendEmailResponse) GetOk() bool {
@@ -145,41 +151,41 @@ func (x *SendEmailResponse) GetOk() bool {
 	return false
 }
 
-var File_quillit_messaging_internal_v1_messaging_internal_proto protoreflect.FileDescriptor
+var File_quillit_messaging_v1_messaging_internal_proto protoreflect.FileDescriptor
 
-const file_quillit_messaging_internal_v1_messaging_internal_proto_rawDesc = "" +
+const file_quillit_messaging_v1_messaging_internal_proto_rawDesc = "" +
 	"\n" +
-	"6quillit/messaging/internal/v1/messaging_internal.proto\x12\x1dquillit.messaging.internal.v1\"d\n" +
+	"-quillit/messaging/v1/messaging_internal.proto\x12\x14quillit.messaging.v1\"d\n" +
 	"\x10SendEmailRequest\x12\x0e\n" +
 	"\x02to\x18\x01 \x01(\tR\x02to\x12\x18\n" +
 	"\asubject\x18\x02 \x01(\tR\asubject\x12\x12\n" +
 	"\x04text\x18\x03 \x01(\tR\x04text\x12\x12\n" +
 	"\x04html\x18\x04 \x01(\tR\x04html\"#\n" +
 	"\x11SendEmailResponse\x12\x0e\n" +
-	"\x02ok\x18\x01 \x01(\bR\x02ok2\x8a\x01\n" +
-	"\x18MessagingInternalService\x12n\n" +
-	"\tSendEmail\x12/.quillit.messaging.internal.v1.SendEmailRequest\x1a0.quillit.messaging.internal.v1.SendEmailResponseBBZ@github.com/quillit/gen/quillit/messaging/internal/v1;messagingv1b\x06proto3"
+	"\x02ok\x18\x01 \x01(\bR\x02ok2x\n" +
+	"\x18MessagingInternalService\x12\\\n" +
+	"\tSendEmail\x12&.quillit.messaging.v1.SendEmailRequest\x1a'.quillit.messaging.v1.SendEmailResponseB9Z7github.com/quillit/gen/quillit/messaging/v1;messagingv1b\x06proto3"
 
 var (
-	file_quillit_messaging_internal_v1_messaging_internal_proto_rawDescOnce sync.Once
-	file_quillit_messaging_internal_v1_messaging_internal_proto_rawDescData []byte
+	file_quillit_messaging_v1_messaging_internal_proto_rawDescOnce sync.Once
+	file_quillit_messaging_v1_messaging_internal_proto_rawDescData []byte
 )
 
-func file_quillit_messaging_internal_v1_messaging_internal_proto_rawDescGZIP() []byte {
-	file_quillit_messaging_internal_v1_messaging_internal_proto_rawDescOnce.Do(func() {
-		file_quillit_messaging_internal_v1_messaging_internal_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_quillit_messaging_internal_v1_messaging_internal_proto_rawDesc), len(file_quillit_messaging_internal_v1_messaging_internal_proto_rawDesc)))
+func file_quillit_messaging_v1_messaging_internal_proto_rawDescGZIP() []byte {
+	file_quillit_messaging_v1_messaging_internal_proto_rawDescOnce.Do(func() {
+		file_quillit_messaging_v1_messaging_internal_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_quillit_messaging_v1_messaging_internal_proto_rawDesc), len(file_quillit_messaging_v1_messaging_internal_proto_rawDesc)))
 	})
-	return file_quillit_messaging_internal_v1_messaging_internal_proto_rawDescData
+	return file_quillit_messaging_v1_messaging_internal_proto_rawDescData
 }
 
-var file_quillit_messaging_internal_v1_messaging_internal_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
-var file_quillit_messaging_internal_v1_messaging_internal_proto_goTypes = []any{
-	(*SendEmailRequest)(nil),  // 0: quillit.messaging.internal.v1.SendEmailRequest
-	(*SendEmailResponse)(nil), // 1: quillit.messaging.internal.v1.SendEmailResponse
+var file_quillit_messaging_v1_messaging_internal_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
+var file_quillit_messaging_v1_messaging_internal_proto_goTypes = []any{
+	(*SendEmailRequest)(nil),  // 0: quillit.messaging.v1.SendEmailRequest
+	(*SendEmailResponse)(nil), // 1: quillit.messaging.v1.SendEmailResponse
 }
-var file_quillit_messaging_internal_v1_messaging_internal_proto_depIdxs = []int32{
-	0, // 0: quillit.messaging.internal.v1.MessagingInternalService.SendEmail:input_type -> quillit.messaging.internal.v1.SendEmailRequest
-	1, // 1: quillit.messaging.internal.v1.MessagingInternalService.SendEmail:output_type -> quillit.messaging.internal.v1.SendEmailResponse
+var file_quillit_messaging_v1_messaging_internal_proto_depIdxs = []int32{
+	0, // 0: quillit.messaging.v1.MessagingInternalService.SendEmail:input_type -> quillit.messaging.v1.SendEmailRequest
+	1, // 1: quillit.messaging.v1.MessagingInternalService.SendEmail:output_type -> quillit.messaging.v1.SendEmailResponse
 	1, // [1:2] is the sub-list for method output_type
 	0, // [0:1] is the sub-list for method input_type
 	0, // [0:0] is the sub-list for extension type_name
@@ -187,26 +193,26 @@ var file_quillit_messaging_internal_v1_messaging_internal_proto_depIdxs = []int3
 	0, // [0:0] is the sub-list for field type_name
 }
 
-func init() { file_quillit_messaging_internal_v1_messaging_internal_proto_init() }
-func file_quillit_messaging_internal_v1_messaging_internal_proto_init() {
-	if File_quillit_messaging_internal_v1_messaging_internal_proto != nil {
+func init() { file_quillit_messaging_v1_messaging_internal_proto_init() }
+func file_quillit_messaging_v1_messaging_internal_proto_init() {
+	if File_quillit_messaging_v1_messaging_internal_proto != nil {
 		return
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
-			RawDescriptor: unsafe.Slice(unsafe.StringData(file_quillit_messaging_internal_v1_messaging_internal_proto_rawDesc), len(file_quillit_messaging_internal_v1_messaging_internal_proto_rawDesc)),
+			RawDescriptor: unsafe.Slice(unsafe.StringData(file_quillit_messaging_v1_messaging_internal_proto_rawDesc), len(file_quillit_messaging_v1_messaging_internal_proto_rawDesc)),
 			NumEnums:      0,
 			NumMessages:   2,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
-		GoTypes:           file_quillit_messaging_internal_v1_messaging_internal_proto_goTypes,
-		DependencyIndexes: file_quillit_messaging_internal_v1_messaging_internal_proto_depIdxs,
-		MessageInfos:      file_quillit_messaging_internal_v1_messaging_internal_proto_msgTypes,
+		GoTypes:           file_quillit_messaging_v1_messaging_internal_proto_goTypes,
+		DependencyIndexes: file_quillit_messaging_v1_messaging_internal_proto_depIdxs,
+		MessageInfos:      file_quillit_messaging_v1_messaging_internal_proto_msgTypes,
 	}.Build()
-	File_quillit_messaging_internal_v1_messaging_internal_proto = out.File
-	file_quillit_messaging_internal_v1_messaging_internal_proto_goTypes = nil
-	file_quillit_messaging_internal_v1_messaging_internal_proto_depIdxs = nil
+	File_quillit_messaging_v1_messaging_internal_proto = out.File
+	file_quillit_messaging_v1_messaging_internal_proto_goTypes = nil
+	file_quillit_messaging_v1_messaging_internal_proto_depIdxs = nil
 }

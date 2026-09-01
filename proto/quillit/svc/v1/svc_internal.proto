@@ -3,13 +3,17 @@ syntax = "proto3";
 // SvcInternalService is svc's server-to-server surface, reached only by
 // other trusted services on the compose network (currently: content,
 // checking authorization for its own endpoints). It is the connectrpc
-// replacement for svc's existing internal-only HTTP route
-// GET /internal/projects/{id}/members/{userId}
-// (app/svc/internal/handler/projects.go's InternalMembership), called
-// today by app/content/internal/authz.SvcChecker.checkSvc.
-package quillit.svc.internal.v1;
+// replacement for svc's former internal-only HTTP route
+// GET /internal/projects/{id}/members/{userId} (formerly
+// app/svc/internal/handler/projects.go's InternalMembership, removed as of
+// Task 9), called by app/content/internal/authz.SvcChecker.checkSvc.
+// Neither this package nor go_package below puts "internal" in the path —
+// see content_internal.proto's package comment for why (Go's
+// internal-package visibility rule would make this package unimportable
+// from content, a separate Go module).
+package quillit.svc.v1;
 
-option go_package = "github.com/quillit/gen/quillit/svc/internal/v1;svcv1";
+option go_package = "github.com/quillit/gen/quillit/svc/v1;svcv1";
 
 // SvcInternalService is served by svc and called by content.
 service SvcInternalService {

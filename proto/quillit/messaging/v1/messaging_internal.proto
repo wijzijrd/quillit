@@ -9,9 +9,15 @@ syntax = "proto3";
 // carries the same shared-secret authentication, but via the
 // X-Internal-Secret header and gen/internalauth's interceptor rather than
 // a handler-local check.
-package quillit.messaging.internal.v1;
+// Neither this package nor go_package below puts "internal" in the path —
+// see content_internal.proto's package comment for why (Go's
+// internal-package visibility rule would make this package unimportable
+// from svc/auth, separate Go modules). Fixed proactively in Task 9
+// alongside the same issue on content/svc's proto packages, ahead of
+// Task 10 actually importing this one.
+package quillit.messaging.v1;
 
-option go_package = "github.com/quillit/gen/quillit/messaging/internal/v1;messagingv1";
+option go_package = "github.com/quillit/gen/quillit/messaging/v1;messagingv1";
 
 // MessagingInternalService is served by messaging and called by svc/auth.
 service MessagingInternalService {

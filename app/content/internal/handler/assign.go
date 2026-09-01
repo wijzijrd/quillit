@@ -19,7 +19,7 @@ import (
 // the same way render.go and links_handler.go are split out from
 // entries.go/links.go: a distinct HTTP-facing concern, built on top of
 // entries.go/links.go's existing helpers (recompileLinks, splitEntryPath/
-// joinEntryPath, fetchResolvedEntry) rather than reimplementing them.
+// joinEntryPath, FetchResolvedEntry) rather than reimplementing them.
 type AssignHandler struct {
 	db        *sql.DB
 	q         *sqlc.Queries
@@ -164,7 +164,7 @@ func (h *AssignHandler) Assign(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	e, err := fetchResolvedEntry(r.Context(), h.q, h.blobs, id)
+	e, err := FetchResolvedEntry(r.Context(), h.q, h.blobs, id)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "db error")
 		return

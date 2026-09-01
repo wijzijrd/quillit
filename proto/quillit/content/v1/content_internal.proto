@@ -12,9 +12,21 @@ syntax = "proto3";
 //     (POST /content/internal/projects/{id}/deleted), svc telling content a
 //     project it owned was deleted so content can apply its own
 //     orphan-and-report entry-retention policy (see #44).
-package quillit.content.internal.v1;
+// Neither this package nor go_package below puts "internal" in the path,
+// unlike the analogous Go packages in app/content and app/svc: gen is a
+// separate Go module that svc needs to import this package from, and Go's
+// internal-package visibility rule (a path with an "internal" segment is
+// only importable by code rooted at that segment's parent) would make it
+// unimportable from outside github.com/quillit/gen/quillit/content — i.e.
+// unimportable from svc at all. buf's PACKAGE_DIRECTORY_MATCH lint rule
+// requires the package name and directory to agree, so both moved
+// together. Caught in Task 9 while wiring the first real cross-module
+// import of one of these packages (Task 8 never exercised that, since
+// nothing imported them yet). See gen/internalauth's own package (no
+// "internal" segment) for the same reasoning applied there from the start.
+package quillit.content.v1;
 
-option go_package = "github.com/quillit/gen/quillit/content/internal/v1;contentv1";
+option go_package = "github.com/quillit/gen/quillit/content/v1;contentv1";
 
 // ContentInternalService is served by content and called by svc.
 service ContentInternalService {

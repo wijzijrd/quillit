@@ -679,60 +679,22 @@ func (h *ProjectsHandler) Join(w http.ResponseWriter, r *http.Request) {
 
 // ── Internal (#44) ───────────────────────────────────────────────────────────
 
-// membershipResponse is InternalMembership's 200 body — enough for content
-// to both answer its own yes/no membership question and, if it ever needs
-// it, know the caller's role/project type without a second round trip.
-type membershipResponse struct {
-	ProjectID   string `json:"projectId"`
-	UserID      string `json:"userId"`
-	Role        string `json:"role"`
-	ProjectType string `json:"projectType"`
-}
-
-// InternalMembership answers "does userID belong to projectID" for
-// server-to-server callers — currently content, checking authorization for
-// its own endpoints (see app/content/internal/authz.SvcChecker and the #44
-// PR notes on why membership resolution lives here rather than in the
-// JWT). Mounted outside /api in main.go, so it's never reachable through
-// ui's nginx proxy (app/ui/nginx.conf only forwards /api/) — the same
-// "not publicly routed, reachable only on the compose network" trust
-// boundary content itself already relies on (infra/docker-compose.yml
-// gives content no exposed port at all).
-//
-// 200 means userID is a member (body carries their role); 404 means
-// either the project doesn't exist or userID isn't in it — content
-// deliberately doesn't need to tell those apart (both mean "reject").
-func (h *ProjectsHandler) InternalMembership(w http.ResponseWriter, r *http.Request) {
-	projectID := chi.URLParam(r, "id")
-	userID := chi.URLParam(r, "userId")
-	if projectID == "" || userID == "" {
-		writeError(w, http.StatusBadRequest, "missing project or user id")
-		return
-	}
-
-	projectType, role, err := h.memberRole(r, projectID, userID)
-	if errors.Is(err, sql.ErrNoRows) {
-		writeError(w, http.StatusNotFound, "not a member")
-		return
-	}
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "db error")
-		return
-	}
-
-	writeJSON(w, http.StatusOK, membershipResponse{
-		ProjectID:   projectID,
-		UserID:      userID,
-		Role:        role,
-		ProjectType: projectType,
-	})
-}
-
 // ── Private helpers ───────────────────────────────────────────────────────────
 
-// memberRole returns the project type and the caller's role within projectID.
-func (h *ProjectsHandler) memberRole(r *http.Request, projectID, userID string) (projectType, role string, err error) {
-	row, err := h.q.GetMemberRole(r.Context(), sqlc.GetMemberRoleParams{
+// MemberRole returns the project type and userID's role within projectID.
+// Exported (package-level, taking ctx/q directly rather than a
+// *ProjectsHandler/*http.Request) so internal/rpc.SvcInternalServer.
+// CheckMembership — the connectrpc replacement for the old HTTP-only
+// InternalMembership route, called by app/content/internal/authz.SvcChecker
+// — can reuse the exact same query without needing an *http.Request.
+// ProjectsHandler.memberRole (below) delegates to this rather than
+// duplicating the query, so every one of its existing callers in this file
+// is unaffected.
+// sql.ErrNoRows means either the project doesn't exist or userID isn't in
+// it — callers deliberately don't need to tell those apart (both mean
+// "reject").
+func MemberRole(ctx context.Context, q *sqlc.Queries, projectID, userID string) (projectType, role string, err error) {
+	row, err := q.GetMemberRole(ctx, sqlc.GetMemberRoleParams{
 		UserID: userID,
 		ID:     projectID,
 	})
@@ -740,6 +702,11 @@ func (h *ProjectsHandler) memberRole(r *http.Request, projectID, userID string) 
 		return "", "", err
 	}
 	return row.Type, row.Role, nil
+}
+
+// memberRole returns the project type and the caller's role within projectID.
+func (h *ProjectsHandler) memberRole(r *http.Request, projectID, userID string) (projectType, role string, err error) {
+	return MemberRole(r.Context(), h.q, projectID, userID)
 }
 
 // fetchProject returns a single Project struct for the given caller.

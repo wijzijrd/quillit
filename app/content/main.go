@@ -8,14 +8,19 @@ import (
 	"os"
 	"time"
 
+	"connectrpc.com/connect"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
 
+	"github.com/quillit/gen/internalauth"
+	contentv1connect "github.com/quillit/gen/quillit/content/v1/contentv1connect"
+
 	"github.com/quillit/content-svc/internal/authz"
 	"github.com/quillit/content-svc/internal/db"
 	"github.com/quillit/content-svc/internal/handler"
+	"github.com/quillit/content-svc/internal/rpc"
 	"github.com/quillit/content-svc/internal/storage"
 )
 
@@ -24,6 +29,13 @@ func main() {
 	dbPath := env("DB_PATH", "./quillit-content.db")
 	jwtSecret := mustEnv("JWT_SECRET")
 	svcURL := env("SVC_SERVICE_URL", "http://localhost:3000")
+	// Shared secret gating every quillit-internal connect RPC (both the
+	// ContentInternalService server mounted below and the SvcInternalService
+	// client authz.NewSvcChecker builds) — see gen/internalauth. Mirrors how
+	// MESSAGING_SECRET is read in app/auth and app/messaging today: an env
+	// var, not yet wired into infra/docker-compose.yml/.env.example (that's
+	// a later task).
+	internalRPCSecret := env("INTERNAL_RPC_SECRET", "")
 
 	database, err := db.Open(dbPath)
 	if err != nil {
@@ -54,7 +66,7 @@ func main() {
 	// across every handler so its membership cache (short-TTL, with a
 	// bounded stale-fallback window for svc outages — see internal/authz)
 	// does the most good.
-	checker := authz.NewSvcChecker(svcURL, &http.Client{Timeout: 3 * time.Second})
+	checker := authz.NewSvcChecker(svcURL, internalRPCSecret, &http.Client{Timeout: 3 * time.Second})
 
 	health := handler.NewHealth(database)
 	entries := handler.NewEntries(database, jwtSecret, blobs, checker)
@@ -64,7 +76,6 @@ func main() {
 	links := handler.NewLinks(database, blobs, jwtSecret, checker)
 	search := handler.NewSearch(database, jwtSecret, checker)
 	assign := handler.NewAssign(database, blobs, jwtSecret, checker)
-	internal := handler.NewInternal(database)
 	importer := handler.NewImport(database, jwtSecret, blobs, checker)
 
 	r := chi.NewRouter()
@@ -97,13 +108,24 @@ func main() {
 		r.Post("/projects/{id}/facets", facets.CreateForProject)
 		r.Delete("/projects/{id}/facets/{name}", facets.DeleteForProject)
 		r.Post("/projects/{id}/compile", links.CompileProject)
-
-		// Internal-only: svc reports cross-domain events here (currently:
-		// project deletion — see internal/handler/internal.go for why this
-		// isn't behind requireCaller/requireProjectMember like everything
-		// else in this route group).
-		r.Post("/internal/projects/{id}/deleted", internal.ProjectDeleted)
 	})
+
+	// ContentInternalService: content's server-to-server connect RPC
+	// surface, reached only by svc (never a browser, never proxied through
+	// requireCaller/requireProjectMember the way everything under /content
+	// above is — see internal/rpc/content_internal.go's package doc).
+	// Gated by the shared-secret interceptor rather than a per-request JWT.
+	// Replaces the old POST /content/internal/projects/{id}/deleted route
+	// (NotifyProjectDeleted) outright; GetEntry is a new, separate surface
+	// alongside (not a replacement for) the still-live GET
+	// /content/entries/{id} HTTP route, which UI-facing traffic still needs
+	// (see docstring above).
+	contentInternal := rpc.NewContentInternalServer(database, blobs)
+	contentRPCPath, contentRPCHandler := contentv1connect.NewContentInternalServiceHandler(
+		contentInternal,
+		connect.WithInterceptors(internalauth.NewServerInterceptor(internalRPCSecret)),
+	)
+	r.Mount(contentRPCPath, contentRPCHandler)
 
 	addr := fmt.Sprintf(":%s", port)
 	log.Printf("quillit-content-svc listening on %s (HTTP/2 cleartext)", addr)

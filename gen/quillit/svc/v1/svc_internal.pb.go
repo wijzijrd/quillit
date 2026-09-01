@@ -2,15 +2,19 @@
 // versions:
 // 	protoc-gen-go v1.36.12
 // 	protoc        (unknown)
-// source: quillit/svc/internal/v1/svc_internal.proto
+// source: quillit/svc/v1/svc_internal.proto
 
 // SvcInternalService is svc's server-to-server surface, reached only by
 // other trusted services on the compose network (currently: content,
 // checking authorization for its own endpoints). It is the connectrpc
-// replacement for svc's existing internal-only HTTP route
-// GET /internal/projects/{id}/members/{userId}
-// (app/svc/internal/handler/projects.go's InternalMembership), called
-// today by app/content/internal/authz.SvcChecker.checkSvc.
+// replacement for svc's former internal-only HTTP route
+// GET /internal/projects/{id}/members/{userId} (formerly
+// app/svc/internal/handler/projects.go's InternalMembership, removed as of
+// Task 9), called by app/content/internal/authz.SvcChecker.checkSvc.
+// Neither this package nor go_package below puts "internal" in the path —
+// see content_internal.proto's package comment for why (Go's
+// internal-package visibility rule would make this package unimportable
+// from content, a separate Go module).
 
 package svcv1
 
@@ -39,7 +43,7 @@ type CheckMembershipRequest struct {
 
 func (x *CheckMembershipRequest) Reset() {
 	*x = CheckMembershipRequest{}
-	mi := &file_quillit_svc_internal_v1_svc_internal_proto_msgTypes[0]
+	mi := &file_quillit_svc_v1_svc_internal_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -51,7 +55,7 @@ func (x *CheckMembershipRequest) String() string {
 func (*CheckMembershipRequest) ProtoMessage() {}
 
 func (x *CheckMembershipRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_quillit_svc_internal_v1_svc_internal_proto_msgTypes[0]
+	mi := &file_quillit_svc_v1_svc_internal_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -64,7 +68,7 @@ func (x *CheckMembershipRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CheckMembershipRequest.ProtoReflect.Descriptor instead.
 func (*CheckMembershipRequest) Descriptor() ([]byte, []int) {
-	return file_quillit_svc_internal_v1_svc_internal_proto_rawDescGZIP(), []int{0}
+	return file_quillit_svc_v1_svc_internal_proto_rawDescGZIP(), []int{0}
 }
 
 func (x *CheckMembershipRequest) GetProjectId() string {
@@ -99,7 +103,7 @@ type CheckMembershipResponse struct {
 
 func (x *CheckMembershipResponse) Reset() {
 	*x = CheckMembershipResponse{}
-	mi := &file_quillit_svc_internal_v1_svc_internal_proto_msgTypes[1]
+	mi := &file_quillit_svc_v1_svc_internal_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -111,7 +115,7 @@ func (x *CheckMembershipResponse) String() string {
 func (*CheckMembershipResponse) ProtoMessage() {}
 
 func (x *CheckMembershipResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_quillit_svc_internal_v1_svc_internal_proto_msgTypes[1]
+	mi := &file_quillit_svc_v1_svc_internal_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -124,7 +128,7 @@ func (x *CheckMembershipResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CheckMembershipResponse.ProtoReflect.Descriptor instead.
 func (*CheckMembershipResponse) Descriptor() ([]byte, []int) {
-	return file_quillit_svc_internal_v1_svc_internal_proto_rawDescGZIP(), []int{1}
+	return file_quillit_svc_v1_svc_internal_proto_rawDescGZIP(), []int{1}
 }
 
 func (x *CheckMembershipResponse) GetIsMember() bool {
@@ -148,11 +152,11 @@ func (x *CheckMembershipResponse) GetProjectType() string {
 	return ""
 }
 
-var File_quillit_svc_internal_v1_svc_internal_proto protoreflect.FileDescriptor
+var File_quillit_svc_v1_svc_internal_proto protoreflect.FileDescriptor
 
-const file_quillit_svc_internal_v1_svc_internal_proto_rawDesc = "" +
+const file_quillit_svc_v1_svc_internal_proto_rawDesc = "" +
 	"\n" +
-	"*quillit/svc/internal/v1/svc_internal.proto\x12\x17quillit.svc.internal.v1\"P\n" +
+	"!quillit/svc/v1/svc_internal.proto\x12\x0equillit.svc.v1\"P\n" +
 	"\x16CheckMembershipRequest\x12\x1d\n" +
 	"\n" +
 	"project_id\x18\x01 \x01(\tR\tprojectId\x12\x17\n" +
@@ -160,30 +164,30 @@ const file_quillit_svc_internal_v1_svc_internal_proto_rawDesc = "" +
 	"\x17CheckMembershipResponse\x12\x1b\n" +
 	"\tis_member\x18\x01 \x01(\bR\bisMember\x12\x12\n" +
 	"\x04role\x18\x02 \x01(\tR\x04role\x12!\n" +
-	"\fproject_type\x18\x03 \x01(\tR\vprojectType2\x8a\x01\n" +
-	"\x12SvcInternalService\x12t\n" +
-	"\x0fCheckMembership\x12/.quillit.svc.internal.v1.CheckMembershipRequest\x1a0.quillit.svc.internal.v1.CheckMembershipResponseB6Z4github.com/quillit/gen/quillit/svc/internal/v1;svcv1b\x06proto3"
+	"\fproject_type\x18\x03 \x01(\tR\vprojectType2x\n" +
+	"\x12SvcInternalService\x12b\n" +
+	"\x0fCheckMembership\x12&.quillit.svc.v1.CheckMembershipRequest\x1a'.quillit.svc.v1.CheckMembershipResponseB-Z+github.com/quillit/gen/quillit/svc/v1;svcv1b\x06proto3"
 
 var (
-	file_quillit_svc_internal_v1_svc_internal_proto_rawDescOnce sync.Once
-	file_quillit_svc_internal_v1_svc_internal_proto_rawDescData []byte
+	file_quillit_svc_v1_svc_internal_proto_rawDescOnce sync.Once
+	file_quillit_svc_v1_svc_internal_proto_rawDescData []byte
 )
 
-func file_quillit_svc_internal_v1_svc_internal_proto_rawDescGZIP() []byte {
-	file_quillit_svc_internal_v1_svc_internal_proto_rawDescOnce.Do(func() {
-		file_quillit_svc_internal_v1_svc_internal_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_quillit_svc_internal_v1_svc_internal_proto_rawDesc), len(file_quillit_svc_internal_v1_svc_internal_proto_rawDesc)))
+func file_quillit_svc_v1_svc_internal_proto_rawDescGZIP() []byte {
+	file_quillit_svc_v1_svc_internal_proto_rawDescOnce.Do(func() {
+		file_quillit_svc_v1_svc_internal_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_quillit_svc_v1_svc_internal_proto_rawDesc), len(file_quillit_svc_v1_svc_internal_proto_rawDesc)))
 	})
-	return file_quillit_svc_internal_v1_svc_internal_proto_rawDescData
+	return file_quillit_svc_v1_svc_internal_proto_rawDescData
 }
 
-var file_quillit_svc_internal_v1_svc_internal_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
-var file_quillit_svc_internal_v1_svc_internal_proto_goTypes = []any{
-	(*CheckMembershipRequest)(nil),  // 0: quillit.svc.internal.v1.CheckMembershipRequest
-	(*CheckMembershipResponse)(nil), // 1: quillit.svc.internal.v1.CheckMembershipResponse
+var file_quillit_svc_v1_svc_internal_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
+var file_quillit_svc_v1_svc_internal_proto_goTypes = []any{
+	(*CheckMembershipRequest)(nil),  // 0: quillit.svc.v1.CheckMembershipRequest
+	(*CheckMembershipResponse)(nil), // 1: quillit.svc.v1.CheckMembershipResponse
 }
-var file_quillit_svc_internal_v1_svc_internal_proto_depIdxs = []int32{
-	0, // 0: quillit.svc.internal.v1.SvcInternalService.CheckMembership:input_type -> quillit.svc.internal.v1.CheckMembershipRequest
-	1, // 1: quillit.svc.internal.v1.SvcInternalService.CheckMembership:output_type -> quillit.svc.internal.v1.CheckMembershipResponse
+var file_quillit_svc_v1_svc_internal_proto_depIdxs = []int32{
+	0, // 0: quillit.svc.v1.SvcInternalService.CheckMembership:input_type -> quillit.svc.v1.CheckMembershipRequest
+	1, // 1: quillit.svc.v1.SvcInternalService.CheckMembership:output_type -> quillit.svc.v1.CheckMembershipResponse
 	1, // [1:2] is the sub-list for method output_type
 	0, // [0:1] is the sub-list for method input_type
 	0, // [0:0] is the sub-list for extension type_name
@@ -191,26 +195,26 @@ var file_quillit_svc_internal_v1_svc_internal_proto_depIdxs = []int32{
 	0, // [0:0] is the sub-list for field type_name
 }
 
-func init() { file_quillit_svc_internal_v1_svc_internal_proto_init() }
-func file_quillit_svc_internal_v1_svc_internal_proto_init() {
-	if File_quillit_svc_internal_v1_svc_internal_proto != nil {
+func init() { file_quillit_svc_v1_svc_internal_proto_init() }
+func file_quillit_svc_v1_svc_internal_proto_init() {
+	if File_quillit_svc_v1_svc_internal_proto != nil {
 		return
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
-			RawDescriptor: unsafe.Slice(unsafe.StringData(file_quillit_svc_internal_v1_svc_internal_proto_rawDesc), len(file_quillit_svc_internal_v1_svc_internal_proto_rawDesc)),
+			RawDescriptor: unsafe.Slice(unsafe.StringData(file_quillit_svc_v1_svc_internal_proto_rawDesc), len(file_quillit_svc_v1_svc_internal_proto_rawDesc)),
 			NumEnums:      0,
 			NumMessages:   2,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
-		GoTypes:           file_quillit_svc_internal_v1_svc_internal_proto_goTypes,
-		DependencyIndexes: file_quillit_svc_internal_v1_svc_internal_proto_depIdxs,
-		MessageInfos:      file_quillit_svc_internal_v1_svc_internal_proto_msgTypes,
+		GoTypes:           file_quillit_svc_v1_svc_internal_proto_goTypes,
+		DependencyIndexes: file_quillit_svc_v1_svc_internal_proto_depIdxs,
+		MessageInfos:      file_quillit_svc_v1_svc_internal_proto_msgTypes,
 	}.Build()
-	File_quillit_svc_internal_v1_svc_internal_proto = out.File
-	file_quillit_svc_internal_v1_svc_internal_proto_goTypes = nil
-	file_quillit_svc_internal_v1_svc_internal_proto_depIdxs = nil
+	File_quillit_svc_v1_svc_internal_proto = out.File
+	file_quillit_svc_v1_svc_internal_proto_goTypes = nil
+	file_quillit_svc_v1_svc_internal_proto_depIdxs = nil
 }
