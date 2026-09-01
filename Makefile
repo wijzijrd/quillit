@@ -1,6 +1,6 @@
 .PHONY: up down logs ps setup sqlc proto help
 
-COMPOSE ?= docker compose -f infra/docker-compose.yml --project-directory .
+COMPOSE ?= docker compose -f infra/docker-compose.yml --env-file .env
 
 up: setup       ## Build and start the full stack (UI at http://localhost:8080)
 	$(COMPOSE) up --build -d

@@ -118,13 +118,13 @@ if [[ "$USE_HTTPS" =~ ^[Yy]$ ]]; then
     CORS_ORIGIN="https://${HOST}"
     COOKIE_SECURE="true"
     CADDY_HOST="${HOST}"
-    COMPOSE_FLAGS="-f infra/docker-compose.yml -f infra/docker-compose.caddy.yml --project-directory ."
+    COMPOSE_FLAGS="-f infra/docker-compose.yml -f infra/docker-compose.caddy.yml --env-file .env"
     info "Caddy will serve ${HOST} (set via CADDY_HOST in .env — Caddyfile itself never needs editing)"
 else
     CORS_ORIGIN="http://${HOST}:8080"
     COOKIE_SECURE="false"
     CADDY_HOST=""
-    COMPOSE_FLAGS="-f infra/docker-compose.yml --project-directory ."
+    COMPOSE_FLAGS="-f infra/docker-compose.yml --env-file .env"
 fi
 
 prompt "Admin email (default: admin@quillit.local):"
