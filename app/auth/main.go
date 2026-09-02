@@ -35,9 +35,9 @@ func main() {
 	// built below — see gen/internalauth. Fully replaces MESSAGING_SECRET,
 	// which used to authenticate the now-removed POST /send HTTP call
 	// (app/auth/internal/handler/password_reset.go's sendResetEmail).
-	// Mirrors how INTERNAL_RPC_SECRET is read in app/content and app/svc
-	// (Task 9): an env var, not yet wired into
-	// infra/docker-compose.yml/.env.example (that's a later task).
+	// Mirrors how INTERNAL_RPC_SECRET is read in app/content and app/svc:
+	// an env var, wired into infra/docker-compose.yml and documented in
+	// .env.example.
 	internalRPCSecret := env("INTERNAL_RPC_SECRET", "")
 	if internalRPCSecret == "" {
 		log.Println("WARNING: INTERNAL_RPC_SECRET is unset — internal RPC calls will fail")

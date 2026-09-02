@@ -8,9 +8,9 @@
 // reasoning: project membership is per-resource and changes on its own
 // schedule via invite/join/remove, not something that fits a token that's
 // awkward to invalidate early). Instead, SvcChecker asks svc directly over
-// connectrpc (SvcInternalService.CheckMembership — see gen/quillit/svc/
-// internal/v1, and app/svc/internal/rpc/svc_internal.go for the server
-// side), with a short-lived cache so a brief svc outage degrades
+// connectrpc (SvcInternalService.CheckMembership — see
+// gen/quillit/svc/v1, and app/svc/internal/rpc/svc_internal.go for the
+// server side), with a short-lived cache so a brief svc outage degrades
 // gracefully rather than making every content request fail.
 package authz
 

@@ -45,8 +45,7 @@ func main() {
 	// SvcInternalService server mounted below and the ContentInternalService
 	// client contentclient.NewClient builds) — see gen/internalauth. Read
 	// the same way in app/content, app/auth and app/messaging: an env var,
-	// not yet wired into infra/docker-compose.yml/.env.example (that's a
-	// later task).
+	// wired into infra/docker-compose.yml and documented in .env.example.
 	internalRPCSecret := env("INTERNAL_RPC_SECRET", "")
 	if internalRPCSecret == "" {
 		log.Println("WARNING: INTERNAL_RPC_SECRET is unset — internal RPC calls will fail")

@@ -1,5 +1,5 @@
 // Package rpc implements svc's server-to-server connect RPC surface:
-// SvcInternalService (proto/quillit/svc/internal/v1, generated into
+// SvcInternalService (proto/quillit/svc/v1, generated into
 // github.com/quillit/gen/quillit/svc/v1). It is the connectrpc
 // replacement for svc's old internal-only HTTP route
 // GET /internal/projects/{id}/members/{userId}

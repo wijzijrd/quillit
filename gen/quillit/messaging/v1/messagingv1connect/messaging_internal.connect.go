@@ -3,20 +3,15 @@
 // Source: quillit/messaging/v1/messaging_internal.proto
 
 // MessagingInternalService is messaging's server-to-server surface,
-// reached only by other trusted services on the compose network. It is
-// the connectrpc replacement for messaging's existing HTTP route POST
-// /send (app/messaging/internal/handler/send.go's Send), which today
-// authenticates callers via a shared secret in the X-Messaging-Secret
-// header rather than a per-user identity check. The connectrpc version
-// carries the same shared-secret authentication, but via the
-// X-Internal-Secret header and gen/internalauth's interceptor rather than
-// a handler-local check.
+// reached only by other trusted services on the compose network, never end
+// users. It sends a single email (SendEmail) on behalf of a calling
+// service — currently auth, for password-reset mail. Callers authenticate
+// with a shared secret carried in the X-Internal-Secret header, checked by
+// gen/internalauth's interceptor rather than a handler-local check.
 // Neither this package nor go_package below puts "internal" in the path —
 // see content_internal.proto's package comment for why (Go's
 // internal-package visibility rule would make this package unimportable
-// from svc/auth, separate Go modules). Fixed proactively in Task 9
-// alongside the same issue on content/svc's proto packages, ahead of
-// Task 10 actually importing this one.
+// from svc/auth, separate Go modules).
 package messagingv1connect
 
 import (

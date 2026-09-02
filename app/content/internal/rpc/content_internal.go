@@ -1,5 +1,5 @@
 // Package rpc implements content's server-to-server connect RPC surface:
-// ContentInternalService (proto/quillit/content/internal/v1, generated into
+// ContentInternalService (proto/quillit/content/v1, generated into
 // github.com/quillit/gen/quillit/content/v1). It is the connectrpc
 // replacement for two HTTP routes that used to live in
 // app/content/internal/handler:

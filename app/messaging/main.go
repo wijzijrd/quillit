@@ -39,9 +39,8 @@ func main() {
 	// below — see gen/internalauth. Fully replaces MESSAGING_SECRET/
 	// X-Messaging-Secret, which used to gate the now-removed POST /send HTTP
 	// route (app/messaging/internal/handler/send.go). Mirrors how
-	// INTERNAL_RPC_SECRET is read in app/content and app/svc (Task 9): an
-	// env var, not yet wired into infra/docker-compose.yml/.env.example
-	// (that's a later task).
+	// INTERNAL_RPC_SECRET is read in app/content and app/svc: an env var,
+	// wired into infra/docker-compose.yml and documented in .env.example.
 	internalRPCSecret := env("INTERNAL_RPC_SECRET", "")
 	if internalRPCSecret == "" {
 		log.Println("WARNING: INTERNAL_RPC_SECRET is unset — internal RPC calls will fail")
@@ -90,12 +89,4 @@ func env(key, fallback string) string {
 		return v
 	}
 	return fallback
-}
-
-func mustEnv(key string) string {
-	v := os.Getenv(key)
-	if v == "" {
-		log.Fatalf("env var %s is required", key)
-	}
-	return v
 }

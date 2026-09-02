@@ -20,9 +20,9 @@ require (
 // see that file's comment for the version string this line needs.
 replace github.com/quillit/contentengine => ../../pkg/contentengine
 
-// Same story as contentengine above: the connectrpc scaffolding module
-// from Task 8, resolved locally via go.work. Nothing in svc imports it
-// yet (Tasks 9-10 wire in the generated clients/servers).
+// Same story as contentengine above: the connectrpc scaffolding module,
+// resolved locally via go.work. svc imports the generated
+// SvcInternalService server and ContentInternalService client from it.
 replace github.com/quillit/gen => ../../gen
 
 require (

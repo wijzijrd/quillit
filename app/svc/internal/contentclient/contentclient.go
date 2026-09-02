@@ -10,7 +10,7 @@
 //
 // Both RPCs used to be plain HTTP calls; they're now connectrpc calls
 // against content's ContentInternalService (see
-// gen/quillit/content/internal/v1 and app/content/internal/rpc for the
+// gen/quillit/content/v1 and app/content/internal/rpc for the
 // server side), authenticated with the shared INTERNAL_RPC_SECRET rather
 // than per-request headers this package used to build by hand. Client's
 // exported shape (Get/NotifyProjectDeleted's signatures, the Entry struct,
