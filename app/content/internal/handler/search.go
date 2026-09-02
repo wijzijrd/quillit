@@ -13,10 +13,12 @@ import (
 	"github.com/quillit/contentengine/parse"
 
 	"github.com/quillit/content-svc/internal/authz"
+	"github.com/quillit/content-svc/internal/db/sqlc"
 )
 
 // SearchHandler serves #43's project-scoped full-text search, backed by the
-// entries_fts FTS5 virtual table (internal/db/db.go toV3). The same handler
+// entries_fts FTS5 virtual table (internal/db/migrations/00001_baseline.sql).
+// The same handler
 // also backs the "[[" wikilink-autocomplete lookup (mode=lookup) — one query
 // implementation, per docs/web-refactor-spec.md §6.4's "Decide whether this
 // is the same endpoint with a mode=lookup style param or a separate
@@ -74,6 +76,22 @@ func (h *SearchHandler) Search(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Both branches stay on raw *sql.DB — sqlc v1.31.1's SQLite grammar
+	// rejects each one for a different reason, confirmed by running `sqlc
+	// generate` against them directly:
+	//   - lookup: `LIKE ? ESCAPE '\'` — the parser reports "extraneous input
+	//     'ESCAPE'"; its SQLite grammar doesn't recognize the ESCAPE clause
+	//     at all, even though it's standard SQLite syntax. Dropping ESCAPE
+	//     isn't an option: it's what stops a literal "%"/"_" in q from being
+	//     interpreted as a LIKE wildcard (see likePattern above).
+	//   - search: `entries_fts MATCH ?` — FTS5's special "bare virtual-table
+	//     name as the MATCH left operand" syntax (matches across every
+	//     indexed column at once) isn't understood by sqlc's semantic
+	//     analyzer, which reports "column 'entries_fts' does not exist": it
+	//     expects a column reference there, not a table name used as a
+	//     pseudo-column. Every other entries_fts statement in this file
+	//     (INSERT/DELETE by entry_id — search.sql's InsertSearchIndexEntry/
+	//     DeleteSearchIndexEntry) doesn't hit this and converts cleanly.
 	var rows *sql.Rows
 	var err error
 	if r.URL.Query().Get("mode") == "lookup" {
@@ -146,16 +164,17 @@ func ftsMatchQuery(q string) string {
 // Called only when the body actually changed (same condition entries.go
 // already gates recompileLinks on): title/tags/body are the only columns
 // this index stores, and none of them can change without a body write.
-func refreshSearchIndex(ctx context.Context, tx *sql.Tx, entryID, title string, tags []string, parsed *parse.Entry) error {
-	if _, err := tx.ExecContext(ctx, `DELETE FROM entries_fts WHERE entry_id = ?`, entryID); err != nil {
+func refreshSearchIndex(ctx context.Context, q *sqlc.Queries, entryID, title string, tags []string, parsed *parse.Entry) error {
+	if err := q.DeleteSearchIndexEntry(ctx, entryID); err != nil {
 		return err
 	}
 	body := plainText(parsed)
-	_, err := tx.ExecContext(ctx, `
-		INSERT INTO entries_fts (entry_id, title, tags, body)
-		VALUES (?, ?, ?, ?)
-	`, entryID, title, strings.Join(tags, " "), body)
-	return err
+	return q.InsertSearchIndexEntry(ctx, sqlc.InsertSearchIndexEntryParams{
+		EntryID: entryID,
+		Title:   title,
+		Tags:    strings.Join(tags, " "),
+		Body:    body,
+	})
 }
 
 // deleteSearchIndex removes entryID's entries_fts row. entries_fts is a
@@ -163,9 +182,8 @@ func refreshSearchIndex(ctx context.Context, tx *sql.Tx, entryID, title string, 
 // which cascades via ON DELETE CASCADE — this needs an explicit call
 // alongside the entries row delete (entries.go Delete, which itself runs
 // outside a transaction, so this matches that non-transactional shape).
-func deleteSearchIndex(ctx context.Context, db *sql.DB, entryID string) error {
-	_, err := db.ExecContext(ctx, `DELETE FROM entries_fts WHERE entry_id = ?`, entryID)
-	return err
+func deleteSearchIndex(ctx context.Context, q *sqlc.Queries, entryID string) error {
+	return q.DeleteSearchIndexEntry(ctx, entryID)
 }
 
 // plainText flattens a parsed entry's body into prose suitable for indexing:

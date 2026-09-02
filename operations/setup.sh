@@ -118,13 +118,13 @@ if [[ "$USE_HTTPS" =~ ^[Yy]$ ]]; then
     CORS_ORIGIN="https://${HOST}"
     COOKIE_SECURE="true"
     CADDY_HOST="${HOST}"
-    COMPOSE_FLAGS="-f infra/docker-compose.yml -f infra/docker-compose.caddy.yml --project-directory ."
+    COMPOSE_FLAGS="-f infra/docker-compose.yml -f infra/docker-compose.caddy.yml --env-file .env"
     info "Caddy will serve ${HOST} (set via CADDY_HOST in .env — Caddyfile itself never needs editing)"
 else
     CORS_ORIGIN="http://${HOST}:8080"
     COOKIE_SECURE="false"
     CADDY_HOST=""
-    COMPOSE_FLAGS="-f infra/docker-compose.yml --project-directory ."
+    COMPOSE_FLAGS="-f infra/docker-compose.yml --env-file .env"
 fi
 
 prompt "Admin email (default: admin@quillit.local):"
@@ -143,6 +143,7 @@ fi
 
 # Auto-generate secrets
 JWT_SECRET=$(openssl rand -hex 32)
+INTERNAL_RPC_SECRET=$(openssl rand -hex 32)
 MINIO_PASSWORD=$(openssl rand -hex 20)
 
 # ── 5. Write .env ─────────────────────────────────────────────────────────────
@@ -156,6 +157,7 @@ fi
 
 cat > "$ENV_FILE" <<EOF
 JWT_SECRET=${JWT_SECRET}
+INTERNAL_RPC_SECRET=${INTERNAL_RPC_SECRET}
 SEED_ADMIN_EMAIL=${ADMIN_EMAIL}
 SEED_ADMIN_PASSWORD=${ADMIN_PASSWORD}
 MINIO_USER=quillit

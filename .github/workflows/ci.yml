@@ -112,19 +112,31 @@ jobs:
             auth:
               - 'app/auth/**'
               - 'infra/docker-compose.yml'
+              - 'gen/**'
+              - 'proto/**'
+              - 'go.work'
             svc:
               - 'app/svc/**'
               - 'infra/docker-compose.yml'
+              - 'gen/**'
+              - 'proto/**'
+              - 'go.work'
             ui:
               - 'app/ui/**'
               - 'infra/docker-compose.yml'
             messaging:
               - 'app/messaging/**'
               - 'infra/docker-compose.yml'
+              - 'gen/**'
+              - 'proto/**'
+              - 'go.work'
             content:
               - 'app/content/**'
               - 'pkg/contentengine/**'
               - 'infra/docker-compose.yml'
+              - 'gen/**'
+              - 'proto/**'
+              - 'go.work'
             infra:
               - 'infra/docker-compose.caddy.yml'
               - 'infra/Caddyfile*'

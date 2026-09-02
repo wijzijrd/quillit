@@ -18,6 +18,7 @@ import (
 	"github.com/quillit/contentengine/parse"
 
 	"github.com/quillit/content-svc/internal/authz"
+	"github.com/quillit/content-svc/internal/db/sqlc"
 )
 
 // BlobStore is the subset of storage.MinioStore's methods entries.go needs.
@@ -32,13 +33,14 @@ type BlobStore interface {
 
 type EntriesHandler struct {
 	db        *sql.DB
+	q         *sqlc.Queries
 	jwtSecret []byte
 	blobs     BlobStore
 	checker   authz.Checker
 }
 
 func NewEntries(db *sql.DB, jwtSecret string, blobs BlobStore, checker authz.Checker) *EntriesHandler {
-	return &EntriesHandler{db: db, jwtSecret: []byte(jwtSecret), blobs: blobs, checker: checker}
+	return &EntriesHandler{db: db, q: sqlc.New(db), jwtSecret: []byte(jwtSecret), blobs: blobs, checker: checker}
 }
 
 // EntryMeta is an entry's metadata, without its body — what the list
@@ -71,20 +73,23 @@ type Entry struct {
 	Body string `json:"body"`
 }
 
-const entryMetaSelect = `SELECT id, project_id, slug, directory_path, title, tags, COALESCE(owner_user_id,''), created_at, updated_at, COALESCE(body_hash,''), orphaned_at FROM entries`
-
-func scanEntryMeta(row interface{ Scan(...any) error }) (EntryMeta, error) {
-	var m EntryMeta
-	var tagsJSON string
-	var orphanedAt sql.NullInt64
-	if err := row.Scan(&m.ID, &m.ProjectID, &m.Slug, &m.DirectoryPath, &m.Title, &tagsJSON, &m.OwnerUserID, &m.CreatedAt, &m.UpdatedAt, &m.BodyHash, &orphanedAt); err != nil {
-		return m, err
+// toEntryMeta converts one sqlc-generated entries row into EntryMeta,
+// unmarshaling the stored tags JSON and translating the nullable
+// orphaned_at column into EntryMeta's *int64 — the shared post-processing
+// step every entries-row-shaped sqlc query (GetEntryMeta,
+// ListEntriesForProject) needs, replacing the old scanEntryMeta.
+func toEntryMeta(id, projectID, slug, directoryPath, title, tagsJSON, ownerUserID string, createdAt, updatedAt int64, bodyHash string, orphanedAt sql.NullInt64) EntryMeta {
+	m := EntryMeta{
+		ID: id, ProjectID: projectID, Slug: slug, DirectoryPath: directoryPath,
+		Title: title, OwnerUserID: ownerUserID,
+		CreatedAt: createdAt, UpdatedAt: updatedAt, BodyHash: bodyHash,
 	}
 	_ = json.Unmarshal([]byte(tagsJSON), &m.Tags)
 	if orphanedAt.Valid {
-		m.OrphanedAt = &orphanedAt.Int64
+		v := orphanedAt.Int64
+		m.OrphanedAt = &v
 	}
-	return m, nil
+	return m
 }
 
 func bodyKey(id string) string {
@@ -122,20 +127,15 @@ func (h *EntriesHandler) List(w http.ResponseWriter, r *http.Request) {
 	if _, ok := requireProjectMember(w, r, h.jwtSecret, h.checker, projectID); !ok {
 		return
 	}
-	rows, err := h.db.QueryContext(r.Context(), entryMetaSelect+" WHERE project_id = ? ORDER BY directory_path, slug", projectID)
+	rows, err := h.q.ListEntriesForProject(r.Context(), projectID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "db error")
 		return
 	}
-	defer rows.Close()
 
 	entries := []EntryMeta{}
-	for rows.Next() {
-		m, err := scanEntryMeta(rows)
-		if err != nil {
-			continue
-		}
-		entries = append(entries, m)
+	for _, row := range rows {
+		entries = append(entries, toEntryMeta(row.ID, row.ProjectID, row.Slug, row.DirectoryPath, row.Title, row.Tags, row.OwnerUserID, row.CreatedAt, row.UpdatedAt, row.BodyHash, row.OrphanedAt))
 	}
 	writeJSON(w, http.StatusOK, entries)
 }
@@ -150,7 +150,7 @@ func (h *EntriesHandler) List(w http.ResponseWriter, r *http.Request) {
 // @Router       /content/entries/{id} [get]
 func (h *EntriesHandler) Get(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
-	projectID, err := projectIDForEntry(r.Context(), h.db, id)
+	projectID, err := projectIDForEntry(r.Context(), h.q, id)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "not found")
 		return
@@ -167,18 +167,23 @@ func (h *EntriesHandler) Get(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *EntriesHandler) fetchResolved(ctx context.Context, id string) (Entry, error) {
-	return fetchResolvedEntry(ctx, h.db, h.blobs, id)
+	return FetchResolvedEntry(ctx, h.q, h.blobs, id)
 }
 
-// fetchResolvedEntry loads id's metadata plus its resolved body — the
+// FetchResolvedEntry loads id's metadata plus its resolved body — the
 // package-level form of EntriesHandler.fetchResolved, factored out so other
-// handler types (assign.go's AssignHandler) that also need to return a full
-// Entry after a mutation don't duplicate this lookup.
-func fetchResolvedEntry(ctx context.Context, db *sql.DB, blobs BlobStore, id string) (Entry, error) {
-	m, err := scanEntryMeta(db.QueryRowContext(ctx, entryMetaSelect+" WHERE id = ?", id))
+// callers that also need to return a full Entry after a lookup/mutation
+// don't duplicate it: assign.go's AssignHandler (same package), and
+// internal/rpc's ContentInternalServer.GetEntry (the connectrpc replacement
+// for this same Get handler's underlying lookup, reached by svc without a
+// per-user JWT — see internal/rpc/content_internal.go). Exported for that
+// cross-package reuse.
+func FetchResolvedEntry(ctx context.Context, q *sqlc.Queries, blobs BlobStore, id string) (Entry, error) {
+	row, err := q.GetEntryMeta(ctx, id)
 	if err != nil {
 		return Entry{}, err
 	}
+	m := toEntryMeta(row.ID, row.ProjectID, row.Slug, row.DirectoryPath, row.Title, row.Tags, row.OwnerUserID, row.CreatedAt, row.UpdatedAt, row.BodyHash, row.OrphanedAt)
 	e := Entry{EntryMeta: m}
 	if blobs != nil {
 		if data, err := blobs.Get(ctx, bodyKey(id)); err == nil {
@@ -259,11 +264,13 @@ func (h *EntriesHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer tx.Rollback()
+	qtx := h.q.WithTx(tx)
 
-	_, err = tx.ExecContext(r.Context(), `
-		INSERT INTO entries (id, project_id, slug, directory_path, title, tags, owner_user_id, created_at, updated_at, body_hash)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, id, projectID, req.Slug, req.DirectoryPath, title, string(tagsJSON), nullStr(ownerID), now, now, hash)
+	err = qtx.InsertEntry(r.Context(), sqlc.InsertEntryParams{
+		ID: id, ProjectID: projectID, Slug: req.Slug, DirectoryPath: req.DirectoryPath,
+		Title: title, Tags: string(tagsJSON), OwnerUserID: nullString(ownerID),
+		CreatedAt: now, UpdatedAt: now, BodyHash: nullString(hash),
+	})
 	if err != nil {
 		_ = h.blobs.Delete(r.Context(), bodyKey(id))
 		if isUniqueConstraintErr(err) {
@@ -274,7 +281,7 @@ func (h *EntriesHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := recompileLinks(r.Context(), tx, id, projectID, parsed); err != nil {
+	if err := recompileLinks(r.Context(), qtx, id, projectID, parsed); err != nil {
 		writeError(w, http.StatusInternalServerError, "db error")
 		return
 	}
@@ -282,7 +289,7 @@ func (h *EntriesHandler) Create(w http.ResponseWriter, r *http.Request) {
 	var tags []string
 	_ = json.Unmarshal(tagsJSON, &tags)
 
-	if err := refreshSearchIndex(r.Context(), tx, id, title, tags, parsed); err != nil {
+	if err := refreshSearchIndex(r.Context(), qtx, id, title, tags, parsed); err != nil {
 		writeError(w, http.StatusInternalServerError, "db error")
 		return
 	}
@@ -319,11 +326,12 @@ type updateEntryRequest struct {
 // @Router       /content/entries/{id} [patch]
 func (h *EntriesHandler) Update(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
-	existing, err := scanEntryMeta(h.db.QueryRowContext(r.Context(), entryMetaSelect+" WHERE id = ?", id))
+	existingRow, err := h.q.GetEntryMeta(r.Context(), id)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "not found")
 		return
 	}
+	existing := toEntryMeta(existingRow.ID, existingRow.ProjectID, existingRow.Slug, existingRow.DirectoryPath, existingRow.Title, existingRow.Tags, existingRow.OwnerUserID, existingRow.CreatedAt, existingRow.UpdatedAt, existingRow.BodyHash, existingRow.OrphanedAt)
 	if _, ok := requireProjectMember(w, r, h.jwtSecret, h.checker, existing.ProjectID); !ok {
 		return
 	}
@@ -388,10 +396,12 @@ func (h *EntriesHandler) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer tx.Rollback()
+	qtx := h.q.WithTx(tx)
 
-	_, err = tx.ExecContext(r.Context(), `
-		UPDATE entries SET slug = ?, directory_path = ?, title = ?, tags = ?, updated_at = ?, body_hash = ? WHERE id = ?
-	`, slug, dir, title, string(tagsJSON), now, hash, id)
+	err = qtx.UpdateEntry(r.Context(), sqlc.UpdateEntryParams{
+		Slug: slug, DirectoryPath: dir, Title: title, Tags: string(tagsJSON),
+		UpdatedAt: now, BodyHash: sql.NullString{String: hash, Valid: true}, ID: id,
+	})
 	if err != nil {
 		if isUniqueConstraintErr(err) {
 			writeError(w, http.StatusConflict, "an entry already exists at this path")
@@ -402,11 +412,11 @@ func (h *EntriesHandler) Update(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if bodyChanged {
-		if err := recompileLinks(r.Context(), tx, id, existing.ProjectID, parsed); err != nil {
+		if err := recompileLinks(r.Context(), qtx, id, existing.ProjectID, parsed); err != nil {
 			writeError(w, http.StatusInternalServerError, "db error")
 			return
 		}
-		if err := refreshSearchIndex(r.Context(), tx, id, title, tags, parsed); err != nil {
+		if err := refreshSearchIndex(r.Context(), qtx, id, title, tags, parsed); err != nil {
 			writeError(w, http.StatusInternalServerError, "db error")
 			return
 		}
@@ -435,7 +445,7 @@ func (h *EntriesHandler) Update(w http.ResponseWriter, r *http.Request) {
 // @Router       /content/entries/{id} [delete]
 func (h *EntriesHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
-	projectID, err := projectIDForEntry(r.Context(), h.db, id)
+	projectID, err := projectIDForEntry(r.Context(), h.q, id)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "not found")
 		return
@@ -449,12 +459,12 @@ func (h *EntriesHandler) Delete(w http.ResponseWriter, r *http.Request) {
 		_ = h.blobs.DeletePrefix(r.Context(), imagesPrefix(id))
 	}
 
-	if err := deleteSearchIndex(r.Context(), h.db, id); err != nil {
+	if err := deleteSearchIndex(r.Context(), h.q, id); err != nil {
 		writeError(w, http.StatusInternalServerError, "db error")
 		return
 	}
 
-	if _, err := h.db.ExecContext(r.Context(), "DELETE FROM entries WHERE id = ?", id); err != nil {
+	if err := h.q.DeleteEntry(r.Context(), id); err != nil {
 		writeError(w, http.StatusInternalServerError, "db error")
 		return
 	}
@@ -478,7 +488,7 @@ func (h *EntriesHandler) UploadImage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	id := chi.URLParam(r, "id")
-	projectID, err := projectIDForEntry(r.Context(), h.db, id)
+	projectID, err := projectIDForEntry(r.Context(), h.q, id)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "not found")
 		return
@@ -552,7 +562,7 @@ func (h *EntriesHandler) GetImage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	projectID, err := projectIDForEntry(r.Context(), h.db, id)
+	projectID, err := projectIDForEntry(r.Context(), h.q, id)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "not found")
 		return
@@ -591,7 +601,7 @@ func (h *EntriesHandler) GetImage(w http.ResponseWriter, r *http.Request) {
 // and the vocabulary) and returning false if validation fails or the
 // vocabulary lookup itself errors.
 func (h *EntriesHandler) validateFacetsOrError(w http.ResponseWriter, ctx context.Context, projectID string, parsed *parse.Entry) bool {
-	vocab, sorted, err := effectiveFacetVocabulary(ctx, h.db, projectID)
+	vocab, sorted, err := effectiveFacetVocabulary(ctx, h.q, projectID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "db error")
 		return false

@@ -16,6 +16,7 @@ import (
 	"github.com/quillit/contentengine/render"
 
 	"github.com/quillit/content-svc/internal/authz"
+	"github.com/quillit/content-svc/internal/db/sqlc"
 	contentresolver "github.com/quillit/content-svc/internal/resolver"
 )
 
@@ -24,14 +25,18 @@ import (
 // Nothing else in the web app may re-derive a player or card view
 // client-side; everything routes through here.
 type RenderHandler struct {
+	// db is kept (alongside q) because contentresolver.SQLite (below) still
+	// needs a raw *sql.DB — its own dynamic depth-1 card-expansion query,
+	// in a different package outside this task's internal/handler scope.
 	db        *sql.DB
+	q         *sqlc.Queries
 	blobs     BlobStore
 	jwtSecret []byte
 	checker   authz.Checker
 }
 
 func NewRender(db *sql.DB, blobs BlobStore, jwtSecret string, checker authz.Checker) *RenderHandler {
-	return &RenderHandler{db: db, blobs: blobs, jwtSecret: []byte(jwtSecret), checker: checker}
+	return &RenderHandler{db: db, q: sqlc.New(db), blobs: blobs, jwtSecret: []byte(jwtSecret), checker: checker}
 }
 
 // Render godoc
@@ -51,11 +56,12 @@ func NewRender(db *sql.DB, blobs BlobStore, jwtSecret string, checker authz.Chec
 func (h *RenderHandler) Render(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 
-	m, err := scanEntryMeta(h.db.QueryRowContext(r.Context(), entryMetaSelect+" WHERE id = ?", id))
+	row, err := h.q.GetEntryMeta(r.Context(), id)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "not found")
 		return
 	}
+	m := toEntryMeta(row.ID, row.ProjectID, row.Slug, row.DirectoryPath, row.Title, row.Tags, row.OwnerUserID, row.CreatedAt, row.UpdatedAt, row.BodyHash, row.OrphanedAt)
 	if _, ok := requireProjectMember(w, r, h.jwtSecret, h.checker, m.ProjectID); !ok {
 		return
 	}
@@ -71,7 +77,7 @@ func (h *RenderHandler) Render(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, sortedVocab, err := effectiveFacetVocabulary(r.Context(), h.db, m.ProjectID)
+	_, sortedVocab, err := effectiveFacetVocabulary(r.Context(), h.q, m.ProjectID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "db error")
 		return

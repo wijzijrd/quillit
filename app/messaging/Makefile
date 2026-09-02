@@ -1,5 +1,5 @@
 BINARY := quillit-messaging-svc
-SETUP_HINT := MESSAGING_SECRET
+SETUP_HINT := SMTP_HOST
 
 .PHONY: check-env
 

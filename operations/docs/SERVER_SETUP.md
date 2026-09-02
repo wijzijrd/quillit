@@ -91,11 +91,11 @@ What it does, in order:
    - Admin email (default `admin@quillit.local`).
    - Admin password (blank = auto-generated 20-char alnum string).
 6. **Secrets auto-generated**: `JWT_SECRET=$(openssl rand -hex 32)`,
-   `MINIO_PASSWORD=$(openssl rand -hex 20)`.
-7. **Writes `.env`** (mode `600`) with `JWT_SECRET`, `SEED_ADMIN_EMAIL`,
-   `SEED_ADMIN_PASSWORD`, `MINIO_USER=quillit`, `MINIO_PASSWORD`, `CORS_ORIGIN`,
-   `COOKIE_SECURE`. If `.env` already exists it's backed up to `.env.bak` (mode `600`)
-   first.
+   `INTERNAL_RPC_SECRET=$(openssl rand -hex 32)`, `MINIO_PASSWORD=$(openssl rand -hex 20)`.
+7. **Writes `.env`** (mode `600`) with `JWT_SECRET`, `INTERNAL_RPC_SECRET`,
+   `SEED_ADMIN_EMAIL`, `SEED_ADMIN_PASSWORD`, `MINIO_USER=quillit`, `MINIO_PASSWORD`,
+   `CORS_ORIGIN`, `COOKIE_SECURE`. If `.env` already exists it's backed up to
+   `.env.bak` (mode `600`) first.
 8. **Builds and starts**: `docker compose $COMPOSE_FLAGS build` then
    `docker compose $COMPOSE_FLAGS up -d`.
 9. **Waits for readiness** — polls `svc`'s `/healthz` from inside the compose network
@@ -396,6 +396,13 @@ then open `http://localhost:3001` — credentials are `GRAFANA_ADMIN_USER` /
 ```sh
 git pull && ./compose.sh build && ./compose.sh up -d
 ```
+
+> **Upgrading an existing deployment to a version with `INTERNAL_RPC_SECRET`:**
+> `setup.sh` only writes this on a fresh install, so an existing server's `.env` won't
+> have it. Add `INTERNAL_RPC_SECRET=$(openssl rand -hex 32)` to `.env` **before**
+> pulling/restarting any service — every internal RPC call (svc<->content,
+> auth->messaging) fails closed on an empty secret, but `/healthz` stays green, so
+> there's no automatic signal that it's missing. See `.env.example` for the variable.
 
 **Troubleshooting:**
 

@@ -3,7 +3,6 @@ package handler_test
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -85,7 +84,6 @@ func seedProject(t *testing.T, db *sql.DB, id, createdBy string) {
 func projectsRouter(h *handler.ProjectsHandler) chi.Router {
 	r := chi.NewRouter()
 	r.Delete("/api/projects/{id}", h.Delete)
-	r.Get("/internal/projects/{id}/members/{userId}", h.InternalMembership)
 	return r
 }
 
@@ -196,59 +194,7 @@ func TestDelete_NilNotifierIsSkippedSilently(t *testing.T) {
 	}
 }
 
-// ── InternalMembership (#44) ─────────────────────────────────────────────────
-
-func internalMembershipRequest(t *testing.T, r chi.Router, projectID, userID string) *httptest.ResponseRecorder {
-	t.Helper()
-	req := httptest.NewRequest(http.MethodGet, "/internal/projects/"+projectID+"/members/"+userID, nil)
-	rr := httptest.NewRecorder()
-	r.ServeHTTP(rr, req)
-	return rr
-}
-
-func TestInternalMembership_MemberReturns200WithRole(t *testing.T) {
-	db := setupProjectsDB(t)
-	seedProject(t, db, "proj-1", "user-1")
-	h := handler.NewProjects(db, "test-secret", nil)
-	r := projectsRouter(h)
-
-	rr := internalMembershipRequest(t, r, "proj-1", "user-1")
-	if rr.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d, body = %s", rr.Code, http.StatusOK, rr.Body.String())
-	}
-	var resp struct {
-		ProjectID   string `json:"projectId"`
-		UserID      string `json:"userId"`
-		Role        string `json:"role"`
-		ProjectType string `json:"projectType"`
-	}
-	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("decode response: %v", err)
-	}
-	if resp.ProjectID != "proj-1" || resp.UserID != "user-1" || resp.Role != "gm" || resp.ProjectType != "campaign" {
-		t.Errorf("response = %+v, want proj-1/user-1/gm/campaign", resp)
-	}
-}
-
-func TestInternalMembership_NonMemberReturns404(t *testing.T) {
-	db := setupProjectsDB(t)
-	seedProject(t, db, "proj-1", "user-1")
-	h := handler.NewProjects(db, "test-secret", nil)
-	r := projectsRouter(h)
-
-	rr := internalMembershipRequest(t, r, "proj-1", "user-2")
-	if rr.Code != http.StatusNotFound {
-		t.Fatalf("status = %d, want %d, body = %s", rr.Code, http.StatusNotFound, rr.Body.String())
-	}
-}
-
-func TestInternalMembership_NonexistentProjectReturns404(t *testing.T) {
-	db := setupProjectsDB(t)
-	h := handler.NewProjects(db, "test-secret", nil)
-	r := projectsRouter(h)
-
-	rr := internalMembershipRequest(t, r, "no-such-project", "user-1")
-	if rr.Code != http.StatusNotFound {
-		t.Fatalf("status = %d, want %d, body = %s", rr.Code, http.StatusNotFound, rr.Body.String())
-	}
-}
+// InternalMembership's HTTP route/handler is gone as of the connectrpc
+// cutover — see app/svc/internal/rpc/svc_internal_test.go for its
+// replacement's equivalent tests (TestCheckMembership_*), which reuse this
+// same seedProject/setupProjectsDB-shaped fixture.

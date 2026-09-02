@@ -1,0 +1,59 @@
+syntax = "proto3";
+
+// ContentInternalService is content's server-to-server surface, reached
+// only by other trusted services on the compose network (currently: svc),
+// never end users. It is the connectrpc replacement for the two HTTP
+// routes documented in app/svc/internal/contentclient/contentclient.go and
+// app/content/internal/handler/internal.go:
+//   - GetEntry mirrors contentclient.Client.Get (GET /content/entries/{id}),
+//     used by svc's Game Mode "share card" chat feature to snapshot an
+//     entry's title/body/project into a chat message.
+//   - NotifyProjectDeleted mirrors contentclient.Client.NotifyProjectDeleted
+//     (POST /content/internal/projects/{id}/deleted), svc telling content a
+//     project it owned was deleted so content can apply its own
+//     orphan-and-report entry-retention policy (see #44).
+// Neither this package nor go_package below puts "internal" in the path,
+// unlike the analogous Go packages in app/content and app/svc: gen is a
+// separate Go module that svc needs to import this package from, and Go's
+// internal-package visibility rule (a path with an "internal" segment is
+// only importable by code rooted at that segment's parent) would make it
+// unimportable from outside github.com/quillit/gen/quillit/content — i.e.
+// unimportable from svc at all. buf's PACKAGE_DIRECTORY_MATCH lint rule
+// requires the package name and directory to agree, so both moved
+// together. Caught in Task 9 while wiring the first real cross-module
+// import of one of these packages (Task 8 never exercised that, since
+// nothing imported them yet). See gen/internalauth's own package (no
+// "internal" segment) for the same reasoning applied there from the start.
+package quillit.content.v1;
+
+option go_package = "github.com/quillit/gen/quillit/content/v1;contentv1";
+
+// ContentInternalService is served by content and called by svc.
+service ContentInternalService {
+  rpc GetEntry(GetEntryRequest) returns (GetEntryResponse);
+  rpc NotifyProjectDeleted(NotifyProjectDeletedRequest) returns (NotifyProjectDeletedResponse);
+}
+
+message GetEntryRequest {
+  string entry_id = 1;
+}
+
+// GetEntryResponse mirrors contentclient.Entry's fields exactly — the only
+// fields svc's HTTP client decodes today, even though content's underlying
+// Entry type (app/content/internal/handler/entries.go) carries more.
+message GetEntryResponse {
+  string id = 1;
+  string project_id = 2;
+  string title = 3;
+  string body = 4;
+}
+
+message NotifyProjectDeletedRequest {
+  string project_id = 1;
+}
+
+// NotifyProjectDeletedResponse mirrors internal.go's projectDeletedResponse.
+message NotifyProjectDeletedResponse {
+  string project_id = 1;
+  int32 entries_orphaned = 2;
+}

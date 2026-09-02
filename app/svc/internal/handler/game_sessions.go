@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/quillit/svc/internal/db/sqlc"
 	"github.com/quillit/svc/internal/middleware"
 	"github.com/quillit/svc/internal/ws"
 )
@@ -15,25 +16,25 @@ import (
 // a live session for a project, and reading back its chat history. The realtime
 // (WebSocket) layer is built on top of this in a later task.
 type GameSessionsHandler struct {
-	db        *sql.DB
+	q         *sqlc.Queries
 	jwtSecret []byte
 	hub       *ws.Hub
 }
 
 func NewGameSessions(db *sql.DB, jwtSecret string, hub *ws.Hub) *GameSessionsHandler {
-	return &GameSessionsHandler{db: db, jwtSecret: []byte(jwtSecret), hub: hub}
+	return &GameSessionsHandler{q: sqlc.New(db), jwtSecret: []byte(jwtSecret), hub: hub}
 }
 
 // NewGameSessionsForTest creates a handler that uses test context for caller ID.
 func NewGameSessionsForTest(db *sql.DB) *GameSessionsHandler {
-	return &GameSessionsHandler{db: db, jwtSecret: nil}
+	return &GameSessionsHandler{q: sqlc.New(db), jwtSecret: nil}
 }
 
 // NewGameSessionsWithHubForTest is like NewGameSessionsForTest but wires a real
 // hub, so a test can exercise the Stop → hub.CloseRoom → client-disconnect path
 // end-to-end (the nil-hub test constructor disables that side effect entirely).
 func NewGameSessionsWithHubForTest(db *sql.DB, hub *ws.Hub) *GameSessionsHandler {
-	return &GameSessionsHandler{db: db, jwtSecret: nil, hub: hub}
+	return &GameSessionsHandler{q: sqlc.New(db), jwtSecret: nil, hub: hub}
 }
 
 func (h *GameSessionsHandler) callerID(r *http.Request) (string, bool) {
@@ -51,11 +52,11 @@ func (h *GameSessionsHandler) callerID(r *http.Request) (string, bool) {
 
 // isProjectMember reports whether userID is a member of projectID.
 func (h *GameSessionsHandler) isProjectMember(r *http.Request, projectID, userID string) (bool, error) {
-	var count int
-	if err := h.db.QueryRowContext(r.Context(),
-		`SELECT COUNT(*) FROM project_members WHERE project_id = ? AND user_id = ?`,
-		projectID, userID,
-	).Scan(&count); err != nil {
+	count, err := h.q.CountProjectMembership(r.Context(), sqlc.CountProjectMembershipParams{
+		ProjectID: projectID,
+		UserID:    userID,
+	})
+	if err != nil {
 		return false, err
 	}
 	return count > 0, nil
@@ -106,47 +107,40 @@ type ChatMessage struct {
 	CreatedAt int64   `json:"createdAt"`
 }
 
-const sessionSelect = `SELECT id, project_id, status, started_by, started_at, stopped_by, stopped_at FROM game_sessions`
-
-func scanSession(row *sql.Row) (GameSession, error) {
-	var s GameSession
-	var stoppedBy sql.NullString
-	var stoppedAt sql.NullInt64
-	if err := row.Scan(&s.ID, &s.ProjectID, &s.Status, &s.StartedBy, &s.StartedAt, &stoppedBy, &stoppedAt); err != nil {
-		return GameSession{}, err
+// toGameSession converts a generated sqlc row into the handler's GameSession
+// response type, unwrapping the nullable stopped_by/stopped_at columns into
+// the pointer fields the JSON response uses.
+func toGameSession(g sqlc.GameSession) GameSession {
+	s := GameSession{
+		ID:        g.ID,
+		ProjectID: g.ProjectID,
+		Status:    g.Status,
+		StartedBy: g.StartedBy,
+		StartedAt: g.StartedAt,
 	}
-	if stoppedBy.Valid {
-		s.StoppedBy = &stoppedBy.String
+	if g.StoppedBy.Valid {
+		s.StoppedBy = &g.StoppedBy.String
 	}
-	if stoppedAt.Valid {
-		s.StoppedAt = &stoppedAt.Int64
+	if g.StoppedAt.Valid {
+		s.StoppedAt = &g.StoppedAt.Int64
 	}
-	return s, nil
-}
-
-// scanSessionRows is scanSession's *sql.Rows counterpart, for list queries.
-func scanSessionRows(rows *sql.Rows) (GameSession, error) {
-	var s GameSession
-	var stoppedBy sql.NullString
-	var stoppedAt sql.NullInt64
-	if err := rows.Scan(&s.ID, &s.ProjectID, &s.Status, &s.StartedBy, &s.StartedAt, &stoppedBy, &stoppedAt); err != nil {
-		return GameSession{}, err
-	}
-	if stoppedBy.Valid {
-		s.StoppedBy = &stoppedBy.String
-	}
-	if stoppedAt.Valid {
-		s.StoppedAt = &stoppedAt.Int64
-	}
-	return s, nil
+	return s
 }
 
 func (h *GameSessionsHandler) fetchSessionByID(r *http.Request, id string) (GameSession, error) {
-	return scanSession(h.db.QueryRowContext(r.Context(), sessionSelect+` WHERE id = ?`, id))
+	g, err := h.q.GetGameSession(r.Context(), id)
+	if err != nil {
+		return GameSession{}, err
+	}
+	return toGameSession(g), nil
 }
 
 func (h *GameSessionsHandler) fetchRunningSession(r *http.Request, projectID string) (GameSession, error) {
-	return scanSession(h.db.QueryRowContext(r.Context(), sessionSelect+` WHERE project_id = ? AND status = 'running'`, projectID))
+	g, err := h.q.GetRunningGameSession(r.Context(), projectID)
+	if err != nil {
+		return GameSession{}, err
+	}
+	return toGameSession(g), nil
 }
 
 // isUniqueConstraintErr reports whether err is a SQLite UNIQUE constraint violation.
@@ -177,10 +171,12 @@ func (h *GameSessionsHandler) Start(w http.ResponseWriter, r *http.Request) {
 
 	now := nowUnix()
 	id := newID()
-	_, err := h.db.ExecContext(r.Context(),
-		`INSERT INTO game_sessions (id, project_id, status, started_by, started_at) VALUES (?, ?, 'running', ?, ?)`,
-		id, projectID, callerID, now,
-	)
+	err := h.q.InsertGameSession(r.Context(), sqlc.InsertGameSessionParams{
+		ID:        id,
+		ProjectID: projectID,
+		StartedBy: callerID,
+		StartedAt: now,
+	})
 	if err != nil {
 		if isUniqueConstraintErr(err) {
 			existing, ferr := h.fetchRunningSession(r, projectID)
@@ -230,13 +226,12 @@ func (h *GameSessionsHandler) Stop(w http.ResponseWriter, r *http.Request) {
 	// stopped row afterward via project_id + stopped_by + stopped_at, which
 	// is ambiguous when nowUnix()'s 1s resolution lets two stops by the same
 	// caller land in the same second.
-	row := h.db.QueryRowContext(r.Context(),
-		`UPDATE game_sessions SET status = 'stopped', stopped_by = ?, stopped_at = ?
-		 WHERE project_id = ? AND status = 'running'
-		 RETURNING id, project_id, status, started_by, started_at, stopped_by, stopped_at`,
-		callerID, now, projectID,
-	)
-	session, err := scanSession(row)
+	g, err := h.q.StopGameSession(r.Context(), sqlc.StopGameSessionParams{
+		StoppedBy: sql.NullString{String: callerID, Valid: true},
+		StoppedAt: sql.NullInt64{Int64: now, Valid: true},
+		ProjectID: projectID,
+	})
+	session := toGameSession(g)
 	if errors.Is(err, sql.ErrNoRows) {
 		writeError(w, http.StatusNotFound, "no active session")
 		return
@@ -304,10 +299,11 @@ func (h *GameSessionsHandler) ListMessages(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	var count int
-	if err := h.db.QueryRowContext(r.Context(),
-		`SELECT COUNT(*) FROM game_sessions WHERE id = ? AND project_id = ?`, sessionID, projectID,
-	).Scan(&count); err != nil {
+	count, err := h.q.CountGameSessionByIDAndProject(r.Context(), sqlc.CountGameSessionByIDAndProjectParams{
+		ID:        sessionID,
+		ProjectID: projectID,
+	})
+	if err != nil {
 		writeError(w, http.StatusInternalServerError, "db error")
 		return
 	}
@@ -316,32 +312,29 @@ func (h *GameSessionsHandler) ListMessages(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	rows, err := h.db.QueryContext(r.Context(),
-		`SELECT id, session_id, project_id, sender_id, type, body, entry_id, card_title, card_body, created_at
-		 FROM chat_messages WHERE session_id = ? ORDER BY created_at ASC`, sessionID,
-	)
+	rows, err := h.q.ListChatMessages(r.Context(), sessionID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "db error")
 		return
 	}
-	defer rows.Close()
 
 	messages := []ChatMessage{}
-	for rows.Next() {
-		var m ChatMessage
-		var entryID sql.NullString
-		if err := rows.Scan(&m.ID, &m.SessionID, &m.ProjectID, &m.SenderID, &m.Type, &m.Body, &entryID, &m.CardTitle, &m.CardBody, &m.CreatedAt); err != nil {
-			writeError(w, http.StatusInternalServerError, "db error")
-			return
+	for _, row := range rows {
+		m := ChatMessage{
+			ID:        row.ID,
+			SessionID: row.SessionID,
+			ProjectID: row.ProjectID,
+			SenderID:  row.SenderID,
+			Type:      row.Type,
+			Body:      row.Body,
+			CardTitle: row.CardTitle,
+			CardBody:  row.CardBody,
+			CreatedAt: row.CreatedAt,
 		}
-		if entryID.Valid {
-			m.EntryID = &entryID.String
+		if row.EntryID.Valid {
+			m.EntryID = &row.EntryID.String
 		}
 		messages = append(messages, m)
-	}
-	if err := rows.Err(); err != nil {
-		writeError(w, http.StatusInternalServerError, "db error")
-		return
 	}
 	writeJSON(w, http.StatusOK, messages)
 }
@@ -364,27 +357,15 @@ func (h *GameSessionsHandler) ListSessions(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	rows, err := h.db.QueryContext(r.Context(),
-		sessionSelect+` WHERE project_id = ? ORDER BY started_at DESC LIMIT 100`, projectID,
-	)
+	rows, err := h.q.ListGameSessionsForProject(r.Context(), projectID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "db error")
 		return
 	}
-	defer rows.Close()
 
 	sessions := []GameSession{}
-	for rows.Next() {
-		s, err := scanSessionRows(rows)
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, "db error")
-			return
-		}
-		sessions = append(sessions, s)
-	}
-	if err := rows.Err(); err != nil {
-		writeError(w, http.StatusInternalServerError, "db error")
-		return
+	for _, row := range rows {
+		sessions = append(sessions, toGameSession(row))
 	}
 	writeJSON(w, http.StatusOK, sessions)
 }

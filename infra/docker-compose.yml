@@ -1,7 +1,10 @@
+name: quillit
+
 services:
   auth:
     build:
-      context: ../app/auth
+      context: ..
+      dockerfile: app/auth/Dockerfile
     image: quillit-auth
     volumes:
       - auth-data:/data
@@ -12,15 +15,16 @@ services:
       SEED_ADMIN_EMAIL: ${SEED_ADMIN_EMAIL}
       SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD}
       MESSAGING_SERVICE_URL: http://messaging:3003
-      MESSAGING_SECRET: ${MESSAGING_SECRET}
       APP_BASE_URL: ${APP_BASE_URL}
+      INTERNAL_RPC_SECRET: ${INTERNAL_RPC_SECRET}
     depends_on:
       - messaging
     restart: unless-stopped
 
   messaging:
     build:
-      context: ../app/messaging
+      context: ..
+      dockerfile: app/messaging/Dockerfile
     image: quillit-messaging
     environment:
       PORT: 3003
@@ -29,7 +33,7 @@ services:
       SMTP_USERNAME: ${SMTP_USERNAME}
       SMTP_PASSWORD: ${SMTP_PASSWORD}
       SMTP_FROM: ${SMTP_FROM}
-      MESSAGING_SECRET: ${MESSAGING_SECRET}
+      INTERNAL_RPC_SECRET: ${INTERNAL_RPC_SECRET}
     restart: unless-stopped
 
   svc:
@@ -52,6 +56,7 @@ services:
       MINIO_SECRET_KEY: ${MINIO_PASSWORD}
       MINIO_BUCKET: quillit
       MINIO_USE_SSL: "false"
+      INTERNAL_RPC_SECRET: ${INTERNAL_RPC_SECRET}
     depends_on:
       - auth
       - minio
@@ -75,6 +80,7 @@ services:
       MINIO_SECRET_KEY: ${MINIO_PASSWORD}
       MINIO_BUCKET: quillit
       MINIO_USE_SSL: "false"
+      INTERNAL_RPC_SECRET: ${INTERNAL_RPC_SECRET}
     depends_on:
       - minio
     restart: unless-stopped

@@ -12,6 +12,7 @@ import (
 	"github.com/quillit/contentengine/parse"
 
 	"github.com/quillit/content-svc/internal/authz"
+	"github.com/quillit/content-svc/internal/db/sqlc"
 )
 
 // UnknownFacetError is returned when an entry body's :::card block names a
@@ -32,29 +33,16 @@ func (e UnknownFacetError) Error() string {
 // and projectID's own facets (docs/web-refactor-spec.md §4.3: "Effective
 // vocabulary = global ∪ project"), as both a lookup set and a sorted slice
 // for error messages.
-func effectiveFacetVocabulary(ctx context.Context, db *sql.DB, projectID string) (map[string]bool, []string, error) {
-	rows, err := db.QueryContext(ctx, `
-		SELECT name FROM facets
-		UNION
-		SELECT name FROM project_facets WHERE project_id = ?
-		ORDER BY name
-	`, projectID)
+func effectiveFacetVocabulary(ctx context.Context, q *sqlc.Queries, projectID string) (map[string]bool, []string, error) {
+	list, err := q.EffectiveFacetVocabulary(ctx, projectID)
 	if err != nil {
 		return nil, nil, err
 	}
-	defer rows.Close()
-
-	set := map[string]bool{}
-	var list []string
-	for rows.Next() {
-		var name string
-		if err := rows.Scan(&name); err != nil {
-			return nil, nil, err
-		}
+	set := make(map[string]bool, len(list))
+	for _, name := range list {
 		set[name] = true
-		list = append(list, name)
 	}
-	return set, list, rows.Err()
+	return set, list, nil
 }
 
 // validateFacets walks entry's entire block tree (including blocks nested
@@ -97,13 +85,13 @@ func isKebabName(name string) bool {
 }
 
 type FacetsHandler struct {
-	db        *sql.DB
+	q         *sqlc.Queries
 	jwtSecret []byte
 	checker   authz.Checker
 }
 
 func NewFacets(db *sql.DB, jwtSecret string, checker authz.Checker) *FacetsHandler {
-	return &FacetsHandler{db: db, jwtSecret: []byte(jwtSecret), checker: checker}
+	return &FacetsHandler{q: sqlc.New(db), jwtSecret: []byte(jwtSecret), checker: checker}
 }
 
 type facetRequest struct {
@@ -127,10 +115,13 @@ func (h *FacetsHandler) ListGlobal(w http.ResponseWriter, r *http.Request) {
 	if _, ok := requireCaller(w, r, h.jwtSecret); !ok {
 		return
 	}
-	names, err := queryFacetNames(r.Context(), h.db, `SELECT name FROM facets ORDER BY name`)
+	names, err := h.q.ListGlobalFacetNames(r.Context())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "db error")
 		return
+	}
+	if names == nil {
+		names = []string{}
 	}
 	writeJSON(w, http.StatusOK, names)
 }
@@ -159,12 +150,11 @@ func (h *FacetsHandler) CreateGlobal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	res, err := h.db.ExecContext(r.Context(), `INSERT OR IGNORE INTO facets (name) VALUES (?)`, req.Name)
+	n, err := h.q.InsertGlobalFacet(r.Context(), req.Name)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "db error")
 		return
 	}
-	n, _ := res.RowsAffected()
 	if n == 0 {
 		writeJSON(w, http.StatusOK, facetResponse{Name: req.Name, Added: false, Message: "facet already exists in the global vocabulary"})
 		return
@@ -185,7 +175,7 @@ func (h *FacetsHandler) DeleteGlobal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	name := chi.URLParam(r, "name")
-	if _, err := h.db.ExecContext(r.Context(), `DELETE FROM facets WHERE name = ?`, name); err != nil {
+	if err := h.q.DeleteGlobalFacet(r.Context(), name); err != nil {
 		writeError(w, http.StatusInternalServerError, "db error")
 		return
 	}
@@ -208,7 +198,7 @@ func (h *FacetsHandler) ListEffectiveForProject(w http.ResponseWriter, r *http.R
 	if _, ok := requireProjectMember(w, r, h.jwtSecret, h.checker, projectID); !ok {
 		return
 	}
-	_, sorted, err := effectiveFacetVocabulary(r.Context(), h.db, projectID)
+	_, sorted, err := effectiveFacetVocabulary(r.Context(), h.q, projectID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "db error")
 		return
@@ -245,7 +235,7 @@ func (h *FacetsHandler) CreateForProject(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	vocab, _, err := effectiveFacetVocabulary(r.Context(), h.db, projectID)
+	vocab, _, err := effectiveFacetVocabulary(r.Context(), h.q, projectID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "db error")
 		return
@@ -255,7 +245,7 @@ func (h *FacetsHandler) CreateForProject(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	if _, err := h.db.ExecContext(r.Context(), `INSERT OR IGNORE INTO project_facets (project_id, name) VALUES (?, ?)`, projectID, req.Name); err != nil {
+	if err := h.q.InsertProjectFacet(r.Context(), sqlc.InsertProjectFacetParams{ProjectID: projectID, Name: req.Name}); err != nil {
 		writeError(w, http.StatusInternalServerError, "db error")
 		return
 	}
@@ -277,7 +267,7 @@ func (h *FacetsHandler) DeleteForProject(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	name := chi.URLParam(r, "name")
-	if _, err := h.db.ExecContext(r.Context(), `DELETE FROM project_facets WHERE project_id = ? AND name = ?`, projectID, name); err != nil {
+	if err := h.q.DeleteProjectFacet(r.Context(), sqlc.DeleteProjectFacetParams{ProjectID: projectID, Name: name}); err != nil {
 		writeError(w, http.StatusInternalServerError, "db error")
 		return
 	}
@@ -285,22 +275,4 @@ func (h *FacetsHandler) DeleteForProject(w http.ResponseWriter, r *http.Request)
 		Name:    name,
 		Message: "removed from this project's facets — entry bodies are untouched; any entry still using this facet will fail validation at its next save or render",
 	})
-}
-
-func queryFacetNames(ctx context.Context, db *sql.DB, query string, args ...any) ([]string, error) {
-	rows, err := db.QueryContext(ctx, query, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	names := []string{}
-	for rows.Next() {
-		var name string
-		if err := rows.Scan(&name); err != nil {
-			return nil, err
-		}
-		names = append(names, name)
-	}
-	return names, rows.Err()
 }

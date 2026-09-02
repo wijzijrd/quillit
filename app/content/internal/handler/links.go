@@ -7,6 +7,8 @@ import (
 
 	"github.com/quillit/contentengine/linkindex"
 	"github.com/quillit/contentengine/parse"
+
+	"github.com/quillit/content-svc/internal/db/sqlc"
 )
 
 // recompileLinks replaces entryID's entry_links rows with the outgoing
@@ -14,20 +16,25 @@ import (
 // links.conf recompile (docs/web-refactor-spec.md §4.6): a save is the
 // staleness event, so every write recomputes the full set rather than
 // diffing. Dangling links (Resolved=false) are recorded, never dropped or
-// treated as an error — matching CLI `compile` behavior.
-func recompileLinks(ctx context.Context, tx *sql.Tx, entryID, projectID string, entry *parse.Entry) error {
-	if _, err := tx.ExecContext(ctx, `DELETE FROM entry_links WHERE entry_id = ?`, entryID); err != nil {
+// treated as an error — matching CLI `compile` behavior. q is expected to be
+// transaction-scoped (sqlc.Queries.WithTx) by every caller.
+func recompileLinks(ctx context.Context, q *sqlc.Queries, entryID, projectID string, entry *parse.Entry) error {
+	if err := q.DeleteEntryLinks(ctx, entryID); err != nil {
 		return err
 	}
 	for _, rec := range linkindex.Extract(entry) {
-		targetID, resolved, err := resolveEntryPath(ctx, tx, projectID, rec.TargetPath)
+		targetID, resolved, err := resolveEntryPath(ctx, q, projectID, rec.TargetPath)
 		if err != nil {
 			return err
 		}
-		if _, err := tx.ExecContext(ctx, `
-			INSERT INTO entry_links (entry_id, target_path, target_entry_id, label, card_facet, resolved)
-			VALUES (?, ?, ?, ?, ?, ?)
-		`, entryID, rec.TargetPath, nullStr(targetID), rec.Label, nullStr(rec.CardFacet), resolved); err != nil {
+		if err := q.InsertEntryLink(ctx, sqlc.InsertEntryLinkParams{
+			EntryID:       entryID,
+			TargetPath:    rec.TargetPath,
+			TargetEntryID: nullString(targetID),
+			Label:         rec.Label,
+			CardFacet:     nullString(rec.CardFacet),
+			Resolved:      boolToInt64(resolved),
+		}); err != nil {
 			return err
 		}
 	}
@@ -36,12 +43,13 @@ func recompileLinks(ctx context.Context, tx *sql.Tx, entryID, projectID string, 
 
 // resolveEntryPath looks up the entry at path (directory_path + "/" + slug,
 // or bare slug when directory_path is "") within projectID.
-func resolveEntryPath(ctx context.Context, tx *sql.Tx, projectID, path string) (id string, resolved bool, err error) {
+func resolveEntryPath(ctx context.Context, q *sqlc.Queries, projectID, path string) (id string, resolved bool, err error) {
 	dir, slug := splitEntryPath(path)
-	err = tx.QueryRowContext(ctx,
-		`SELECT id FROM entries WHERE project_id = ? AND directory_path = ? AND slug = ?`,
-		projectID, dir, slug,
-	).Scan(&id)
+	id, err = q.FindEntryIDAtPath(ctx, sqlc.FindEntryIDAtPathParams{
+		ProjectID:     projectID,
+		DirectoryPath: dir,
+		Slug:          slug,
+	})
 	if err == sql.ErrNoRows {
 		return "", false, nil
 	}
@@ -74,9 +82,20 @@ func joinEntryPath(dir, slug string) string {
 	return strings.TrimRight(dir, "/") + "/" + slug
 }
 
-func nullStr(s string) any {
-	if s == "" {
-		return nil
+// nullString converts a Go string into the sql.NullString sqlc's generated
+// params expect for a nullable TEXT column — "" means NULL (matching the
+// pre-sqlc convention of only binding a value when non-empty), any other
+// value is bound as-is.
+func nullString(s string) sql.NullString {
+	return sql.NullString{String: s, Valid: s != ""}
+}
+
+// boolToInt64 converts a Go bool into the int64 sqlc's generated params
+// expect for entry_links.resolved (INTEGER NOT NULL, no boolean affinity
+// hint in the schema).
+func boolToInt64(b bool) int64 {
+	if b {
+		return 1
 	}
-	return s
+	return 0
 }

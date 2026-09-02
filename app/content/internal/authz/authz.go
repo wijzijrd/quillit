@@ -8,9 +8,10 @@
 // reasoning: project membership is per-resource and changes on its own
 // schedule via invite/join/remove, not something that fits a token that's
 // awkward to invalidate early). Instead, SvcChecker asks svc directly over
-// HTTP, on svc's internal-only membership-lookup route, with a short-lived
-// cache so a brief svc outage degrades gracefully rather than making every
-// content request fail.
+// connectrpc (SvcInternalService.CheckMembership — see
+// gen/quillit/svc/v1, and app/svc/internal/rpc/svc_internal.go for the
+// server side), with a short-lived cache so a brief svc outage degrades
+// gracefully rather than making every content request fail.
 package authz
 
 import (
@@ -18,9 +19,14 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"net/url"
 	"sync"
 	"time"
+
+	"connectrpc.com/connect"
+
+	"github.com/quillit/gen/internalauth"
+	v1 "github.com/quillit/gen/quillit/svc/v1"
+	"github.com/quillit/gen/quillit/svc/v1/svcv1connect"
 )
 
 // Checker answers whether userID belongs to projectID.
@@ -83,33 +89,37 @@ type cacheEntry struct {
 	checkedAt time.Time
 }
 
-// SvcChecker is the production Checker: it asks svc's internal membership
-// endpoint (GET {baseURL}/internal/projects/{projectID}/members/{userID})
-// and caches the answer. That route is deliberately not under svc's /api
-// prefix — app/ui/nginx.conf only forwards /api/ to svc, so it's
-// unreachable from the browser; it exists purely for server-to-server
-// callers on the same docker network content already depends on (see
-// infra/docker-compose.yml: content has no exposed port at all, so it's
-// already trusted with that same "reachable only inside the compose
-// network" boundary).
+// SvcChecker is the production Checker: it calls svc's SvcInternalService.
+// CheckMembership RPC and caches the answer. That RPC is deliberately not
+// reachable through svc's /api prefix — app/ui/nginx.conf only forwards
+// /api/ to svc, so it's unreachable from the browser; it exists purely for
+// server-to-server callers on the same docker network content already
+// depends on (see infra/docker-compose.yml: content has no exposed port at
+// all, so it's already trusted with that same "reachable only inside the
+// compose network" boundary), gated additionally by the shared-secret
+// interceptor (gen/internalauth) both sides carry.
 type SvcChecker struct {
-	baseURL string
-	client  *http.Client
+	rpc svcv1connect.SvcInternalServiceClient
 
 	mu    sync.Mutex
 	cache map[string]cacheEntry
 }
 
-// NewSvcChecker builds a SvcChecker. httpClient may be nil, in which case
-// a client with httpTimeout is constructed.
-func NewSvcChecker(baseURL string, httpClient *http.Client) *SvcChecker {
+// NewSvcChecker builds a SvcChecker pointed at svc's baseURL, authenticating
+// every call with secret (INTERNAL_RPC_SECRET — see gen/internalauth).
+// httpClient may be nil, in which case a client with httpTimeout is
+// constructed.
+func NewSvcChecker(baseURL, secret string, httpClient *http.Client) *SvcChecker {
 	if httpClient == nil {
 		httpClient = &http.Client{Timeout: httpTimeout}
 	}
 	return &SvcChecker{
-		baseURL: baseURL,
-		client:  httpClient,
-		cache:   make(map[string]cacheEntry),
+		rpc: svcv1connect.NewSvcInternalServiceClient(
+			httpClient,
+			baseURL,
+			connect.WithInterceptors(internalauth.NewClientInterceptor(secret)),
+		),
+		cache: make(map[string]cacheEntry),
 	}
 }
 
@@ -157,10 +167,11 @@ func (c *SvcChecker) IsMember(ctx context.Context, userID, projectID string) (bo
 		return member, nil
 	}
 
-	// svc didn't give a definitive answer (network error, timeout, 5xx —
-	// checkSvc only returns an error for these, never for a clean
-	// "not a member" 404; see below). Fall back to a stale cached answer
-	// rather than rejecting every request for every project outright.
+	// svc didn't give a definitive answer (network error, timeout, an
+	// internal error from svc — checkSvc only returns an error for these,
+	// never for a clean "not a member" connect.CodeNotFound; see below).
+	// Fall back to a stale cached answer rather than rejecting every
+	// request for every project outright.
 	if e, ok := c.getCached(key, staleTolerance); ok {
 		log.Printf("authz: svc membership check failed for %s (%v) — using cached answer from %s ago", key, err, time.Since(e.checkedAt).Round(time.Second))
 		return e.member, nil
@@ -168,31 +179,24 @@ func (c *SvcChecker) IsMember(ctx context.Context, userID, projectID string) (bo
 	return false, fmt.Errorf("membership check unavailable: %w", err)
 }
 
-// checkSvc performs the actual HTTP round trip. A 200 means member; a 404
-// means svc positively answered "no" (project doesn't exist, or userID
-// isn't in it) — both are definitive, cacheable answers, not errors.
-// Anything else (network failure, timeout, 5xx, unexpected status) is
-// treated as "svc couldn't answer" and returned as an error for IsMember's
-// stale-cache fallback to handle.
+// checkSvc performs the actual RPC call. connect.CodeNotFound means svc
+// positively answered "no" (project doesn't exist, or userID isn't in it)
+// — a definitive, cacheable answer, not an error, exactly like the old
+// HTTP route's 404. Anything else (network failure, timeout, an
+// unauthenticated/internal error from svc, ...) is treated as "svc
+// couldn't answer" and returned as an error for IsMember's stale-cache
+// fallback to handle — the same branching checkSvc always had, just keyed
+// on a connect error code instead of an HTTP status code.
 func (c *SvcChecker) checkSvc(ctx context.Context, userID, projectID string) (bool, error) {
-	reqURL := fmt.Sprintf("%s/internal/projects/%s/members/%s", c.baseURL, url.PathEscape(projectID), url.PathEscape(userID))
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
+	resp, err := c.rpc.CheckMembership(ctx, connect.NewRequest(&v1.CheckMembershipRequest{
+		ProjectId: projectID,
+		UserId:    userID,
+	}))
 	if err != nil {
-		return false, fmt.Errorf("build request: %w", err)
+		if connect.CodeOf(err) == connect.CodeNotFound {
+			return false, nil
+		}
+		return false, fmt.Errorf("CheckMembership(%s, %s): %w", projectID, userID, err)
 	}
-
-	resp, err := c.client.Do(req)
-	if err != nil {
-		return false, fmt.Errorf("GET %s: %w", reqURL, err)
-	}
-	defer resp.Body.Close()
-
-	switch resp.StatusCode {
-	case http.StatusOK:
-		return true, nil
-	case http.StatusNotFound:
-		return false, nil
-	default:
-		return false, fmt.Errorf("GET %s: unexpected status %d", reqURL, resp.StatusCode)
-	}
+	return resp.Msg.GetIsMember(), nil
 }

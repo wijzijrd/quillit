@@ -1,0 +1,29 @@
+# Codegen config for `make proto` / `buf generate`.
+#
+# Neither protoc-gen-go nor protoc-gen-connect-go is installed on PATH (or
+# expected to be). Rather than requiring a `go install` step to seed
+# $GOPATH/bin onto PATH before this works, each `local:` plugin is invoked as
+# `go run <module>/<cmd>@<pinned version>`: Go treats a versioned `go run`
+# target as a standalone tool invocation (module-and-workspace-independent,
+# like `go install pkg@version`), downloads/builds it into the module
+# cache on first use, and behaves exactly like the plugin binary itself —
+# buf talks to it over stdin/stdout using the same protoc plugin protocol
+# either way. This mirrors the pattern already used for sqlc in the root
+# Makefile (`go run github.com/sqlc-dev/sqlc/cmd/sqlc@v1.31.1 generate`).
+#
+# Versions are pinned explicitly (no @latest) for reproducibility, matching
+# the sqlc precedent.
+version: v2
+plugins:
+  - local:
+      - go
+      - run
+      - google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.12
+    out: ../gen
+    opt: paths=source_relative
+  - local:
+      - go
+      - run
+      - connectrpc.com/connect/cmd/protoc-gen-connect-go@v1.20.0
+    out: ../gen
+    opt: paths=source_relative

@@ -11,6 +11,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/gorilla/websocket"
 	"github.com/quillit/svc/internal/contentclient"
+	"github.com/quillit/svc/internal/db/sqlc"
 	"github.com/quillit/svc/internal/middleware"
 	"github.com/quillit/svc/internal/ws"
 )
@@ -19,7 +20,7 @@ import (
 // inbound frames to the shared in-process hub. Auth, membership, and the
 // running-session check all happen before the HTTP handshake is upgraded.
 type ChatWSHandler struct {
-	db         *sql.DB
+	q          *sqlc.Queries
 	jwtSecret  []byte
 	hub        *ws.Hub
 	content    *contentclient.Client
@@ -28,7 +29,7 @@ type ChatWSHandler struct {
 
 func NewChatWS(db *sql.DB, jwtSecret string, hub *ws.Hub, content *contentclient.Client, corsOrigin string) *ChatWSHandler {
 	return &ChatWSHandler{
-		db:         db,
+		q:          sqlc.New(db),
 		jwtSecret:  []byte(jwtSecret),
 		hub:        hub,
 		content:    content,
@@ -75,11 +76,11 @@ func (h *ChatWSHandler) Serve(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 2. Membership.
-	var member int
-	if err := h.db.QueryRowContext(r.Context(),
-		`SELECT COUNT(*) FROM project_members WHERE project_id = ? AND user_id = ?`,
-		projectID, callerID,
-	).Scan(&member); err != nil {
+	member, err := h.q.CountChatProjectMembership(r.Context(), sqlc.CountChatProjectMembershipParams{
+		ProjectID: projectID,
+		UserID:    callerID,
+	})
+	if err != nil {
 		writeError(w, http.StatusInternalServerError, "db error")
 		return
 	}
@@ -89,10 +90,7 @@ func (h *ChatWSHandler) Serve(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 3. A session must be running. Fail before the handshake, not after.
-	var sessionID string
-	err = h.db.QueryRowContext(r.Context(),
-		`SELECT id FROM game_sessions WHERE project_id = ? AND status = 'running'`, projectID,
-	).Scan(&sessionID)
+	sessionID, err := h.q.GetRunningGameSessionID(r.Context(), projectID)
 	if errors.Is(err, sql.ErrNoRows) {
 		writeError(w, http.StatusConflict, "no running session")
 		return
@@ -205,15 +203,22 @@ func (h *ChatWSHandler) persistAndBroadcast(ctx context.Context, msg ChatMessage
 	msg.ID = newID()
 	msg.CreatedAt = nowUnix()
 
-	var entryID any
+	var entryID sql.NullString
 	if msg.EntryID != nil {
-		entryID = *msg.EntryID
+		entryID = sql.NullString{String: *msg.EntryID, Valid: true}
 	}
-	_, err := h.db.ExecContext(ctx,
-		`INSERT INTO chat_messages (id, session_id, project_id, sender_id, type, body, entry_id, card_title, card_body, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		msg.ID, msg.SessionID, msg.ProjectID, msg.SenderID, msg.Type, msg.Body, entryID, msg.CardTitle, msg.CardBody, msg.CreatedAt,
-	)
+	err := h.q.InsertChatMessage(ctx, sqlc.InsertChatMessageParams{
+		ID:        msg.ID,
+		SessionID: msg.SessionID,
+		ProjectID: msg.ProjectID,
+		SenderID:  msg.SenderID,
+		Type:      msg.Type,
+		Body:      msg.Body,
+		EntryID:   entryID,
+		CardTitle: msg.CardTitle,
+		CardBody:  msg.CardBody,
+		CreatedAt: msg.CreatedAt,
+	})
 	if err != nil {
 		log.Printf("chat_ws: insert message failed: %v", err)
 		return

@@ -13,17 +13,22 @@ import (
 	"os"
 	"time"
 
+	"connectrpc.com/connect"
 	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
 	httpSwagger "github.com/swaggo/http-swagger"
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
 
+	"github.com/quillit/gen/internalauth"
+	svcv1connect "github.com/quillit/gen/quillit/svc/v1/svcv1connect"
+
 	_ "github.com/quillit/svc/docs"
 	"github.com/quillit/svc/internal/contentclient"
 	"github.com/quillit/svc/internal/db"
 	"github.com/quillit/svc/internal/handler"
 	"github.com/quillit/svc/internal/middleware"
+	"github.com/quillit/svc/internal/rpc"
 	"github.com/quillit/svc/internal/session"
 	"github.com/quillit/svc/internal/ws"
 )
@@ -36,6 +41,15 @@ func main() {
 	corsOrigin := env("CORS_ORIGIN", "http://localhost:5173")
 	jwtSecret := mustEnv("JWT_SECRET")
 	cookieSecure := os.Getenv("COOKIE_SECURE") == "true"
+	// Shared secret gating every quillit-internal connect RPC (both the
+	// SvcInternalService server mounted below and the ContentInternalService
+	// client contentclient.NewClient builds) — see gen/internalauth. Read
+	// the same way in app/content, app/auth and app/messaging: an env var,
+	// wired into infra/docker-compose.yml and documented in .env.example.
+	internalRPCSecret := env("INTERNAL_RPC_SECRET", "")
+	if internalRPCSecret == "" {
+		log.Println("WARNING: INTERNAL_RPC_SECRET is unset — internal RPC calls will fail")
+	}
 
 	database, err := db.Open(dbPath)
 	if err != nil {
@@ -47,7 +61,7 @@ func main() {
 
 	auth := handler.NewAuth(authURL, sessions, jwtSecret)
 	admin := handler.NewAdmin(database, jwtSecret, authURL)
-	content := &contentclient.Client{BaseURL: contentURL, HTTP: &http.Client{Timeout: 5 * time.Second}}
+	content := contentclient.NewClient(contentURL, internalRPCSecret, &http.Client{Timeout: 5 * time.Second})
 	projects := handler.NewProjects(database, jwtSecret, content)
 	settings := handler.NewSettings(database, jwtSecret)
 	contentFacets := handler.NewContentFacets(contentURL)
@@ -68,13 +82,21 @@ func main() {
 	// Health probe (no session required) — used by the deploy pipeline & uptime monitors
 	r.Get("/healthz", health.Check)
 
-	// Internal-only (#44): server-to-server callers on the compose network,
-	// currently content checking project membership for its own request
-	// authorization (see app/content/internal/authz.SvcChecker). Mounted
-	// outside /api deliberately — app/ui/nginx.conf only forwards /api/ to
-	// svc, so this is never reachable from the browser, the same trust
-	// boundary content itself relies on for having no exposed port at all.
-	r.Get("/internal/projects/{id}/members/{userId}", projects.InternalMembership)
+	// SvcInternalService: svc's server-to-server connect RPC surface,
+	// reached only by content (checking project membership for its own
+	// request authorization — see app/content/internal/authz.SvcChecker)
+	// and gated by the shared-secret interceptor rather than a session.
+	// Mounted outside /api deliberately — app/ui/nginx.conf only forwards
+	// /api/ to svc, so this is never reachable from the browser, the same
+	// trust boundary content itself relies on for having no exposed port
+	// at all. Replaces the old GET /internal/projects/{id}/members/{userId}
+	// HTTP route outright (internal/rpc/svc_internal.go).
+	svcInternal := rpc.NewSvcInternalServer(database)
+	svcRPCPath, svcRPCHandler := svcv1connect.NewSvcInternalServiceHandler(
+		svcInternal,
+		connect.WithInterceptors(internalauth.NewServerInterceptor(internalRPCSecret)),
+	)
+	r.Mount(svcRPCPath, svcRPCHandler)
 
 	// Auth routes (no session required)
 	r.Get("/api/auth/status", auth.Status)

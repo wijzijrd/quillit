@@ -1,0 +1,34 @@
+syntax = "proto3";
+
+// MessagingInternalService is messaging's server-to-server surface,
+// reached only by other trusted services on the compose network, never end
+// users. It sends a single email (SendEmail) on behalf of a calling
+// service — currently auth, for password-reset mail. Callers authenticate
+// with a shared secret carried in the X-Internal-Secret header, checked by
+// gen/internalauth's interceptor rather than a handler-local check.
+// Neither this package nor go_package below puts "internal" in the path —
+// see content_internal.proto's package comment for why (Go's
+// internal-package visibility rule would make this package unimportable
+// from svc/auth, separate Go modules).
+package quillit.messaging.v1;
+
+option go_package = "github.com/quillit/gen/quillit/messaging/v1;messagingv1";
+
+// MessagingInternalService is served by messaging and called by svc/auth.
+service MessagingInternalService {
+  rpc SendEmail(SendEmailRequest) returns (SendEmailResponse);
+}
+
+// SendEmailRequest is a single outbound email: recipient, subject, and
+// body (plain text and/or HTML).
+message SendEmailRequest {
+  string to = 1;
+  string subject = 2;
+  string text = 3;
+  string html = 4;
+}
+
+// SendEmailResponse confirms the send was accepted.
+message SendEmailResponse {
+  bool ok = 1;
+}

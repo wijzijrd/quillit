@@ -10,6 +10,7 @@ import (
 	"github.com/quillit/contentengine/parse"
 
 	"github.com/quillit/content-svc/internal/authz"
+	"github.com/quillit/content-svc/internal/db/sqlc"
 )
 
 // LinksHandler serves the HTTP-facing endpoints for entry_links — reading a
@@ -21,13 +22,14 @@ import (
 // both call the same recompileLinks function.
 type LinksHandler struct {
 	db        *sql.DB
+	q         *sqlc.Queries
 	blobs     BlobStore
 	jwtSecret []byte
 	checker   authz.Checker
 }
 
 func NewLinks(db *sql.DB, blobs BlobStore, jwtSecret string, checker authz.Checker) *LinksHandler {
-	return &LinksHandler{db: db, blobs: blobs, jwtSecret: []byte(jwtSecret), checker: checker}
+	return &LinksHandler{db: db, q: sqlc.New(db), blobs: blobs, jwtSecret: []byte(jwtSecret), checker: checker}
 }
 
 // entryLinkView is one outgoing link as returned by GetForEntry — the
@@ -56,7 +58,7 @@ func (h *LinksHandler) GetForEntry(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	projectID, err := projectIDForEntry(r.Context(), h.db, id)
+	projectID, err := projectIDForEntry(r.Context(), h.q, id)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "not found")
 		return
@@ -65,7 +67,7 @@ func (h *LinksHandler) GetForEntry(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	links, err := entryLinksFor(r.Context(), h.db, id)
+	links, err := entryLinksFor(r.Context(), h.q, id)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "db error")
 		return
@@ -114,7 +116,7 @@ func (h *LinksHandler) CompileProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	entryIDs, err := entryIDsForProject(r.Context(), h.db, projectID)
+	entryIDs, err := entryIDsForProject(r.Context(), h.q, projectID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "db error")
 		return
@@ -126,6 +128,7 @@ func (h *LinksHandler) CompileProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer tx.Rollback()
+	qtx := h.q.WithTx(tx)
 
 	for _, id := range entryIDs {
 		data, err := h.blobs.Get(r.Context(), bodyKey(id))
@@ -140,7 +143,7 @@ func (h *LinksHandler) CompileProject(w http.ResponseWriter, r *http.Request) {
 		}
 		// Same per-entry compile function the save-triggered path
 		// (entries.go Create/Update) calls — not reimplemented here.
-		if err := recompileLinks(r.Context(), tx, id, projectID, parsed); err != nil {
+		if err := recompileLinks(r.Context(), qtx, id, projectID, parsed); err != nil {
 			writeError(w, http.StatusInternalServerError, "db error")
 			return
 		}
@@ -151,7 +154,7 @@ func (h *LinksHandler) CompileProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	warnings, err := danglingLinksForProject(r.Context(), h.db, projectID)
+	warnings, err := danglingLinksForProject(r.Context(), h.q, projectID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "db error")
 		return
@@ -166,70 +169,43 @@ func (h *LinksHandler) CompileProject(w http.ResponseWriter, r *http.Request) {
 
 // entryLinksFor returns entryID's entry_links rows as entryLinkView, in
 // insertion (rowid) order.
-func entryLinksFor(ctx context.Context, db *sql.DB, entryID string) ([]entryLinkView, error) {
-	rows, err := db.QueryContext(ctx, `
-		SELECT target_path, COALESCE(target_entry_id, ''), label, COALESCE(card_facet, ''), resolved
-		FROM entry_links
-		WHERE entry_id = ?
-		ORDER BY rowid
-	`, entryID)
+func entryLinksFor(ctx context.Context, q *sqlc.Queries, entryID string) ([]entryLinkView, error) {
+	rows, err := q.ListEntryLinksForEntry(ctx, entryID)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-
 	links := []entryLinkView{}
-	for rows.Next() {
-		var l entryLinkView
-		if err := rows.Scan(&l.TargetPath, &l.TargetEntryID, &l.Label, &l.CardFacet, &l.Resolved); err != nil {
-			return nil, err
-		}
-		links = append(links, l)
+	for _, row := range rows {
+		links = append(links, entryLinkView{
+			TargetPath:    row.TargetPath,
+			TargetEntryID: row.TargetEntryID,
+			Label:         row.Label,
+			CardFacet:     row.CardFacet,
+			Resolved:      row.Resolved != 0,
+		})
 	}
-	return links, rows.Err()
+	return links, nil
 }
 
 // entryIDsForProject returns the ids of every entry in projectID.
-func entryIDsForProject(ctx context.Context, db *sql.DB, projectID string) ([]string, error) {
-	rows, err := db.QueryContext(ctx, `SELECT id FROM entries WHERE project_id = ?`, projectID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var ids []string
-	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
-			return nil, err
-		}
-		ids = append(ids, id)
-	}
-	return ids, rows.Err()
+func entryIDsForProject(ctx context.Context, q *sqlc.Queries, projectID string) ([]string, error) {
+	return q.ListEntryIDsForProject(ctx, projectID)
 }
 
 // danglingLinksForProject returns every unresolved outgoing link belonging
 // to an entry in projectID — the warnings a compile response surfaces.
-func danglingLinksForProject(ctx context.Context, db *sql.DB, projectID string) ([]danglingLinkWarning, error) {
-	rows, err := db.QueryContext(ctx, `
-		SELECT el.entry_id, el.target_path, el.label
-		FROM entry_links el
-		JOIN entries e ON e.id = el.entry_id
-		WHERE e.project_id = ? AND el.resolved = 0
-		ORDER BY el.entry_id, el.target_path
-	`, projectID)
+func danglingLinksForProject(ctx context.Context, q *sqlc.Queries, projectID string) ([]danglingLinkWarning, error) {
+	rows, err := q.ListDanglingLinksForProject(ctx, projectID)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-
 	warnings := []danglingLinkWarning{}
-	for rows.Next() {
-		var wLink danglingLinkWarning
-		if err := rows.Scan(&wLink.EntryID, &wLink.TargetPath, &wLink.Label); err != nil {
-			return nil, err
-		}
-		warnings = append(warnings, wLink)
+	for _, row := range rows {
+		warnings = append(warnings, danglingLinkWarning{
+			EntryID:    row.EntryID,
+			TargetPath: row.TargetPath,
+			Label:      row.Label,
+		})
 	}
-	return warnings, rows.Err()
+	return warnings, nil
 }

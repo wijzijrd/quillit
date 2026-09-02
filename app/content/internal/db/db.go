@@ -2,10 +2,15 @@ package db
 
 import (
 	"database/sql"
+	"embed"
 	"fmt"
 
+	"github.com/pressly/goose/v3"
 	_ "modernc.org/sqlite"
 )
+
+//go:embed migrations/*.sql
+var migrationsFS embed.FS
 
 // Open opens (creating if necessary) the SQLite database at path, enables
 // WAL mode and foreign key enforcement, and runs any pending migrations.
@@ -24,251 +29,44 @@ func Open(path string) (*sql.DB, error) {
 	return database, nil
 }
 
-func migrate(db *sql.DB) error {
-	var version int
-	if err := db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
-		return fmt.Errorf("read schema version: %w", err)
-	}
-	if version < 1 {
-		if err := toV1(db); err != nil {
-			return fmt.Errorf("schema v1: %w", err)
-		}
-	}
-	if version < 2 {
-		if err := toV2(db); err != nil {
-			return fmt.Errorf("schema v2: %w", err)
-		}
-	}
-	if version < 3 {
-		if err := toV3(db); err != nil {
-			return fmt.Errorf("schema v3: %w", err)
-		}
-	}
-	if version < 4 {
-		if err := toV4(db); err != nil {
-			return fmt.Errorf("schema v4: %w", err)
-		}
-	}
-	if version < 5 {
-		if err := toV5(db); err != nil {
-			return fmt.Errorf("schema v5: %w", err)
-		}
-	}
-	return nil
-}
-
-// toV1 establishes a placeholder schema — just enough to prove the
-// migration machinery works end-to-end. The real entries/entry_links/
-// facets/project_facets tables move in via #37-#40.
-func toV1(db *sql.DB) error {
-	tx, err := db.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-
-	if _, err := tx.Exec(`
-		CREATE TABLE IF NOT EXISTS schema_meta (
-			id         INTEGER PRIMARY KEY CHECK (id = 1),
-			created_at INTEGER NOT NULL
-		)
-	`); err != nil {
-		return err
-	}
-	if _, err := tx.Exec(`INSERT OR IGNORE INTO schema_meta (id, created_at) VALUES (1, strftime('%s','now'))`); err != nil {
-		return err
-	}
-	if _, err := tx.Exec(`PRAGMA user_version = 1`); err != nil {
-		return err
-	}
-	return tx.Commit()
-}
-
-// toV2 adds the entry-domain tables this service owns per
-// docs/web-refactor-spec.md §4/§7.2 (#37): entries, entry_links, and the
-// facet vocabulary (facets + project_facets) entry writes validate
-// against. Body is deliberately not a column here — it lives in MinIO at
-// entries/{id}/body.md, with title/tags on this table as denormalized
-// copies of the body's frontmatter, kept in sync on every write.
-func toV2(db *sql.DB) error {
-	tx, err := db.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-
-	if _, err := tx.Exec(`
-		CREATE TABLE IF NOT EXISTS entries (
-			id             TEXT PRIMARY KEY,
-			project_id     TEXT NOT NULL,
-			slug           TEXT NOT NULL
-				CHECK (slug <> '' AND slug NOT GLOB '*[^a-z0-9-]*'),
-			directory_path TEXT NOT NULL DEFAULT '',
-			title          TEXT NOT NULL DEFAULT '',
-			tags           TEXT NOT NULL DEFAULT '[]',
-			owner_user_id  TEXT,
-			created_at     INTEGER NOT NULL,
-			updated_at     INTEGER NOT NULL,
-			UNIQUE(project_id, directory_path, slug)
-		)
-	`); err != nil {
-		return fmt.Errorf("create entries: %w", err)
-	}
-	if _, err := tx.Exec(`CREATE INDEX IF NOT EXISTS idx_entries_project ON entries(project_id)`); err != nil {
-		return fmt.Errorf("create entries project index: %w", err)
-	}
-
-	if _, err := tx.Exec(`
-		CREATE TABLE IF NOT EXISTS entry_links (
-			entry_id        TEXT    NOT NULL REFERENCES entries(id) ON DELETE CASCADE,
-			target_path     TEXT    NOT NULL,
-			target_entry_id TEXT,
-			label           TEXT    NOT NULL DEFAULT '',
-			card_facet      TEXT,
-			resolved        INTEGER NOT NULL DEFAULT 0
-		)
-	`); err != nil {
-		return fmt.Errorf("create entry_links: %w", err)
-	}
-	if _, err := tx.Exec(`CREATE INDEX IF NOT EXISTS idx_entry_links_entry ON entry_links(entry_id)`); err != nil {
-		return fmt.Errorf("create entry_links entry index: %w", err)
-	}
-
-	if _, err := tx.Exec(`
-		CREATE TABLE IF NOT EXISTS facets (
-			name TEXT PRIMARY KEY
-				CHECK (name <> '' AND name NOT GLOB '*[^a-z0-9-]*')
-		)
-	`); err != nil {
-		return fmt.Errorf("create facets: %w", err)
-	}
-
-	if _, err := tx.Exec(`
-		CREATE TABLE IF NOT EXISTS project_facets (
-			project_id TEXT NOT NULL,
-			name       TEXT NOT NULL
-				CHECK (name <> '' AND name NOT GLOB '*[^a-z0-9-]*'),
-			UNIQUE(project_id, name)
-		)
-	`); err != nil {
-		return fmt.Errorf("create project_facets: %w", err)
-	}
-
-	if err := seedFacets(tx); err != nil {
-		return fmt.Errorf("seed facets: %w", err)
-	}
-
-	if _, err := tx.Exec(`PRAGMA user_version = 2`); err != nil {
-		return err
-	}
-	return tx.Commit()
-}
-
-// toV3 adds entries_fts, the FTS5 search index behind #43's search/wikilink-
-// autocomplete endpoint (docs/web-refactor-spec.md §7.2: "A search index
-// (FTS5 over title/tags/body) is added in content's DB alongside").
+// migrate applies pending goose migrations from the embedded migrations
+// directory (see internal/db/migrations/00001_baseline.sql).
 //
-// entry_id is UNINDEXED (a lookup key, not searchable text) and deliberately
-// the only per-row identifier stored here — project_id, slug, and
-// directory_path live only on entries and are joined in at query time
-// (internal/handler/search.go), so a rename that doesn't touch the body
-// never leaves this index holding a stale path. title/tags/body, by
-// contrast, only ever change in step with a body write, so refreshing this
-// row exactly when entry_links is recompiled (handler.refreshSearchIndex,
-// called alongside recompileLinks) keeps them consistent by construction —
-// no triggers: this codebase's existing convention for keeping derived data
-// in sync on write is an explicit call in the same transaction as the write
-// (see recompileLinks in internal/handler/links.go); grep confirms neither
-// content nor svc use SQL triggers anywhere, so search follows suit rather
-// than introducing a new pattern for one feature.
-func toV3(db *sql.DB) error {
-	tx, err := db.Begin()
-	if err != nil {
-		return err
+// Before running goose, it guards against the old hand-rolled
+// PRAGMA-user_version migration chain (toV1..toV5, deleted — see git
+// history) ever running partway. The baseline migration is written entirely
+// as idempotent CREATE ... IF NOT EXISTS / INSERT OR IGNORE statements,
+// which only produces a correct schema against (a) an empty database
+// (user_version 0 — goose tracks its own progress via a goose_db_version
+// table and never touches user_version) or (b) a database already at the
+// old system's v5 end state. A database caught mid-chain (user_version
+// 1-4) would silently end up with a stale schema instead — e.g.
+// entries.orphaned_at/body_hash (added by toV4/toV5 via ALTER TABLE, not
+// CREATE) would never get added, because CREATE TABLE IF NOT EXISTS entries
+// no-ops against the table's older shape.
+//
+// Unlike auth's equivalent guard (defensive-only there, since auth's later
+// migration only creates a new table), this guard IS load-bearing for
+// content: the orphaned_at/body_hash gap above is a real schema-corruption
+// mode a user_version 1-4 database would silently hit, not a hypothetical
+// one. Do not remove this guard on the assumption it's merely defensive.
+func migrate(database *sql.DB) error {
+	var userVersion int
+	if err := database.QueryRow(`PRAGMA user_version`).Scan(&userVersion); err != nil {
+		return fmt.Errorf("read user_version: %w", err)
 	}
-	defer tx.Rollback()
-
-	if _, err := tx.Exec(`
-		CREATE VIRTUAL TABLE IF NOT EXISTS entries_fts USING fts5(
-			entry_id UNINDEXED,
-			title,
-			tags,
-			body,
-			tokenize = 'unicode61'
-		)
-	`); err != nil {
-		return fmt.Errorf("create entries_fts: %w", err)
+	if userVersion > 0 && userVersion < 5 {
+		return fmt.Errorf("database is at legacy schema v%d; the goose baseline only "+
+			"applies to an empty database or one already at the old system's v5 end state",
+			userVersion)
 	}
 
-	if _, err := tx.Exec(`PRAGMA user_version = 3`); err != nil {
-		return err
+	goose.SetBaseFS(migrationsFS)
+	if err := goose.SetDialect("sqlite3"); err != nil {
+		return fmt.Errorf("set dialect: %w", err)
 	}
-	return tx.Commit()
-}
-
-// toV4 adds entries.orphaned_at, the column behind #44's "orphan-and-report"
-// policy for cross-domain project deletion: when svc deletes a project, it
-// notifies content (POST /content/internal/projects/{id}/deleted), and
-// content stamps orphaned_at on that project's entries rather than hard-
-// deleting them. content has no FK to svc's projects table (project_id is
-// just an opaque string here — svc owns that domain), so a mistaken project
-// deletion can't cascade into content the way, say, svc's own
-// project_members does (ON DELETE CASCADE) — the entry rows, MinIO bodies,
-// and images all survive, flagged instead of destroyed, so the damage is
-// reversible. NULL means "not orphaned" (the common case), matching this
-// codebase's existing convention for optional entry state (owner_user_id).
-func toV4(db *sql.DB) error {
-	tx, err := db.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-
-	if _, err := tx.Exec(`ALTER TABLE entries ADD COLUMN orphaned_at INTEGER`); err != nil {
-		return fmt.Errorf("add entries.orphaned_at: %w", err)
-	}
-
-	if _, err := tx.Exec(`PRAGMA user_version = 4`); err != nil {
-		return err
-	}
-	return tx.Commit()
-}
-
-// toV5 adds entries.body_hash — the SHA-256 (hex) of the entry's raw
-// stored body, set at every body-write site (Create, Update, import
-// apply — see internal/handler/entries.go's bodyHash helper). Powers
-// #126's delta-push follow-up: the CLI compares this against a local
-// hash to decide what's actually changed before packing/uploading.
-// NULL for pre-migration rows until their next write — same convention
-// as orphaned_at (toV4): a NULL/unknown hash is always treated as
-// "changed" by the comparison, so this is a safe default, not a
-// correctness gap.
-func toV5(db *sql.DB) error {
-	tx, err := db.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-
-	if _, err := tx.Exec(`ALTER TABLE entries ADD COLUMN body_hash TEXT`); err != nil {
-		return fmt.Errorf("add entries.body_hash: %w", err)
-	}
-
-	if _, err := tx.Exec(`PRAGMA user_version = 5`); err != nil {
-		return err
-	}
-	return tx.Commit()
-}
-
-// seedFacets populates the global facet vocabulary with the CLI defaults
-// (docs/cli-spec.md), matching svc's pre-migration seed (svc/internal/db/db.go
-// seedFacets) minus the quick_view_templates backfill — content starts fresh,
-// with no legacy quick-view data to carry forward.
-func seedFacets(tx *sql.Tx) error {
-	for _, name := range []string{"motivation", "description", "history"} {
-		if _, err := tx.Exec(`INSERT OR IGNORE INTO facets (name) VALUES (?)`, name); err != nil {
-			return err
-		}
+	if err := goose.Up(database, "migrations"); err != nil {
+		return fmt.Errorf("goose up: %w", err)
 	}
 	return nil
 }

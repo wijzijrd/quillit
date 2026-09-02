@@ -3,7 +3,6 @@ package handler
 import (
 	"context"
 	"crypto/rand"
-	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"net/http"
@@ -13,6 +12,7 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 
 	"github.com/quillit/content-svc/internal/authz"
+	"github.com/quillit/content-svc/internal/db/sqlc"
 )
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
@@ -138,8 +138,6 @@ func requireProjectMember(w http.ResponseWriter, r *http.Request, jwtSecret []by
 // entry-scoped endpoint (Get/Update/Delete/UploadImage/Render/GetForEntry)
 // needs before it can ask requireProjectMember the right question. Returns
 // sql.ErrNoRows when the entry doesn't exist, for callers to map to 404.
-func projectIDForEntry(ctx context.Context, db *sql.DB, entryID string) (string, error) {
-	var projectID string
-	err := db.QueryRowContext(ctx, `SELECT project_id FROM entries WHERE id = ?`, entryID).Scan(&projectID)
-	return projectID, err
+func projectIDForEntry(ctx context.Context, q *sqlc.Queries, entryID string) (string, error) {
+	return q.GetProjectIDForEntry(ctx, entryID)
 }
