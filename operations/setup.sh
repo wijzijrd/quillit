@@ -143,6 +143,7 @@ fi
 
 # Auto-generate secrets
 JWT_SECRET=$(openssl rand -hex 32)
+INTERNAL_RPC_SECRET=$(openssl rand -hex 32)
 MINIO_PASSWORD=$(openssl rand -hex 20)
 
 # ── 5. Write .env ─────────────────────────────────────────────────────────────
@@ -156,6 +157,7 @@ fi
 
 cat > "$ENV_FILE" <<EOF
 JWT_SECRET=${JWT_SECRET}
+INTERNAL_RPC_SECRET=${INTERNAL_RPC_SECRET}
 SEED_ADMIN_EMAIL=${ADMIN_EMAIL}
 SEED_ADMIN_PASSWORD=${ADMIN_PASSWORD}
 MINIO_USER=quillit
