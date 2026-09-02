@@ -80,7 +80,11 @@ func (a *Auth) ForgotPassword(w http.ResponseWriter, r *http.Request) {
 	}
 
 	link := fmt.Sprintf("%s/reset-password?token=%s", a.appBaseURL, tokenHex)
-	if err := a.sendResetEmail(r.Context(), body.Email, link); err != nil {
+	// Use WithoutCancel so a disconnected browser can't cancel an in-flight
+	// reset email — the request's own 5s client-side timeout (see
+	// messagingclient.NewClient's http.Client) still bounds how long this
+	// can run.
+	if err := a.sendResetEmail(context.WithoutCancel(r.Context()), body.Email, link); err != nil {
 		log.Printf("forgot-password: send error: %v", err)
 	}
 	ok()
