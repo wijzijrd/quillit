@@ -85,14 +85,13 @@ func isKebabName(name string) bool {
 }
 
 type FacetsHandler struct {
-	db        *sql.DB
 	q         *sqlc.Queries
 	jwtSecret []byte
 	checker   authz.Checker
 }
 
 func NewFacets(db *sql.DB, jwtSecret string, checker authz.Checker) *FacetsHandler {
-	return &FacetsHandler{db: db, q: sqlc.New(db), jwtSecret: []byte(jwtSecret), checker: checker}
+	return &FacetsHandler{q: sqlc.New(db), jwtSecret: []byte(jwtSecret), checker: checker}
 }
 
 type facetRequest struct {

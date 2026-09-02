@@ -1,9 +1,8 @@
 # Codegen config for `make proto` / `buf generate`.
 #
 # Neither protoc-gen-go nor protoc-gen-connect-go is installed on PATH (or
-# expected to be — see the "Tooling" note in gen/README.md and Task 8's
-# report). Rather than requiring a `go install` step to seed $GOPATH/bin
-# onto PATH before this works, each `local:` plugin is invoked as
+# expected to be). Rather than requiring a `go install` step to seed
+# $GOPATH/bin onto PATH before this works, each `local:` plugin is invoked as
 # `go run <module>/<cmd>@<pinned version>`: Go treats a versioned `go run`
 # target as a standalone tool invocation (module-and-workspace-independent,
 # like `go install pkg@version`), downloads/builds it into the module

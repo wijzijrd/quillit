@@ -1,0 +1,10 @@
+# Repo-root .dockerignore — trims the build context for the four Go
+# services (auth, svc, content, messaging), which all build from the repo
+# root via infra/docker-compose.yml's `context: ..`. Keeps large/irrelevant
+# or sensitive local files from being sent to the Docker daemon on every
+# build. app/ui has its own .dockerignore for its own build context.
+.git
+app/ui/node_modules
+**/*.db
+.env
+.env.*
